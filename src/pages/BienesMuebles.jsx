@@ -7,6 +7,7 @@ import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from "../supabase";
+import { siguienteClave, tipoDeModo, tipoDeCategoria } from '../claves'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function estadoInfo(obs, dark) {
@@ -778,7 +779,7 @@ export function ModalBaja({ bien, onClose, dark, t, titulo = 'Dar de Baja', onCo
 }
 
 // ── ModalTraspaso ─────────────────────────────────────────────────────────────
-function ModalTraspaso({ bien, onClose, dark, t, allAreas }) {
+function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
   const { close, anim } = useClosing(onClose, 250,
     'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
     'fadeDown 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
@@ -788,6 +789,47 @@ function ModalTraspaso({ bien, onClose, dark, t, allAreas }) {
   const [puesto, setPuesto] = useState('')
   const [motivo, setMotivo] = useState('')
   const [fecha, setFecha]   = useState('')
+  const [nuevaClave, setNuevaClave] = useState('')
+  const [guardando, setGuardando]   = useState(false)
+  const [err, setErr]               = useState(null)
+
+  // El bien conserva su año y su tipo; solo cambian el prefijo y la clave de la
+  // dependencia destino, con un consecutivo nuevo dentro de esa dependencia.
+  const anioBien = useMemo(() => {
+    const m = String(bien.claveinventario || '').match(/^[A-ZÑ]+(\d{2})-/i)
+    return m ? 2000 + Number(m[1]) : new Date().getFullYear()
+  }, [bien.claveinventario])
+  const tipoBien = useMemo(() => {
+    const m = String(bien.claveinventario || '').match(/^[A-ZÑ]+\d{2}-[A-Z0-9]+-(\d+)-/i)
+    return m ? m[1] : tipoDeCategoria(bien.categoriainventario)
+  }, [bien.claveinventario, bien.categoriainventario])
+
+  useEffect(() => {
+    if (!dep) { setNuevaClave(''); return }
+    let vivo = true
+    setNuevaClave('Generando…')
+    siguienteClave({ idarea: dep, tipo: tipoBien, anio: anioBien })
+      .then(r => { if (vivo) setNuevaClave(r ? r.clave : '') })
+      .catch(() => { if (vivo) setNuevaClave('') })
+    return () => { vivo = false }
+  }, [dep, tipoBien, anioBien])
+
+  async function confirmar() {
+    if (!dep) { setErr('Selecciona la dependencia destino'); return }
+    setGuardando(true); setErr(null)
+    try {
+      // Recalcula la clave por si otro usuario tomó el consecutivo mientras tanto
+      const gen = await siguienteClave({ idarea: dep, tipo: tipoBien, anio: anioBien })
+      // Al cambiar idarea, el bien deja de aparecer en el área de origen y pasa
+      // al destino con su nueva clave de inventario.
+      const parche = { idarea: Number(dep) }
+      if (gen) parche.claveinventario = gen.clave
+      const { error } = await supabase.from('bienes').update(parche).eq('idbien', bien.idbien)
+      if (error) throw error
+      onDone && onDone()
+      close()
+    } catch (e) { setErr(e.message); setGuardando(false) }
+  }
 
   return (
     <>
@@ -821,6 +863,16 @@ function ModalTraspaso({ bien, onClose, dark, t, allAreas }) {
                 ))}
               </select>
             </MField>
+            {dep && (
+              <div style={{ padding: '10px 14px', borderRadius: '10px', background: dark ? 'rgba(255,213,128,0.10)' : 'rgba(183,121,10,0.06)', border: dark ? '1px solid rgba(255,213,128,0.25)' : '1px solid rgba(183,121,10,0.2)' }}>
+                <p style={{ fontSize: '11px', fontWeight: 600, color: dark ? 'rgba(255,213,128,0.8)' : '#b45309', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Nueva clave de inventario</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'monospace', fontSize: '13px' }}>
+                  <span style={{ color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', textDecoration: 'line-through' }}>{bien.claveinventario || '—'}</span>
+                  <i className="ti ti-arrow-right" style={{ fontSize: '14px', color: dark ? '#ffd580' : '#b45309' }} />
+                  <span style={{ fontWeight: 700, color: dark ? '#ffd580' : '#b45309' }}>{nuevaClave || 'sin clave para esa área'}</span>
+                </div>
+              </div>
+            )}
             <MField label="Nuevo resguardatario" dark={dark}>
               <input type="text" placeholder="Nombre completo" value={resg} onChange={e => setResg(e.target.value)} style={iStyle(dark)} />
             </MField>
@@ -841,11 +893,16 @@ function ModalTraspaso({ bien, onClose, dark, t, allAreas }) {
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
             </MField>
           </div>
-          <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
-            <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
-            <button style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.35)' : '1px solid rgba(183,121,10,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#ffd580' : '#b45309', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-              <i className="ti ti-arrows-exchange" style={{ fontSize: '15px' }} />Confirmar Traspaso
-            </button>
+          <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+            {err && <p style={{ fontSize: '12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom: '10px' }}><i className="ti ti-alert-circle" style={{ marginRight: '5px' }} />{err}</p>}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={confirmar} disabled={guardando || !dep} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.35)' : '1px solid rgba(183,121,10,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#ffd580' : '#b45309', fontFamily: 'inherit', cursor: guardando || !dep ? 'not-allowed' : 'pointer', opacity: !dep ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                {guardando
+                  ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Traspasando…</>
+                  : <><i className="ti ti-arrows-exchange" style={{ fontSize: '15px' }} />Confirmar Traspaso</>}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2294,6 +2351,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [idarea, setIdarea]   = useState('')
   const [modoSel, setModoSel] = useState(modo)
   const [obs, setObs]         = useState('')
+  const [anioClave, setAnioClave] = useState(new Date().getFullYear())
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -2310,6 +2368,17 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
     return [...m.entries()]
   }, [allAreas])
 
+  // Genera la clave en cuanto hay área + categoría: {PREFIJO}{AA}-{CLAVE}-{TIPO}-{CONSEC}
+  useEffect(() => {
+    if (!idarea) { setClave(''); return }
+    let vivo = true
+    setClave('Generando…')
+    siguienteClave({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave })
+      .then(r => { if (vivo) setClave(r ? r.clave : '') })
+      .catch(() => { if (vivo) setClave('') })
+    return () => { vivo = false }
+  }, [idarea, modoSel, anioClave])
+
   async function guardar() {
     if (!nombre.trim()) { setErr('El nombre del bien es obligatorio'); return }
     if (!idarea)        { setErr('Selecciona el área a la que pertenece'); return }
@@ -2319,9 +2388,11 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
       const { data: maxRow, error: e1 } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
       if (e1) throw e1
       const idbien = ((maxRow && maxRow[0]?.idbien) || 0) + 1
+      // Recalcula la clave justo antes de insertar, por si otro usuario tomó el consecutivo
+      const gen = await siguienteClave({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave })
       const { error: e2 } = await supabase.from('bienes').insert({
         idbien,
-        claveinventario: clave.trim() || null,
+        claveinventario: gen ? gen.clave : (clave.trim() || null),
         nombrebien: nombre.trim().toUpperCase(),
         tipo: tipo.trim() || null,
         marca: marca.trim() || null,
@@ -2362,20 +2433,6 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
 
         {/* Cuerpo */}
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Clave de inventario')}<input value={clave} onChange={e => setClave(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Categoría')}
-              <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
-                {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} style={iStyle(dark)} /></div>
-          </div>
           <div>{lbl('Área / Dependencia *')}
             <select value={idarea} onChange={e => setIdarea(e.target.value)} style={iStyle(dark)}>
               <option value="">Selecciona un área…</option>
@@ -2385,6 +2442,31 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
                 </optgroup>
               ))}
             </select>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+            <div>{lbl('Categoría')}
+              <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
+                {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>{lbl('Año de la factura')}
+              <input type="number" value={anioClave} onChange={e => setAnioClave(e.target.value)} min="2000" max="2100" style={iStyle(dark)} />
+            </div>
+          </div>
+          {/* Clave generada automáticamente a partir del área, categoría y año */}
+          <div>{lbl('Clave de inventario (automática)')}
+            <div style={{ ...iStyle(dark), display:'flex', alignItems:'center', gap:'8px', background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}>
+              <i className="ti ti-hash" style={{ fontSize:'15px', color: t.text4, flexShrink:0 }} />
+              <span style={{ flex:1, fontFamily:'monospace', fontSize:'14px', letterSpacing:'0.02em', color: clave ? t.text1 : t.text4 }}>
+                {clave || (idarea ? 'Sin clave asignada para esta área' : 'Selecciona un área…')}
+              </span>
+            </div>
+          </div>
+          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
+            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} style={iStyle(dark)} /></div>
           </div>
           <div>{lbl('Observaciones')}<textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} /></div>
         </div>
@@ -2769,7 +2851,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       {panelBien      && <PanelConsulta  bien={panelBien}      onClose={() => setPanelBien(null)}      t={t} dark={dark} />}
       {modalEditar    && <ModalEditar    bien={modalEditar}    onClose={() => setModalEditar(null)}    t={t} dark={dark} onSaved={() => cargar(pagina)} />}
       {modalResguardo && <ModalResguardo bien={modalResguardo} onClose={() => setModalResguardo(null)} t={t} dark={dark} />}
-      {modalTrasp     && <ModalTraspaso  bien={modalTrasp}     onClose={() => setModalTrasp(null)}     dark={dark} t={t} allAreas={allAreas} />}
+      {modalTrasp     && <ModalTraspaso  bien={modalTrasp}     onClose={() => setModalTrasp(null)}     onDone={() => cargar(pagina)} dark={dark} t={t} allAreas={allAreas} />}
       {modalReporte   && <ModalReporteMuebles
         onClose={() => setModalReporte(false)}
         dark={dark} t={t}
