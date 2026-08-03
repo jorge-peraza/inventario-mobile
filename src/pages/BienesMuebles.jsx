@@ -30,6 +30,35 @@ function estadoInfo(obs, dark) {
 }
 function fmt(n) { return n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$ —' }
 
+// Estados de verificación. El texto es el que leen los filtros y estadoInfo(),
+// por eso se elige de una lista en vez de escribirse a mano.
+const ESTADOS_OBS = ['VERIFICADO', 'NO VERIFICADO', 'DETERIORADO']
+
+// Separa unas observaciones en { estado, resto }. El estado se reconoce en
+// cualquier parte del texto (en los registros históricos suele venir a la mitad)
+// usando el mismo criterio que estadoInfo() y que los filtros.
+function partirObs(obs) {
+  const txt = (obs || '').trim()
+  const estado = /deteriorado|quebrado/i.test(txt) ? 'DETERIORADO'
+    : /no\s+verificado/i.test(txt) ? 'NO VERIFICADO'
+    : /verificado/i.test(txt) ? 'VERIFICADO'
+    : ''
+  // Se quitan las palabras de estado del resto para que no contradigan al combo
+  const resto = txt
+    .replace(/no\s+verificado/ig, ' ')
+    .replace(/deteriorado|quebrado|verificado/ig, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s.,;:·|-]+|[\s.,;:·|-]+$/g, '')
+    .trim()
+  return { estado, resto }
+}
+// Une estado + notas en el texto final que se guarda en observaciones
+function unirObs(estado, resto) {
+  const r = (resto || '').trim()
+  if (!estado) return r || null
+  return (r ? `${estado}. ${r}` : estado)
+}
+
 function iStyle(dark) {
   return {
     padding: '9px 12px', borderRadius: '9px', outline: 'none',
@@ -345,11 +374,23 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
               />
             </div>
           ))}
+          {/* Estado en lista (alimenta los filtros) + notas libres */}
           <div style={{ padding: '11px 0' }}>
-            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Observaciones</p>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Estado del bien</p>
+            <select
+              value={partirObs(form.observaciones).estado}
+              onChange={e => set('observaciones', unirObs(e.target.value, partirObs(form.observaciones).resto) || '')}
+              style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }}
+            >
+              <option value="">— Sin especificar —</option>
+              {ESTADOS_OBS.map(e => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+          <div style={{ padding: '11px 0' }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Observaciones adicionales</p>
             <textarea
-              value={form.observaciones}
-              onChange={e => set('observaciones', e.target.value)}
+              value={partirObs(form.observaciones).resto}
+              onChange={e => set('observaciones', unirObs(partirObs(form.observaciones).estado, e.target.value) || '')}
               rows={3}
               style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, padding: 0 }}
             />
@@ -2351,6 +2392,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [idarea, setIdarea]   = useState('')
   const [modoSel, setModoSel] = useState(modo)
   const [obs, setObs]         = useState('')
+  const [estadoObs, setEstadoObs] = useState('VERIFICADO')
   const [anioClave, setAnioClave] = useState(new Date().getFullYear())
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
@@ -2397,7 +2439,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
         tipo: tipo.trim() || null,
         marca: marca.trim() || null,
         serie: serie.trim() || null,
-        observaciones: obs.trim() || null,
+        observaciones: unirObs(estadoObs, obs),
         idarea: Number(idarea),
         categoriainventario: (CATS_BY_MODO[modoSel] || CATS_BY_MODO.mobiliario)[0],
         estadobien: 'ACTIVO',
@@ -2468,7 +2510,16 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
             <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} style={iStyle(dark)} /></div>
           </div>
-          <div>{lbl('Observaciones')}<textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} /></div>
+          {/* El estado se elige de la lista para que coincida con los filtros */}
+          <div>{lbl('Estado del bien')}
+            <select value={estadoObs} onChange={e => setEstadoObs(e.target.value)} style={iStyle(dark)}>
+              {ESTADOS_OBS.map(e => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+          <div>{lbl('Observaciones adicionales')}
+            <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} />
+            <p style={{ fontSize:'11px', color: t.text4, marginTop:'5px' }}>Se guardará como: <span style={{ fontFamily:'monospace' }}>{unirObs(estadoObs, obs) || '—'}</span></p>
+          </div>
         </div>
 
         {/* Footer */}
