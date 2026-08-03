@@ -4,8 +4,8 @@ import { supabase } from './supabase'
 // (Authentication → Users). Las contraseñas NO viven en el código: las valida
 // Supabase. El rol y el perfil se leen del user_metadata de cada cuenta.
 const CUENTAS = {
-  'nogales.monica': 'jorgeperaza2828+monica@gmail.com',
-  'nogales.eliseo': 'jorgeperaza2828+eliseo@gmail.com',
+  'nogales.monica': 'jorgeperaza2828+muebles@gmail.com',
+  'nogales.eliseo': 'jorgeperaza2828+inmuebles@gmail.com',
 }
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
