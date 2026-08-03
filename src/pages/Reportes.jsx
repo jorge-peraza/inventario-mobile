@@ -414,13 +414,21 @@ export default function Reportes({ user, onNavigate }) {
   const [conteoPeriodo, setConteoPeriodo] = useState({ mensual: null, trimestral: null, anual: null })
   const [reportes, setReportes] = useState(() => getReportes())
 
-  // Carga los reportes guardados en la cuenta del usuario (Supabase)
+  // Sincroniza los reportes con la cuenta del usuario (Supabase):
+  //  - si la cuenta ya tiene reportes → son la fuente de verdad
+  //  - si la cuenta no tiene pero este dispositivo sí (guardados antes de la
+  //    sincronización) → se migran automáticamente a la cuenta
   useEffect(() => {
     let vivo = true
     metadataUsuario().then(m => {
-      if (vivo && Array.isArray(m.reportes_personalizados)) {
-        setReportes(m.reportes_personalizados)
-        try { localStorage.setItem(LS_RP, JSON.stringify(m.reportes_personalizados)) } catch { /* noop */ }
+      if (!vivo) return
+      const cuenta = Array.isArray(m.reportes_personalizados) ? m.reportes_personalizados : null
+      if (cuenta) {
+        setReportes(cuenta)
+        try { localStorage.setItem(LS_RP, JSON.stringify(cuenta)) } catch { /* noop */ }
+      } else {
+        const locales = getReportes()
+        if (locales.length > 0) guardarPreferencia('reportes_personalizados', locales)
       }
     })
     return () => { vivo = false }
