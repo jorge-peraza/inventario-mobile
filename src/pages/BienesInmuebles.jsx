@@ -1214,7 +1214,7 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
         {/* Cuerpo */}
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:'10px' }}>
-            <div>{lbl('Clave')}<input value={clave} onChange={e => setClave(e.target.value)} placeholder="Ej. 01-E" style={iStyle(dark)} /></div>
+            <div>{lbl('Clave')}<input value={clave} onChange={e => setClave(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Categoría *')}
               <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={iStyle(dark)}>
                 <option value="">Selecciona una categoría…</option>
@@ -1222,17 +1222,17 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
               </select>
             </div>
           </div>
-          <div>{lbl('Nombre del inmueble *')}<input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej. OFICINAS DE SERVICIOS PUBLICOS" style={iStyle(dark)} /></div>
-          <div>{lbl('Ubicación')}<input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Calle, colonia…" style={iStyle(dark)} /></div>
+          <div>{lbl('Nombre del inmueble *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
+          <div>{lbl('Ubicación')}<input value={ubicacion} onChange={e => setUbicacion(e.target.value)} style={iStyle(dark)} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Clave catastral')}<input value={catastral} onChange={e => setCatastral(e.target.value)} placeholder="Ej. 530004303001" style={iStyle(dark)} /></div>
-            <div>{lbl('Superficie (m²)')}<input type="number" value={superficie} onChange={e => setSuperficie(e.target.value)} placeholder="Ej. 2000.25" style={iStyle(dark)} /></div>
-            <div>{lbl('Valor catastral ($)')}<input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="Ej. 6306089.30" style={iStyle(dark)} /></div>
+            <div>{lbl('Clave catastral')}<input value={catastral} onChange={e => setCatastral(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Superficie (m²)')}<input type="number" value={superficie} onChange={e => setSuperficie(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Valor catastral ($)')}<input type="number" value={valor} onChange={e => setValor(e.target.value)} style={iStyle(dark)} /></div>
           </div>
-          <div>{lbl('Documento de propiedad')}<input value={documento} onChange={e => setDocumento(e.target.value)} placeholder="Ej. ESCRITURA PUBLICA NO. 2,935…" style={iStyle(dark)} /></div>
+          <div>{lbl('Documento de propiedad')}<input value={documento} onChange={e => setDocumento(e.target.value)} style={iStyle(dark)} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Expediente')}<input value={expediente} onChange={e => setExpediente(e.target.value)} placeholder="Opcional" style={iStyle(dark)} /></div>
-            <div>{lbl('Adquisición')}<input value={adquisicion} onChange={e => setAdquisicion(e.target.value)} placeholder="Ej. COMPRA VENTA / DONACION" style={iStyle(dark)} /></div>
+            <div>{lbl('Expediente')}<input value={expediente} onChange={e => setExpediente(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Adquisición')}<input value={adquisicion} onChange={e => setAdquisicion(e.target.value)} style={iStyle(dark)} /></div>
           </div>
         </div>
 

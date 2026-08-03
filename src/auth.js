@@ -1,9 +1,12 @@
 import { supabase } from './supabase'
 
-// Los usuarios viven en la tabla `usuarios` de Supabase (correo = nombre de usuario).
-// El login llama a la función RPC `iniciar_sesion` (security definer): valida las
-// credenciales dentro de la base y devuelve solo el perfil — las contraseñas nunca
-// se exponen ni viven en este código.
+// Cuentas del sistema: nombre de usuario → cuenta registrada en Supabase Auth
+// (Authentication → Users). Las contraseñas NO viven en el código: las valida
+// Supabase. El rol y el perfil se leen del user_metadata de cada cuenta.
+const CUENTAS = {
+  'nogales.monica': 'jorgeperaza2828+monica@gmail.com',
+  'nogales.eliseo': 'jorgeperaza2828+eliseo@gmail.com',
+}
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
@@ -16,17 +19,24 @@ export function paginaInicio(rol) {
 }
 
 export async function iniciarSesion(usuario, password) {
-  const { data, error } = await supabase.rpc('iniciar_sesion', {
-    p_usuario: (usuario || '').trim(),
-    p_contrasena: password || '',
-  })
-  if (error) throw new Error('No se pudo validar el usuario. Intenta de nuevo.')
-  if (!data) throw new Error('Usuario o contraseña incorrectos')
+  const key = (usuario || '').trim().toLowerCase()
+  // Acepta el nombre de usuario del sistema o directamente un correo de Supabase
+  const email = CUENTAS[key] || (key.includes('@') ? key : null)
+  if (!email) throw new Error('Usuario o contraseña incorrectos')
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) {
+    if (/not confirmed/i.test(error.message)) throw new Error('La cuenta aún no está habilitada en Supabase')
+    throw new Error('Usuario o contraseña incorrectos')
+  }
+
+  const meta = data.user?.user_metadata || {}
+  const nombre = meta.usuario || (usuario || '').trim()
   return {
-    nombre: data.nombre || (usuario || '').trim(),
-    rol: data.rol || 'admin',
-    dependencia: data.dependencia || 'Tesorería',
-    iniciales: data.iniciales || 'US',
+    nombre,
+    rol: meta.rol || 'admin',
+    dependencia: meta.dependencia || 'Tesorería',
+    iniciales: meta.iniciales || nombre.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'US',
   }
 }
 

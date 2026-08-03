@@ -2083,7 +2083,7 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
         <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Título del reporte</p>
-            <input value={titulo} onChange={e => setTitulo(e.target.value)} style={iStyle(dark)} placeholder="Ej. ADQUISICIONES 2025" />
+            <input value={titulo} onChange={e => setTitulo(e.target.value)} style={iStyle(dark)} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
             <div>
@@ -2363,18 +2363,18 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
         {/* Cuerpo */}
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Clave de inventario')}<input value={clave} onChange={e => setClave(e.target.value)} placeholder="Ej. JC13-H6-2-007" style={iStyle(dark)} /></div>
+            <div>{lbl('Clave de inventario')}<input value={clave} onChange={e => setClave(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Categoría')}
               <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
                 {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </div>
           </div>
-          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej. IMPRESORA MULTIFUNCIONAL" style={iStyle(dark)} /></div>
+          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} placeholder="Ej. HP" style={iStyle(dark)} /></div>
-            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Ej. DESKJET 3512" style={iStyle(dark)} /></div>
-            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} placeholder="Ej. CN2CSIPHXS" style={iStyle(dark)} /></div>
+            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} style={iStyle(dark)} /></div>
           </div>
           <div>{lbl('Área / Dependencia *')}
             <select value={idarea} onChange={e => setIdarea(e.target.value)} style={iStyle(dark)}>
@@ -2386,7 +2386,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
               ))}
             </select>
           </div>
-          <div>{lbl('Observaciones')}<textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} placeholder="Opcional" style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} /></div>
+          <div>{lbl('Observaciones')}<textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} /></div>
         </div>
 
         {/* Footer */}
