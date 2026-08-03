@@ -18,6 +18,17 @@ export function paginaInicio(rol) {
   return rol === 'admin_inmuebles' ? 'dashboard-inmuebles' : 'dashboard'
 }
 
+function perfilDesdeUser(u, fallbackNombre = '') {
+  const meta = u?.user_metadata || {}
+  const nombre = meta.usuario || fallbackNombre || u?.email || 'Usuario'
+  return {
+    nombre,
+    rol: meta.rol || 'admin',
+    dependencia: meta.dependencia || 'Tesorería',
+    iniciales: meta.iniciales || nombre.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'US',
+  }
+}
+
 export async function iniciarSesion(usuario, password) {
   const key = (usuario || '').trim().toLowerCase()
   // Acepta el nombre de usuario del sistema o directamente un correo de Supabase
@@ -29,15 +40,16 @@ export async function iniciarSesion(usuario, password) {
     if (/not confirmed/i.test(error.message)) throw new Error('La cuenta aún no está habilitada en Supabase')
     throw new Error('Usuario o contraseña incorrectos')
   }
+  return perfilDesdeUser(data.user, (usuario || '').trim())
+}
 
-  const meta = data.user?.user_metadata || {}
-  const nombre = meta.usuario || (usuario || '').trim()
-  return {
-    nombre,
-    rol: meta.rol || 'admin',
-    dependencia: meta.dependencia || 'Tesorería',
-    iniciales: meta.iniciales || nombre.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'US',
-  }
+// Restaura la sesión guardada en el navegador (para que al recargar siga logueado)
+export async function sesionActual() {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const u = data?.session?.user
+    return u ? perfilDesdeUser(u) : null
+  } catch { return null }
 }
 
 export function cerrarSesion() {
