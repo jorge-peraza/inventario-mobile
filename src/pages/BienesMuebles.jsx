@@ -1,0 +1,2799 @@
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import ExcelJS from 'exceljs'
+import { saveAs } from 'file-saver'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import Sidebar from '../components/Sidebar'
+import { useTheme } from '../context/ThemeContext'
+import { supabase } from "../supabase";
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+function estadoInfo(obs, dark) {
+  const o = (obs || '').toLowerCase()
+  if (o.includes('deteriorado') || o.includes('quebrado')) return {
+    color: dark ? '#f4a1a1' : '#c0392b',
+    bg:    dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.1)',
+    label: 'Deteriorado',
+  }
+  if (o.includes('no verificado')) return {
+    color: dark ? '#ffd580' : '#b7790a',
+    bg:    dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.1)',
+    label: 'No verificado',
+  }
+  return {
+    color: dark ? '#7ee8a2' : '#1e7e4a',
+    bg:    dark ? 'rgba(126,232,162,0.15)' : 'rgba(30,126,74,0.1)',
+    label: 'Buen estado',
+  }
+}
+function fmt(n) { return n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$ —' }
+
+function iStyle(dark) {
+  return {
+    padding: '9px 12px', borderRadius: '9px', outline: 'none',
+    width: '100%', fontFamily: 'inherit', fontSize: '14px',
+    background: dark ? '#2a2a2c' : '#ffffff',
+    border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
+    color: dark ? '#f0f0f0' : '#111111',
+    colorScheme: dark ? 'dark' : 'light',
+  }
+}
+function searchBoxStyle(dark) {
+  return {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    padding: '9px 13px', borderRadius: '9px',
+    background: dark ? '#2a2a2c' : '#ffffff',
+    border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
+  }
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+function Overlay({ onClick }) {
+  return <div onClick={onClick} style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+}
+
+// ── Hook para animar cierre de paneles laterales ──────────────────────────────
+function useClosing(onClose, duration = 250, enterAnim, exitAnim) {
+  const [closing, setClosing] = useState(false)
+  function close() {
+    setClosing(true)
+    setTimeout(onClose, duration)
+  }
+  const enter = enterAnim ?? `slideIn ${duration}ms cubic-bezier(0.4,0,0.2,1)`
+  const exit  = exitAnim  ?? `slideOut ${duration}ms cubic-bezier(0.4,0,0.2,1) forwards`
+  const anim  = closing ? exit : enter
+  return { close, anim }
+}
+
+// ── GroupedAreaSelector ───────────────────────────────────────────────────────
+export function GroupedAreaSelector({ areas, selected, onChange, dark }) {
+  const [open, setOpen]           = useState(false)
+  const [expanded, setExpanded]   = useState({})
+  const [busq, setBusq]           = useState('')
+  const [localSel, setLocalSel]   = useState(selected)
+
+  function abrir() { setLocalSel(selected); setBusq(''); setOpen(true) }
+  function aplicar() { onChange(localSel); setOpen(false) }
+  function limpiar() { setLocalSel([]); onChange([]); setOpen(false) }
+
+  const groups = useMemo(() => {
+    const map = {}
+    for (const area of areas) {
+      const dep = area.nombredependencia || 'SIN DEPENDENCIA'
+      if (busq && !dep.toLowerCase().includes(busq.toLowerCase()) &&
+          !area.nombrearea.toLowerCase().includes(busq.toLowerCase())) continue
+      if (!map[dep]) map[dep] = []
+      map[dep].push(area)
+    }
+    return Object.fromEntries(
+      Object.entries(map).sort(([a], [b]) => a.localeCompare(b, 'es'))
+    )
+  }, [areas, busq])
+
+  const selectedSet = useMemo(() => new Set(localSel), [localSel])
+
+  function toggleArea(id) {
+    setLocalSel(prev => selectedSet.has(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  function toggleGroup(groupAreas) {
+    const groupIds = groupAreas.map(a => a.idarea)
+    const allSel   = groupIds.every(id => selectedSet.has(id))
+    setLocalSel(prev => allSel
+      ? prev.filter(id => !groupIds.includes(id))
+      : [...prev, ...groupIds.filter(id => !selectedSet.has(id))]
+    )
+  }
+
+  const chipItems = useMemo(() => {
+    const items = []
+    for (const [depNombre, groupAreas] of Object.entries(groups)) {
+      const groupIds      = groupAreas.map(a => a.idarea)
+      const selectedInGrp = groupIds.filter(id => selectedSet.has(id))
+      if (selectedInGrp.length === 0) continue
+      if (selectedInGrp.length === groupIds.length) {
+        items.push({ key: `dep-${depNombre}`, label: depNombre, ids: groupIds })
+      } else {
+        for (const id of selectedInGrp) {
+          const area = groupAreas.find(a => a.idarea === id)
+          items.push({ key: `area-${id}`, label: area?.nombrearea || `#${id}`, ids: [id] })
+        }
+      }
+    }
+    return items
+  }, [groups, selectedSet])
+
+  function removeChip(ids, e) {
+    e.stopPropagation()
+    onChange(selected.filter(x => !ids.includes(x)))
+  }
+
+  function groupState(groupAreas) {
+    const cnt = groupAreas.filter(a => selectedSet.has(a.idarea)).length
+    if (cnt === 0)               return 'none'
+    if (cnt === groupAreas.length) return 'all'
+    return 'some'
+  }
+
+  const sepBorder = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  // Cuenta "elementos": una dependencia completa = 1, áreas sueltas = c/u
+  function contarItems(sel) {
+    const s = new Set(sel)
+    const byDep = {}
+    for (const a of areas) { const d = a.nombredependencia || 'SIN DEPENDENCIA'; (byDep[d] = byDep[d] || []).push(a) }
+    let n = 0
+    for (const arr of Object.values(byDep)) {
+      const ids = arr.map(a => a.idarea)
+      const selIn = ids.filter(id => s.has(id))
+      if (!selIn.length) continue
+      n += (selIn.length === ids.length) ? 1 : selIn.length
+    }
+    return n
+  }
+  const totalSel      = contarItems(selected)
+  const totalSelLocal = contarItems(localSel)
+
+  function ListaGrupos() {
+    return Object.entries(groups).map(([depNombre, groupAreas]) => {
+      const isMulti    = groupAreas.length > 1
+      const state      = groupState(groupAreas)
+      const isExpanded = !!expanded[depNombre]
+      const groupTotal = groupAreas.reduce((s, a) => s + (a.total_bienes || 0), 0)
+      return (
+        <div key={depNombre} style={{ borderBottom: sepBorder }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 16px', cursor: 'pointer', background: state !== 'none' ? (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)') : 'transparent' }}
+            onClick={() => isMulti ? toggleGroup(groupAreas) : toggleArea(groupAreas[0].idarea)}>
+            <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: state === 'all' ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {state === 'all' && <i className="ti ti-check" style={{ fontSize: '11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+              {state === 'some' && <span style={{ width: '9px', height: '2.5px', borderRadius: '2px', display: 'block', background: dark ? '#fff' : '#333' }} />}
+            </div>
+            <span style={{ flex: 1, fontSize: '13px', fontWeight: 600, color: dark ? '#f0f0f0' : '#111', lineHeight: 1.3 }}>{depNombre}</span>
+            <span style={{ fontSize: '11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }}>{groupTotal.toLocaleString()}</span>
+            {isMulti && (
+              <button onClick={e => { e.stopPropagation(); setExpanded(ex => ({ ...ex, [depNombre]: !ex[depNombre] })) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)' }}>
+                <i className={`ti ti-chevron-${isExpanded ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
+              </button>
+            )}
+          </div>
+          {isMulti && isExpanded && groupAreas.map(area => {
+            const sel = selectedSet.has(area.idarea)
+            return (
+              <div key={area.idarea} onClick={() => toggleArea(area.idarea)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 16px 9px 44px', cursor: 'pointer', borderTop: dark ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(0,0,0,0.04)', background: sel ? (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)') : 'transparent' }}>
+                <div style={{ width: '15px', height: '15px', borderRadius: '4px', flexShrink: 0, background: sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.35)' : '1.5px solid rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {sel && <i className="ti ti-check" style={{ fontSize: '10px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                </div>
+                <span style={{ flex: 1, fontSize: '12px', color: dark ? '#d0d0d0' : '#333' }}>{area.nombrearea}</span>
+                <span style={{ fontSize: '11px', color: dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.3)', flexShrink: 0 }}>{(area.total_bienes || 0).toLocaleString()}</span>
+              </div>
+            )
+          })}
+        </div>
+      )
+    })
+  }
+
+  return (
+    <>
+      <div onClick={abrir} style={{
+        display: 'flex', alignItems: 'center', gap: '8px',
+        padding: '9px 13px', borderRadius: '9px', cursor: 'pointer',
+        background: dark ? '#2a2a2c' : '#ffffff',
+        border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
+      }}>
+        <i className="ti ti-building" style={{ fontSize: '15px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', flexShrink: 0 }} />
+        <span style={{ fontSize: '14px', color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>
+          {totalSel === 0 ? 'Todas las dependencias' : `${totalSel} Seleccionada${totalSel !== 1 ? 's' : ''}`}
+        </span>
+      </div>
+
+      {open && createPortal(
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '480px', maxWidth: '90vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="ti ti-building" style={{ fontSize: '18px', color: dark ? '#a8c5f8' : '#2563eb' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Dependencias</p>
+                  <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>
+                    {totalSelLocal === 0 ? 'Todas por defecto' : `${totalSelLocal} seleccionada${totalSelLocal !== 1 ? 's' : ''}`}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setOpen(false)} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
+                <i className="ti ti-x" style={{ fontSize: '15px' }} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 13px', borderRadius: '9px', background: dark ? '#2a2a2c' : '#ffffff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)' }}>
+                <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
+                <input autoFocus type="text" placeholder="Buscar dependencia o área..." value={busq} onChange={e => setBusq(e.target.value)}
+                  style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
+                {busq && <button onClick={() => setBusq('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {Object.keys(groups).length === 0
+                ? <p style={{ padding: '2rem', textAlign: 'center', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontSize: '14px' }}>Sin resultados</p>
+                : <ListaGrupos />
+              }
+            </div>
+
+            <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <button onClick={limpiar} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>
+                Limpiar
+              </button>
+              <button onClick={aplicar} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(168,197,248,0.18)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.35)' : '1px solid rgba(37,99,235,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#a8c5f8' : '#2563eb', fontFamily: 'inherit', cursor: 'pointer' }}>
+                Aplicar
+              </button>
+            </div>
+          </div>
+          <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-48%) scale(0.98)}}`}</style>
+        </>,
+        document.body
+      )}
+    </>
+  )
+}
+
+// ── ModalEditar ───────────────────────────────────────────────────────────────
+function ModalEditar({ bien, onClose, dark, t, onSaved }) {
+  const esVehiculo = ['VEHICULAR','VEHICULAR-MAQUINARIA','VEHICULAR-REMOLQUES-CARROCERIAS'].includes(bien.categoriainventario)
+  const { close, anim } = useClosing(onClose)
+
+  const [form, setForm] = useState({
+    nombrebien:    bien.nombrebien    || '',
+    marca:         bien.marca         || '',
+    tipo:          bien.tipo          || '',
+    serie:         bien.serie         || '',
+    anio:          bien.anio          || '',
+    observaciones: bien.observaciones || '',
+  })
+  const [saving, setSaving]     = useState(false)
+  const [saveErr, setSaveErr]   = useState(null)
+  const [saved, setSaved]       = useState(false)
+
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  async function guardar() {
+    setSaving(true); setSaveErr(null)
+    try {
+      await actualizarBien(bien.idbien, form)
+      setSaved(true)
+      setTimeout(() => { onSaved?.(); close() }, 800)
+    } catch(e) {
+      setSaveErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <Overlay onClick={close} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 200, width: '400px',
+        background: dark ? '#1e1e20' : '#ffffff', borderLeft: `1px solid ${t.cardBorder}`,
+        display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 40px rgba(0,0,0,0.3)',
+        animation: anim }}>
+
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '9px',
+              background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)',
+              border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className="ti ti-pencil" style={{ fontSize: '17px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
+            </div>
+            <div>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Modificar Bien</p>
+              <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bien.claveinventario}</p>
+            </div>
+          </div>
+          <button onClick={close} style={{ width: '30px', height: '30px', borderRadius: '7px',
+            background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+            border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize: '15px' }} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem 1.5rem' }}>
+          {[
+            { label: 'Nombre del Bien',            key: 'nombrebien' },
+            { label: 'Marca',                       key: 'marca' },
+            { label: esVehiculo ? 'Modelo / Placa' : 'Tipo', key: 'tipo' },
+            { label: esVehiculo ? 'Serie (VIN)' : 'Serie',   key: 'serie' },
+            ...(esVehiculo ? [{ label: 'Año', key: 'anio', type: 'number' }] : []),
+          ].map(({ label, key, type }) => (
+            <div key={key} style={{ padding: '11px 0', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+              <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>{label}</p>
+              <input
+                type={type || 'text'}
+                value={form[key] ?? ''}
+                onChange={e => set(key, e.target.value)}
+                style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }}
+              />
+            </div>
+          ))}
+          <div style={{ padding: '11px 0' }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Observaciones</p>
+            <textarea
+              value={form.observaciones}
+              onChange={e => set('observaciones', e.target.value)}
+              rows={3}
+              style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, padding: 0 }}
+            />
+          </div>
+          {saveErr && (
+            <div style={{ padding: '10px 12px', borderRadius: '8px',
+              background: dark ? 'rgba(244,161,161,0.12)' : 'rgba(192,57,43,0.07)',
+              border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.2)',
+              fontSize: '12px', color: dark ? '#f4a1a1' : '#c0392b' }}>
+              <i className="ti ti-alert-circle" style={{ marginRight: '6px' }} />{saveErr}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display: 'flex', gap: '8px' }}>
+          <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={guardar} disabled={saving || saved}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: saving || saved ? 'not-allowed' : 'pointer',
+              background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)',
+              border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)',
+              color: dark ? '#a8e6cf' : '#15803d',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            {saving ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Guardando…</>
+              : saved ? <><i className="ti ti-check" style={{ fontSize: '15px' }} />Guardado</>
+              : <><i className="ti ti-device-floppy" style={{ fontSize: '15px' }} />Guardar Cambios</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+    </>
+  )
+}
+
+// ── ModalResguardo ────────────────────────────────────────────────────────────
+function ModalResguardo({ bien, onClose, dark, t }) {
+  const { close, anim } = useClosing(onClose)
+  function imprimir() {
+    const html = generarHTMLResguardo(bien)
+    const w = window.open('', '_blank', 'width=880,height=1120')
+    if (!w) { alert('Permite ventanas emergentes para imprimir.'); return }
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    setTimeout(() => w.print(), 600)
+  }
+
+  function descargar() {
+    const html = generarHTMLResguardo(bien)
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `resguardo-${bien.claveinventario || 'bien'}.html`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const sepColor = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
+
+  // ── CAMBIO 1: se agregan los 4 campos de factura ──────────────────────────
+  const filas = [
+    ['Clave de Inventario', bien.claveinventario],
+    ['Nombre del Bien',     bien.nombrebien],
+    ['Marca',              bien.marca],
+    ['Tipo / Modelo',      bien.tipo],
+    ['Serie',              bien.serie],
+    ['No. de Inventario',  bien.claveinventario],
+    ['Observaciones',      bien.observaciones],
+    ['No. de Factura',     bien.numerofactura],
+    ['Proveedor',          bien.proveedor],
+    ['Costo Inicial',      fmt(bien.costoinicial)],
+    ['Fecha Factura',      bien.fechafactura],
+  ]
+
+  return (
+    <>
+      <Overlay onClick={close} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 200, width: '420px',
+        background: dark ? '#1e1e20' : '#ffffff', borderLeft: `1px solid ${t.cardBorder}`,
+        display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 40px rgba(0,0,0,0.3)',
+        animation: anim }}>
+
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${sepColor}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '9px',
+              background: dark ? 'rgba(200,168,248,0.15)' : 'rgba(107,33,168,0.08)',
+              border: dark ? '1px solid rgba(200,168,248,0.3)' : '1px solid rgba(107,33,168,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className="ti ti-file-text" style={{ fontSize: '17px', color: dark ? '#c8a8f8' : '#6b21a8' }} />
+            </div>
+            <div>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Resguardo de Bien</p>
+              <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Sindicatura Municipal · Nogales</p>
+            </div>
+          </div>
+          <button onClick={close} style={{ width: '30px', height: '30px', borderRadius: '7px',
+            background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+            border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize: '15px' }} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.5rem' }}>
+          <div style={{ padding: '12px 14px', borderRadius: '10px', marginBottom: '12px',
+            background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            border: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+            textAlign: 'center' }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>H. Ayuntamiento Constitucional Nogales, Sonora</p>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: dark ? '#f0f0f0' : '#111', marginTop: '2px' }}>SINDICATURA MUNICIPAL</p>
+            <p style={{ fontSize: '11px', fontWeight: 600, color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)', marginTop: '4px', textDecoration: 'underline' }}>RESGUARDO DE MOBILIARIO Y EQUIPO</p>
+          </div>
+
+          <div style={{ padding: '10px 14px', borderRadius: '9px', marginBottom: '10px',
+            background: dark ? 'rgba(200,168,248,0.08)' : 'rgba(107,33,168,0.05)',
+            border: dark ? '1px solid rgba(200,168,248,0.2)' : '1px solid rgba(107,33,168,0.14)' }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '3px' }}>Titular del Resguardo</p>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: dark ? '#f0f0f0' : '#111' }}>
+              C. {(bien.resguardatario || '—').toUpperCase()}
+            </p>
+            <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.5)', marginTop: '2px' }}>{bien.puesto || '—'}</p>
+            <p style={{ fontSize: '11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', marginTop: '2px' }}>{(bien.area || '').toUpperCase()}</p>
+          </div>
+
+          {filas.map(([label, val], i) => (
+            <div key={i} style={{ padding: '9px 0', borderBottom: `1px solid ${sepColor}` }}>
+              <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '3px' }}>{label}</p>
+              <p style={{ fontSize: '13px', color: dark ? '#f0f0f0' : '#111' }}>{val || '—'}</p>
+            </div>
+          ))}
+
+          <div style={{ marginTop: '14px', padding: '10px 14px', borderRadius: '9px',
+            background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            border: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)',
+            fontSize: '11px', color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+            <p style={{ fontWeight: 600, marginBottom: '4px' }}>Firmas:</p>
+            <p>· C. {(bien.resguardatario || '—').toUpperCase()} — Titular del Resguardo</p>
+            <p>· MTRA. EDNA ELINORA SOTO GRACIA — Síndico Municipal</p>
+            <p style={{ marginTop: '6px' }}>Elaboró: C. ELSA MÓNICA LÓPEZ LEYVA — Asistente Administrativo</p>
+          </div>
+        </div>
+
+        <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${sepColor}`, display: 'flex', gap: '8px' }}>
+          <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cerrar</button>
+          <button onClick={descargar}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+              background: dark ? 'rgba(200,168,248,0.18)' : 'rgba(107,33,168,0.08)',
+              border: dark ? '1px solid rgba(200,168,248,0.35)' : '1px solid rgba(107,33,168,0.35)',
+              color: dark ? '#c8a8f8' : '#6b21a8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', whiteSpace: 'nowrap' }}>
+            <i className="ti ti-download" style={{ fontSize: '16px' }} />
+            Descargar
+          </button>
+          <button onClick={imprimir}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+              background: dark ? 'rgba(200,168,248,0.18)' : 'rgba(107,33,168,0.08)',
+              border: dark ? '1px solid rgba(200,168,248,0.35)' : '1px solid rgba(107,33,168,0.35)',
+              color: dark ? '#c8a8f8' : '#6b21a8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', whiteSpace: 'nowrap' }}>
+            <i className="ti ti-printer" style={{ fontSize: '16px' }} />
+            Imprimir
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+    </>
+  )
+}
+
+// ── PanelConsulta ─────────────────────────────────────────────────────────────
+export function PanelConsulta({ bien, onClose, t, dark, sinEtiqueta = false }) {
+  if (!bien) return null
+  const { close, anim } = useClosing(onClose)
+  const esVehiculo = ['VEHICULAR','VEHICULAR-MAQUINARIA','VEHICULAR-REMOLQUES-CARROCERIAS'].includes(bien.categoriainventario)
+
+  const campos = esVehiculo
+    ? [
+        ['Clave de Inventario', bien.claveinventario],
+        ['Nombre del Bien', bien.nombrebien],
+        ['Marca', bien.marca],
+        ['Año', bien.anio],
+        ['Modelo / Placa', bien.tipo],
+        ['Serie (VIN)', bien.serie],
+        ['Área de Adscripción', bien.area],
+        ['Resguardatario', bien.resguardatario],
+        ['Puesto', bien.puesto],
+        ['Observaciones', bien.observaciones],
+        ['Costo Inicial', fmt(bien.costoinicial)],
+        ['Número de Factura', bien.numerofactura],
+        ['Proveedor', bien.proveedor],
+        ['Fecha Factura', bien.fechafactura],
+      ]
+    : [
+        ['Clave de Inventario', bien.claveinventario],
+        ['Nombre del Bien', bien.nombrebien],
+        ['Marca', bien.marca],
+        ['Tipo', bien.tipo],
+        ['Serie', bien.serie],
+        ['Área de Adscripción', bien.area],
+        ['Resguardatario', bien.resguardatario],
+        ['Puesto', bien.puesto],
+        ['Observaciones', bien.observaciones],
+        ['Costo Inicial', fmt(bien.costoinicial)],
+        ['Número de Factura', bien.numerofactura],
+        ['Proveedor', bien.proveedor],
+        ['Fecha Factura', bien.fechafactura],
+      ]
+
+  return (
+    <>
+      <Overlay onClick={close} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 200, width: '380px', background: dark ? '#1e1e20' : '#ffffff', borderLeft: `1px solid ${t.cardBorder}`, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 40px rgba(0,0,0,0.3)', animation: anim }}>
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginBottom: '2px' }}>Detalle del bien</p>
+            <p style={{ fontSize: '16px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Consulta</p>
+          </div>
+          <button onClick={close} style={{ width: '32px', height: '32px', borderRadius: '8px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#444' }}>
+            <i className="ti ti-x" style={{ fontSize: '16px' }} />
+          </button>
+        </div>
+        <div style={{ padding: '1rem 1.5rem', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+          {(() => { const e = estadoInfo(bien.observaciones, dark); return (
+            <span style={{ fontSize: '12px', fontWeight: 600, padding: '5px 13px', borderRadius: '20px', background: e.bg, color: e.color, border: `1px solid ${e.color}44` }}>
+              {e.label}
+            </span>
+          ) })()}
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem 1.5rem' }}>
+          {campos.map(([label, val], i) => (
+            <div key={i} style={{ padding: '11px 0', borderBottom: i < campos.length - 1 ? `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` : '' }}>
+              <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '4px' }}>{label}</p>
+              <p style={{ fontSize: '14px', color: dark ? '#f0f0f0' : '#111', lineHeight: 1.4 }}>{val || '—'}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display: 'flex', gap: '8px' }}>
+          <button onClick={close} style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', fontSize: '13px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>
+            Cerrar
+          </button>
+          {!sinEtiqueta && (
+            <button style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.2)', fontSize: '14px', fontWeight: 600, color: dark ? '#a8c5f8' : '#2563eb', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+              <i className="ti ti-printer" style={{ fontSize: '15px' }} />
+              Reimprimir Etiqueta
+            </button>
+          )}
+        </div>
+      </div>
+      <style>{`@keyframes slideIn { from{transform:translateX(100%)} to{transform:translateX(0)} } @keyframes slideOut { from{transform:translateX(0)} to{transform:translateX(100%)} }`}</style>
+    </>
+  )
+}
+
+// ── Combo de motivo (menú desplegable + texto libre) ───────────────────────────
+function ComboMotivo({ value, onChange, dark }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const opciones = ['Deterioro irreparable', 'Obsolescencia', 'Pérdida o robo', 'Donación', 'Venta', 'Otro']
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ ...iStyle(dark), display: 'flex', alignItems: 'center', gap: '8px', padding: '0 12px 0 12px' }}>
+        <input value={value} onChange={e => onChange(e.target.value)} onFocus={() => setOpen(true)} placeholder="Selecciona o escribe un motivo..."
+          style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', padding: '9px 0' }} />
+        <i onClick={() => setOpen(o => !o)} className="ti ti-chevron-down" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', cursor: 'pointer', transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20, background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.15)', borderRadius: '9px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', overflow: 'hidden', maxHeight: '210px', overflowY: 'auto' }}>
+          {opciones.map(o => {
+            const sel = value === o
+            return (
+              <div key={o} onClick={() => { onChange(o); setOpen(false) }}
+                style={{ padding: '10px 13px', fontSize: '14px', cursor: 'pointer', color: dark ? '#f0f0f0' : '#111', background: sel ? (dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)') : 'transparent' }}
+                onMouseEnter={e => e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)'}
+                onMouseLeave={e => e.currentTarget.style.background = sel ? (dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)') : 'transparent'}>
+                {o}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── ModalBaja ─────────────────────────────────────────────────────────────────
+export function ModalBaja({ bien, onClose, dark, t, titulo = 'Dar de Baja', onConfirm }) {
+  const { close, anim } = useClosing(onClose, 250,
+    'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
+    'fadeDown 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
+  )
+  const [motivo, setMotivo]       = useState('')
+  const [fecha, setFecha]         = useState('')
+  const [obs, setObs]             = useState('')
+  const [archivos, setArchivos]   = useState([])
+  const [dragging, setDragging]   = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const inputRef                  = useRef(null)
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  async function confirmar() {
+    setGuardando(true)
+    try {
+      if (onConfirm) await onConfirm({ motivo, fecha, obs })
+      close()
+    } catch (e) { console.error(e); setGuardando(false) }
+  }
+
+  function agregarArchivos(files) {
+    const imgs = Array.from(files).filter(f => f.type.startsWith('image/'))
+    setArchivos(prev => [...prev, ...imgs])
+  }
+  function onDrop(e) {
+    e.preventDefault(); setDragging(false)
+    agregarArchivos(e.dataTransfer.files)
+  }
+  function eliminar(i) { setArchivos(prev => prev.filter((_, idx) => idx !== i)) }
+
+  return (
+    <>
+      <Overlay onClick={close} />
+      <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '460px', background: dark ? '#1e1e20' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', overflow: 'hidden', animation: anim }}>
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-circle-minus" style={{ fontSize: '18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
+              </div>
+              <div>
+                <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{titulo}</p>
+                <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bien.claveinventario}</p>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
+              <i className="ti ti-x" style={{ fontSize: '15px' }} />
+            </button>
+          </div>
+          <div style={{ margin: '1rem 1.5rem', padding: '10px 14px', borderRadius: '10px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', border: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+            <p style={{ fontSize: '13px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111' }}>{bien.nombrebien}</p>
+            <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop: '2px' }}>{bien.area}</p>
+          </div>
+          <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <MField label="Motivo de baja" dark={dark}>
+              <ComboMotivo value={motivo} onChange={setMotivo} dark={dark} />
+            </MField>
+            <MField label="Fecha de baja" dark={dark}>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
+            </MField>
+
+            <MField label="Evidencia" dark={dark}>
+              <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => agregarArchivos(e.target.files)} />
+              {archivos.length === 0 ? (
+                <div
+                  onClick={() => inputRef.current.click()}
+                  onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={onDrop}
+                  style={{
+                    border: `2px dashed ${dragging ? (dark ? '#a8c5f8' : '#2563eb') : (dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)')}`,
+                    borderRadius: '10px', padding: '18px 12px', textAlign: 'center',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    background: dragging ? (dark ? 'rgba(168,197,248,0.08)' : 'rgba(37,99,235,0.04)') : 'transparent',
+                  }}>
+                  <i className="ti ti-photo-up" style={{ fontSize: '22px', color: dark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)', display: 'block', marginBottom: '6px' }} />
+                  <p style={{ fontSize: '13px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', lineHeight: 1.4 }}>
+                    Arrastra imágenes aquí o <span style={{ color: dark ? '#a8c5f8' : '#2563eb', fontWeight: 500 }}>haz clic para seleccionar</span>
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {archivos.map((f, i) => (
+                    <div key={i} style={{ position: 'relative', width: '64px', height: '64px' }}>
+                      <img src={URL.createObjectURL(f)} alt={f.name}
+                        style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${dark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'}` }} />
+                      <button onClick={() => eliminar(i)} style={{
+                        position: 'absolute', top: '-6px', right: '-6px',
+                        width: '18px', height: '18px', borderRadius: '50%',
+                        background: dark ? '#333' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', fontSize: '10px', color: dark ? '#ccc' : '#555', padding: 0,
+                      }}>✕</button>
+                    </div>
+                  ))}
+                  <div
+                    onClick={() => inputRef.current.click()}
+                    onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                    onDragLeave={() => setDragging(false)}
+                    onDrop={onDrop}
+                    style={{
+                      width: '64px', height: '64px', borderRadius: '8px', cursor: 'pointer',
+                      border: `2px dashed ${dragging ? (dark ? '#a8c5f8' : '#2563eb') : (dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.18)')}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: dragging ? (dark ? 'rgba(168,197,248,0.08)' : 'rgba(37,99,235,0.04)') : 'transparent',
+                      transition: 'all 0.15s',
+                    }}>
+                    <i className="ti ti-plus" style={{ fontSize: '20px', color: dark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)' }} />
+                  </div>
+                </div>
+              )}
+            </MField>
+
+            <MField label="Observaciones adicionales" dark={dark}>
+              <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} placeholder="Descripción del estado..." style={{ ...iStyle(dark), resize: 'none', lineHeight: 1.5 }} />
+            </MField>
+          </div>
+          <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
+            <button onClick={close} disabled={guardando} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={confirmar} disabled={guardando} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#f4a1a1' : '#c0392b', fontFamily: 'inherit', cursor: guardando ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Procesando…</> : <><i className="ti ti-circle-minus" style={{ fontSize: '15px' }} />Confirmar Baja</>}
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(20px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(20px) scale(0.98)}}`}</style>
+    </>
+  )
+}
+
+// ── ModalTraspaso ─────────────────────────────────────────────────────────────
+function ModalTraspaso({ bien, onClose, dark, t, allAreas }) {
+  const { close, anim } = useClosing(onClose, 250,
+    'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
+    'fadeDown 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
+  )
+  const [dep, setDep]       = useState('')
+  const [resg, setResg]     = useState('')
+  const [puesto, setPuesto] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [fecha, setFecha]   = useState('')
+
+  return (
+    <>
+      <Overlay onClick={close} />
+      <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '480px', background: dark ? '#1e1e20' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', overflow: 'hidden', animation: anim }}>
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-arrows-exchange" style={{ fontSize: '18px', color: dark ? '#ffd580' : '#b7790a' }} />
+              </div>
+              <div>
+                <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Traspaso de Bien</p>
+                <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bien.claveinventario}</p>
+              </div>
+            </div>
+            <button onClick={close} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
+              <i className="ti ti-x" style={{ fontSize: '15px' }} />
+            </button>
+          </div>
+          <div style={{ margin: '1rem 1.5rem', padding: '10px 14px', borderRadius: '10px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', border: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+            <p style={{ fontSize: '13px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111' }}>{bien.nombrebien}</p>
+            <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop: '2px' }}>Origen: {bien.area} — {bien.resguardatario}</p>
+          </div>
+          <div style={{ padding: '0 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <MField label="Dependencia destino" dark={dark}>
+              <select value={dep} onChange={e => setDep(e.target.value)} style={iStyle(dark)}>
+                <option value="">Seleccionar dependencia...</option>
+                {allAreas.map(a => (
+                  <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>
+                ))}
+              </select>
+            </MField>
+            <MField label="Nuevo resguardatario" dark={dark}>
+              <input type="text" placeholder="Nombre completo" value={resg} onChange={e => setResg(e.target.value)} style={iStyle(dark)} />
+            </MField>
+            <MField label="Puesto del nuevo resguardatario" dark={dark}>
+              <input type="text" placeholder="Cargo o puesto" value={puesto} onChange={e => setPuesto(e.target.value)} style={iStyle(dark)} />
+            </MField>
+            <MField label="Motivo del traspaso" dark={dark}>
+              <select value={motivo} onChange={e => setMotivo(e.target.value)} style={iStyle(dark)}>
+                <option value="">Seleccionar motivo...</option>
+                <option>Reasignación de funciones</option>
+                <option>Necesidad operativa</option>
+                <option>Reestructura organizacional</option>
+                <option>Solicitud de dependencia</option>
+                <option>Otro</option>
+              </select>
+            </MField>
+            <MField label="Fecha de traspaso" dark={dark}>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
+            </MField>
+          </div>
+          <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
+            <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+            <button style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.35)' : '1px solid rgba(183,121,10,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#ffd580' : '#b45309', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <i className="ti ti-arrows-exchange" style={{ fontSize: '15px' }} />Confirmar Traspaso
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(20px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(20px) scale(0.98)}}`}</style>
+    </>
+  )
+}
+
+function MField({ label, dark, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+      <label style={{ fontSize: '11px', fontWeight: 600, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function btnAccion(dark, tipo) {
+  const c = {
+    consulta:  { color: dark ? '#a8c5f8' : '#2563eb', bg: dark ? 'rgba(168,197,248,0.12)' : 'rgba(37,99,235,0.07)',   border: dark ? 'rgba(168,197,248,0.25)' : 'rgba(37,99,235,0.18)'   },
+    editar:    { color: dark ? '#a8e6cf' : '#1e7e4a', bg: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)',   border: dark ? 'rgba(168,230,207,0.25)' : 'rgba(30,126,74,0.18)'   },
+    resguardo: { color: dark ? '#c8a8f8' : '#6b21a8', bg: dark ? 'rgba(200,168,248,0.12)' : 'rgba(107,33,168,0.07)', border: dark ? 'rgba(200,168,248,0.25)' : 'rgba(107,33,168,0.18)' },
+    traspaso:  { color: dark ? '#ffd580' : '#b7790a', bg: dark ? 'rgba(255,213,128,0.12)' : 'rgba(183,121,10,0.07)', border: dark ? 'rgba(255,213,128,0.25)' : 'rgba(183,121,10,0.18)' },
+    baja:      { color: dark ? '#f4a1a1' : '#c0392b', bg: dark ? 'rgba(244,161,161,0.12)' : 'rgba(192,57,43,0.07)',  border: dark ? 'rgba(244,161,161,0.25)' : 'rgba(192,57,43,0.18)'  },
+  }[tipo]
+  return { width: '30px', height: '30px', borderRadius: '7px', background: c.bg, border: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: c.color }
+}
+
+function thBase(dark) {
+  return { padding: '9px 10px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', verticalAlign: 'middle', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }
+}
+function tdBase() { return { padding: '10px 10px', verticalAlign: 'top' } }
+
+// ── Categorías ────────────────────────────────────────────────────────────────
+const CATS_BY_MODO = {
+  mobiliario:        ['MOBILIARIO'],
+  computo:           ['EQUIPO DE COMPUTO', 'EQUIPO'],
+  maquinaria:        ['MAQUINARIA'],
+  vehiculos:         ['VEHICULAR', 'VEHICULAR-MAQUINARIA', 'VEHICULAR-REMOLQUES-CARROCERIAS'],
+  radiocomunicacion: ['RADIOCOMUNICACION'],
+  parquimetros:      ['EQUIPO DE CONTROL TIEMPO PARQUI'],
+  senalizaciones:    ['SEÑALIZACIONES'],
+  arbolesplantas:    ['ARBOLES Y PLANTAS'],
+  defensa:           ['MAQUINARIA Y EQUIPO DE DEFENSA Y SEGURIDAD PUBLICA'],
+}
+
+const MODOS = [
+  { id: 'mobiliario',        label: 'Mobiliario',          icon: 'ti-armchair' },
+  { id: 'computo',           label: 'Cómputo',             icon: 'ti-device-laptop' },
+  { id: 'maquinaria',        label: 'Maquinaria',          icon: 'ti-bulldozer' },
+  { id: 'vehiculos',         label: 'Vehículos',           icon: 'ti-car' },
+  { id: 'radiocomunicacion', label: 'Radiocomunicaciones', icon: 'ti-phone' },
+  { id: 'parquimetros',      label: 'Parquímetros',        icon: 'ti-clock' },
+  { id: 'senalizaciones',    label: 'Señalizaciones',      icon: 'ti-road-sign' },
+  { id: 'arbolesplantas',    label: 'Árboles y Plantas',   icon: 'ti-tree' },
+  { id: 'defensa',           label: 'Defensa y Seguridad', icon: 'ti-shield' },
+]
+
+const OPCIONES_POR_PAGINA = [10, 15, 20]
+
+// ── QUERY SUPABASE ────────────────────────────────────────────────────────────
+async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina }) {
+  const desde = pagina * porPagina
+  const hasta  = desde + porPagina - 1
+
+  let query = supabase
+    .from('bienes')
+    .select(`
+      idbien, nombrebien, marca, tipo, serie, observaciones,
+      claveinventario, categoriainventario, estadobien, anio, partida,
+      areas ( nombrearea ),
+      resguardos ( nombre, puesto ),
+      facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )
+    `, { count: 'exact' })
+    .order('consecutivo', { ascending: true })
+    .order('idbien', { ascending: true })
+    .range(desde, hasta)
+
+  query = query
+    .in('estadobien', ['ACTIVO', 'SOLICITUD BAJA'])
+    .in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+
+  if (filtroAreaIds && filtroAreaIds.length > 0)
+    query = query.in('idarea', filtroAreaIds)
+
+  if (busqueda)
+    query = query.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
+
+  if (filtroBien)
+    query = query.or(`nombrebien.ilike.%${filtroBien}%,tipo.ilike.%${filtroBien}%,marca.ilike.%${filtroBien}%`)
+
+  if (filtroEstado === 'Deteriorado')
+    query = query.or('observaciones.ilike.%deteriorado%,observaciones.ilike.%quebrado%')
+  else if (filtroEstado === 'No verificado')
+    query = query.ilike('observaciones', '%no verificado%')
+  else if (filtroEstado === 'Buen estado')
+    query = query.not('observaciones', 'ilike', '%deteriorado%')
+                 .not('observaciones', 'ilike', '%quebrado%')
+                 .not('observaciones', 'ilike', '%no verificado%')
+
+  const { data, error, count } = await query
+  if (error) throw error
+
+  return {
+    data: data.map(b => ({
+      ...b,
+      area:           b.areas?.nombrearea                      || '—',
+      resguardatario: b.resguardos?.nombre                     || '—',
+      puesto:         b.resguardos?.puesto                     || '—',
+      numerofactura:  b.facturas?.numerofactura                || 'SIN FACTURA',
+      fechafactura:   b.facturas?.fechafactura                 || '—',
+      costoinicial:   b.facturas?.costoinicial                 || 0,
+      proveedor:      b.facturas?.proveedores?.nombreproveedor || '—',
+    })),
+    count,
+  }
+}
+
+async function actualizarBien(idbien, campos) {
+  const payload = { ...campos }
+  if (payload.anio === '' || payload.anio === undefined) payload.anio = null
+  else if (payload.anio !== null) payload.anio = Number(payload.anio) || null
+  const { error } = await supabase.from('bienes').update(payload).eq('idbien', idbien)
+  if (error) throw error
+}
+
+// ── CAMBIO 2: genera HTML del resguardo con factura, proveedor, importe, fecha ─
+function generarHTMLResguardo(bien) {
+  const meses  = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+  const hoy    = new Date()
+  const mesStr = meses[hoy.getMonth()]
+  const añoStr = hoy.getFullYear()
+
+  const nombre    = (bien.resguardatario || '—').toUpperCase()
+  const area      = (bien.area           || '—').toUpperCase()
+  const puesto    = (bien.puesto         || '').toUpperCase()
+  const desc      = (bien.nombrebien     || '').toUpperCase()
+  const marca     = (bien.marca          || '').toUpperCase()
+  const tipo      = (bien.tipo           || '').toUpperCase()
+  const serie     = (bien.serie          || '').toUpperCase()
+  const obs       = (bien.observaciones  || '')
+  const clave     = (bien.claveinventario || '')
+  // ── campos nuevos ──
+  const factura   = (bien.numerofactura  || '—')
+  const proveedor = (bien.proveedor      || '—')
+  const costo     = bien.costoinicial ? '$ ' + Number(bien.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—'
+  const fechaFac  = (bien.fechafactura   || '—')
+
+  const base = window.location.origin
+
+  return `<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="UTF-8">
+<title>Resguardo ${clave}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:10.5pt;color:#000;padding:14mm 18mm}
+.top{display:flex;align-items:stretch;gap:10px;margin-bottom:12px}
+.left-boxes{flex:1;display:flex;flex-direction:column;gap:5px}
+.box{border:1.5px solid #000;padding:5px 9px}
+.box2{border:1.5px solid #000;padding:5px 9px;flex:1;min-height:52px}
+.lbl{font-weight:700;font-size:8.5pt;letter-spacing:.02em;text-transform:uppercase}
+.val{padding-top:3px;font-size:10pt}
+.center-col{flex:0 0 200px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px}
+.center-col img{width:72px;height:72px;object-fit:contain}
+.ch-inst{font-size:8pt;font-weight:700;line-height:1.4;margin-top:2px}
+.ch-dep{font-size:12pt;font-weight:700;margin-top:2px}
+.right-col{flex:0 0 110px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.right-col img.escudo{width:68px;object-fit:contain}
+.right-col img.logo-ay{width:105px;object-fit:contain}
+.sec-title{font-size:12.5pt;font-weight:700;text-decoration:underline;margin:12px 0 8px}
+.legal{font-size:9pt;font-weight:700;text-align:justify;line-height:1.55;margin-bottom:12px;text-transform:uppercase}
+table{width:100%;border-collapse:collapse;margin-bottom:7px}
+td{border:1.5px solid #000;padding:6px 10px;vertical-align:top}
+.tdl{font-weight:700;font-size:9pt;letter-spacing:.02em}
+.tdv{padding-top:4px;min-height:20px}
+.date{text-align:center;margin:22px 0 56px;font-size:10.5pt}
+.sigs{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
+.sb{text-align:center;flex:1}
+.sl{border-top:1.5px solid #000;margin:0 auto 5px;width:90%}
+.sn{font-size:9.5pt;font-weight:700;text-transform:uppercase}
+.sr{font-size:9pt}
+.elab{text-align:center;margin-top:55px}
+.el{border-top:1.5px solid #000;width:200px;margin:0 auto 5px}
+@page{size:Letter;margin:14mm 18mm}
+@media print{body{padding:0}}
+</style></head><body>
+
+<div class="top">
+  <div class="left-boxes">
+    <div class="box"><div class="lbl">ADSCRIPCION:</div><div class="val">${area}</div></div>
+    <div class="box2">
+      <div class="lbl">NOMBRE/CARGO:</div>
+      <div class="val" style="margin-top:4px">${nombre}</div>
+      <div class="val">${puesto}</div>
+    </div>
+  </div>
+  <div class="center-col">
+    <img src="${base}/escudo-mexico.png" alt="Escudo México" />
+    <div class="ch-inst">H. AYUNTAMIENTO CONSTITUCIONAL<br>NOGALES, SONORA</div>
+    <div class="ch-dep">SINDICATURA MUNICIPAL</div>
+  </div>
+  <div class="right-col">
+    <img class="escudo" src="${base}/escudo-nogales.png" alt="H. Nogales Sonora" />
+    <img class="logo-ay" src="${base}/logo-ayuntamiento.png" alt="H. Ayuntamiento de Nogales" />
+  </div>
+</div>
+
+<div class="sec-title">RESGUARDO DE MOBILIARIO Y EQUIPO:</div>
+
+<p class="legal" style="font-size:8.5pt;">HE RECIBIDO DEL H. AYUNTAMIENTO DE NOGALES, EL ART&Iacute;CULO MENCIONADO A CONTINUACI&Oacute;N:<br>PARA USARLO EN LOS TRABAJOS PROPIOS DE MI PUESTO, COMPROMETIENDOME A DEVOLVERLO EN EL MOMENTO QUE SE REQUIERA O BIEN A LIQUIDARLO EN CASO DE P&Eacute;RDIDA POR DESCUIDO IMPUTABLE AL&nbsp;SUSCRITO.</p>
+<table><tr><td><div class="tdl">DESCRIPCION:</div><div class="tdv" style="min-height:36px">${desc}</div></td></tr></table>
+
+<table>
+  <tr>
+    <td style="width:33%"><span class="tdl">MARCA:&nbsp;&nbsp;</span>${marca}</td>
+    <td style="width:34%"><span class="tdl">MODELO O TIPO:&nbsp;&nbsp;</span>${tipo}</td>
+    <td style="width:33%"><span class="tdl">SERIE:&nbsp;&nbsp;</span>${serie}</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td style="width:60%;min-height:58px">
+      <div class="tdl">OBSERVACIONES:</div>
+      <div class="tdv" style="min-height:40px">${obs}</div>
+    </td>
+    <td style="width:40%">
+      <div class="tdl">CLAVE DE INVENTARIO:</div>
+      <div class="tdv">${clave}</div>
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td style="width:22%"><div class="tdl">NO. FACTURA:</div><div class="tdv">${factura}</div></td>
+    <td style="width:40%"><div class="tdl">PROVEEDOR:</div><div class="tdv">${proveedor}</div></td>
+    <td style="width:16%"><div class="tdl">IMPORTE:</div><div class="tdv">${costo}</div></td>
+    <td style="width:22%"><div class="tdl">FECHA FACTURA:</div><div class="tdv" style="white-space:nowrap">${fechaFac}</div></td>
+  </tr>
+</table>
+
+<div class="date">H. Nogales, Sonora a ${hoy.getDate()} de ${mesStr} de ${añoStr}.</div>
+
+<div class="sigs">
+  <div class="sb">
+    <div class="sl"></div>
+    <div class="sn">${nombre}</div>
+    <div class="sr">TITULAR DEL RESGUARDO</div>
+  </div>
+  <div class="sb">
+    <div class="sl"></div>
+    <div class="sn">MTRA. EDNA ELINORA SOTO GRACIA</div>
+    <div class="sr">SINDICO MUNICIPAL</div>
+  </div>
+</div>
+
+<div class="elab">
+  <div class="sr" style="margin-bottom:50px">ELABOR&Oacute;</div>
+  <div class="el"></div>
+  <div class="sn">C. ELSA M&Oacute;NICA L&Oacute;PEZ LEYVA</div>
+  <div class="sr">ASISTENTE ADMINISTRATIVO</div>
+</div>
+
+</body></html>`
+}
+
+export async function fetchAreas() {
+  const { data, error } = await supabase
+    .from('areas_activas')
+    .select('idarea, nombrearea, total_bienes, iddependencia, nombredependencia')
+    .order('nombredependencia', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+// ── REPORTE (Excel / PDF, réplica de la tabla) ─────────────────────────────────
+const GRIS_HEADER = 'BFBFBF'
+const NEGRO       = '000000'
+const FRANJA      = 'F2F2F2'
+
+const SELECT_BIENES = `idbien, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+
+function mapBien(b) {
+  return {
+    ...b,
+    area:           b.areas?.nombrearea                      || '—',
+    resguardatario: b.resguardos?.nombre                     || '—',
+    puesto:         b.resguardos?.puesto                     || '—',
+    numerofactura:  b.facturas?.numerofactura                || 'SIN FACTURA',
+    fechafactura:   b.facturas?.fechafactura                 || '—',
+    costoinicial:   b.facturas?.costoinicial                 || 0,
+    proveedor:      b.facturas?.proveedores?.nombreproveedor || '—',
+  }
+}
+
+// Trae bienes cuya FECHA DE FACTURA cae en el rango (para reportes por periodo)
+export async function fetchPorFechaFactura({ desde, hasta, areaIds }) {
+  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas!inner ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+  const BATCH = 1000
+  let todos = [], d = 0
+  while (true) {
+    let q = supabase.from('bienes').select(SEL).order('consecutivo', { ascending: true }).order('idbien', { ascending: true }).range(d, d + BATCH - 1)
+    if (desde) q = q.gte('facturas.fechafactura', desde)
+    if (hasta) q = q.lte('facturas.fechafactura', hasta)
+    if (areaIds && areaIds.length) q = q.in('idarea', areaIds)
+    // Adquisiciones incluye todos los estados (TRASPASO, BAJA, etc.) porque reporta lo que se compró
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(mapBien)]
+    if (data.length < BATCH) break
+    d += BATCH
+  }
+  return todos
+}
+
+// Trae TODOS los bienes con factura, filtro opcional por anio del bien
+export async function fetchAdquisiciones({ anio, areaIds }) {
+  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+  const BATCH = 1000
+  let todos = [], d = 0
+  while (true) {
+    let q = supabase.from('bienes').select(SEL).order('consecutivo', { ascending: true }).order('idbien', { ascending: true }).range(d, d + BATCH - 1)
+    if (anio)    q = q.eq('anio', anio)
+    if (areaIds && areaIds.length) q = q.in('idarea', areaIds)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(mapBien)]
+    if (data.length < BATCH) break
+    d += BATCH
+  }
+  return todos
+}
+
+// Cuenta bienes cuya fecha de factura cae en el rango
+export async function contarPorFechaFactura({ desde, hasta }) {
+  let q = supabase.from('bienes').select('idbien, facturas!inner ( fechafactura )', { count: 'exact', head: true })
+    .in('estadobien', ['ACTIVO', 'SOLICITUD BAJA'])
+  if (desde) q = q.gte('facturas.fechafactura', desde)
+  if (hasta) q = q.lte('facturas.fechafactura', hasta)
+  const { count, error } = await q
+  if (error) throw error
+  return count || 0
+}
+
+// Columnas del reporte según el tipo (idénticas a la tabla)
+export function colsReporte(modo) {
+  const veh = modo === 'vehiculos' || modo === 'maquinaria'
+  const desc = veh
+    ? [
+        { key: 'nombrebien', label: 'NOMBRE DEL BIEN', m: 'Nombre del bien', w: 34 },
+        { key: 'marca',      label: 'MARCA',           m: 'Marca',           w: 16 },
+        { key: 'anio',       label: 'AÑO',             m: 'Año',             w: 8 },
+        { key: 'tipo',       label: 'MODELO / PLACA',  m: 'Modelo / Placa',  w: 18 },
+        { key: 'serie',      label: 'SERIE (VIN)',     m: 'Serie (VIN)',     w: 22 },
+      ]
+    : [
+        { key: 'nombrebien', label: 'NOMBRE DEL BIEN', m: 'Nombre del bien', w: 34 },
+        { key: 'marca',      label: 'MARCA',           m: 'Marca',           w: 16 },
+        { key: 'tipo',       label: 'TIPO',            m: 'Tipo',            w: 16 },
+        { key: 'serie',      label: 'SERIE',           m: 'Serie',           w: 20 },
+      ]
+  return [
+    { key: 'claveinventario', label: 'CLAVE DE INVENTARIO', m: 'Clave de inventario', w: 16, noWrap: true },
+    ...desc.map(c => ({ ...c, grupo: 'DESCRIPCIÓN' })),
+    { key: 'area',          label: 'ÁREA DE ADSCRIPCIÓN',  m: 'Área de adscripción',  w: 30 },
+    { key: 'resguardo',     label: 'RESGUARDO A CARGO DE', m: 'Resguardo a cargo de', w: 26 },
+    { key: 'observaciones', label: 'OBSERVACIONES',        m: 'Observaciones',        w: 34, align: 'left' },
+    { key: 'importe',       label: 'IMPORTE',              m: 'Importe',              w: 16 },
+    { key: 'numerofactura', label: 'FACTURA',              m: 'Factura',              w: 16 },
+    { key: 'proveedor',     label: 'PROVEEDOR',            m: 'Proveedor',            w: 24 },
+    { key: 'fechafactura',  label: 'FECHA FACTURA',        m: 'Fecha factura',        w: 14 },
+    { key: 'partida',       label: 'PARTIDA',              m: 'Partida',              w: 14 },
+  ]
+}
+
+export function valorMueble(col, b) {
+  switch (col.key) {
+    case 'resguardo': {
+      const n = b.resguardatario && b.resguardatario !== '—' ? b.resguardatario : ''
+      const p = b.puesto && b.puesto !== '—' ? b.puesto : ''
+      return n ? (p ? `${n} (${p})` : n) : (p || '')
+    }
+    case 'observaciones': {
+      const lbl = estadoInfo(b.observaciones, false).label
+      const o = b.observaciones && b.observaciones !== '—' ? b.observaciones : ''
+      return o ? `${lbl} — ${o}` : lbl
+    }
+    case 'importe':
+    case 'valorfactura':
+      return b.costoinicial ? '$ ' + Number(b.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''
+    case 'numero_oficio':
+      return ''   // se llena a mano en el documento
+    default: {
+      const v = b[col.key]
+      return (v == null || v === '—' || v === 'SIN FACTURA') ? (col.key === 'numerofactura' ? 'SIN FACTURA' : '') : String(v)
+    }
+  }
+}
+
+export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds }) {
+  const BATCH = 1000
+  let todos = [], desde = 0
+  while (true) {
+    let q = supabase.from('bienes').select(SELECT_BIENES).order('consecutivo', { ascending: true }).order('idbien', { ascending: true }).range(desde, desde + BATCH - 1)
+    q = q.in('estadobien', ['ACTIVO', 'SOLICITUD BAJA']).in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+    if (filtroAreaIds && filtroAreaIds.length) q = q.in('idarea', filtroAreaIds)
+    if (busqueda)   q = q.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
+    if (filtroBien) q = q.or(`nombrebien.ilike.%${filtroBien}%,tipo.ilike.%${filtroBien}%,marca.ilike.%${filtroBien}%`)
+    if (filtroEstado === 'Deteriorado')   q = q.or('observaciones.ilike.%deteriorado%,observaciones.ilike.%quebrado%')
+    else if (filtroEstado === 'No verificado') q = q.ilike('observaciones', '%no verificado%')
+    else if (filtroEstado === 'Buen estado')   q = q.not('observaciones', 'ilike', '%deteriorado%').not('observaciones', 'ilike', '%quebrado%').not('observaciones', 'ilike', '%no verificado%')
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(mapBien)]
+    if (data.length < BATCH) break
+    desde += BATCH
+  }
+  return todos
+}
+
+async function fetchPorIdsMuebles(ids) {
+  const BATCH = 300
+  let todos = []
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH)
+    const { data, error } = await supabase.from('bienes').select(SELECT_BIENES).in('idbien', chunk).order('consecutivo', { ascending: true })
+    if (error) throw error
+    todos = [...todos, ...(data || []).map(mapBien)]
+  }
+  return todos
+}
+
+function nombreArchivoM(ext) {
+  return `inventario-muebles-${new Date().toISOString().slice(0, 10)}.${ext}`
+}
+
+// Cambia el estadobien de varios bienes ('ACTIVO' | 'SOLICITUD BAJA' | 'BAJA')
+export async function actualizarEstadoBienes(ids, nuevoEstado) {
+  const BATCH = 300
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH)
+    const { error } = await supabase.from('bienes').update({ estadobien: nuevoEstado }).in('idbien', chunk)
+    if (error) throw error
+  }
+}
+
+// Fechas de bajas guardadas localmente (no hay tabla `bajas` aún)
+const LS_FECHAS_BAJAS = 'bajas_fechas'
+export function getFechasBajas() {
+  try { return JSON.parse(localStorage.getItem(LS_FECHAS_BAJAS) || '{}') } catch { return {} }
+}
+export function setFechaBaja(ids, campo, valor) {
+  const m = getFechasBajas()
+  for (const id of ids) m[id] = { ...m[id], [campo]: valor }
+  localStorage.setItem(LS_FECHAS_BAJAS, JSON.stringify(m))
+}
+export function hoyISO() { return new Date().toISOString().slice(0, 10) }
+
+// ── Modal: confirmar SOLICITUD de baja (1 o varios bienes) ──────────────────────
+export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+  async function confirmar() {
+    setGuardando(true)
+    try { await onConfirm(); onClose() } catch (e) { console.error(e); setGuardando(false) }
+  }
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-circle-minus" style={{ fontSize:'18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Solicitar Baja</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bienes.length} bien{bienes.length !== 1 ? 'es' : ''} por solicitar</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'0.5rem 0' }}>
+          {bienes.map((b, i) => (
+            <div key={b.idbien} style={{ padding:'11px 1.5rem', borderBottom: i < bienes.length - 1 ? sep : 'none' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'2px' }}>
+                <span style={{ fontFamily:'monospace', fontSize:'11px', color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>{b.claveinventario || '—'}</span>
+              </div>
+              <p style={{ fontSize:'13px', fontWeight:500, color: dark ? '#f0f0f0' : '#111', lineHeight:1.3 }}>{b.nombrebien || '—'}</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop:'2px' }}>{b.area || '—'}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px', flexShrink:0 }}>
+          <button onClick={onClose} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>Cancelar</button>
+          <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', borderRadius:'9px', fontSize:'14px', fontWeight:600, color: dark ? '#f4a1a1' : '#c0392b', fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</> : <><i className="ti ti-circle-minus" style={{ fontSize:'15px' }} />Confirmar solicitud</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// Trae todos los bienes con cierto estadobien (paginado)
+export async function fetchBienesPorEstado(estado) {
+  const BATCH = 1000
+  let todos = [], desde = 0
+  while (true) {
+    const { data, error } = await supabase.from('bienes').select(SELECT_BIENES)
+      .eq('estadobien', estado)
+      .order('consecutivo', { ascending: true }).order('idbien', { ascending: true })
+      .range(desde, desde + BATCH - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(mapBien)]
+    if (data.length < BATCH) break
+    desde += BATCH
+  }
+  return todos
+}
+
+const RGB_GRIS = [191, 191, 191]
+
+// Carga una imagen a máxima resolución (dataURL PNG) para los encabezados
+function cargarImagen(src) {
+  if (src.startsWith('/')) src = import.meta.env.BASE_URL + src.slice(1)
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      c.getContext('2d').drawImage(img, 0, 0)
+      resolve({ dataURL: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight })
+    }
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+// Encabezado con los 3 logos: Ayuntamiento (izq), Escudo Nogales (centro), Escudo México (der)
+async function dibujarLogosPDF(doc, pageW, margin) {
+  try {
+    const [ay, nog, mex] = await Promise.all([
+      cargarImagen('/logo-ayuntamiento.png'),
+      cargarImagen('/escudo-nogales.png'),
+      cargarImagen('/escudo-mexico.png'),
+    ])
+    const H = 46
+    const Hmex = 66   // escudo de México más grande
+    const wAy = H * ay.w / ay.h, wNog = H * nog.w / nog.h, wMex = Hmex * mex.w / mex.h
+    const y = 18
+    doc.addImage(ay.dataURL, 'PNG', margin, y, wAy, H, undefined, 'FAST')
+    doc.addImage(nog.dataURL, 'PNG', (pageW - wNog) / 2, y, wNog, H, undefined, 'FAST')
+    doc.addImage(mex.dataURL, 'PNG', pageW - margin - wMex, y - (Hmex - H) / 2, wMex, Hmex, undefined, 'FAST')
+    return y + Hmex - (Hmex - H) / 2 + 12
+  } catch {
+    return 24
+  }
+}
+
+export async function exportarPDFMuebles(rows, cols, titulo = '') {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+  const margin = 18
+  let startY = await dibujarLogosPDF(doc, pageW, margin)
+  if (titulo) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0)
+    doc.text(titulo, pageW / 2, startY + 6, { align: 'center' })
+    const tw = doc.getTextWidth(titulo)
+    doc.setLineWidth(1); doc.line(pageW / 2 - tw / 2, startY + 10, pageW / 2 + tw / 2, startY + 10)
+    startY += 22
+  }
+
+  // Encabezado de dos filas con grupo DESCRIPCIÓN
+  const hStyle = { fillColor: RGB_GRIS, textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' }
+  const row1 = [], row2 = []
+  let i = 0
+  while (i < cols.length) {
+    const col = cols[i]
+    if (col.grupo) {
+      let j = i; while (j < cols.length && cols[j].grupo === col.grupo) j++
+      row1.push({ content: col.grupo, colSpan: j - i, styles: hStyle })
+      for (let k = i; k < j; k++) row2.push({ content: cols[k].label, styles: hStyle })
+      i = j
+    } else {
+      row1.push({ content: col.label, rowSpan: 2, styles: hStyle })
+      i++
+    }
+  }
+
+  const body = rows.map(b => cols.map(c => ({ content: valorMueble(c, b), styles: { halign: c.align || 'center' } })))
+
+  // Fila TOTAL (suma del importe/valor + conteo de registros)
+  const impIdx = cols.findIndex(c => c.key === 'importe' || c.key === 'valorfactura')
+  let foot
+  if (impIdx >= 0 && rows.length > 0) {
+    const suma = rows.reduce((s, b) => s + (Number(b.costoinicial) || 0), 0)
+    const sumaTxt = '$ ' + suma.toLocaleString('es-MX', { minimumFractionDigits: 2 })
+    const fStyle = { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold' }
+    const footRow = cols.map((c, idx) => {
+      let content = ''
+      if (idx === 0) content = 'TOTAL'
+      else if (c.key === 'nombrebien') content = `${rows.length} bienes`
+      else if (idx === impIdx) content = sumaTxt
+      return { content, styles: { ...fStyle, halign: idx === impIdx ? 'right' : 'left' } }
+    })
+    foot = [footRow]
+  }
+
+  autoTable(doc, {
+    startY,
+    head: [row1, row2],
+    body,
+    foot,
+    showFoot: 'lastPage',
+    columnStyles: impIdx >= 0 ? { [impIdx]: { halign: 'right', overflow: 'visible', minCellWidth: 46 } } : {},
+    styles: { font: 'helvetica', fontSize: 6, cellPadding: 2.5, overflow: 'linebreak', valign: 'middle', halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.4, textColor: [0, 0, 0], fillColor: [255, 255, 255] },
+    headStyles: { fillColor: RGB_GRIS, textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 6.5 },
+    bodyStyles: { fillColor: [255, 255, 255] },
+    footStyles: { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 6, cellPadding: 2.5 },
+    alternateRowStyles: { fillColor: [242, 242, 242] },
+    margin: { left: 18, right: 18 },
+  })
+  doc.save(nombreArchivoM('pdf'))
+}
+
+export async function exportarExcelMuebles(rows, cols, titulo = '') {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('INVENTARIO BIENES MUEBLES')
+  const nCols = cols.length
+  const FUENTE = 'Arial'
+  const borde  = { style: 'thin', color: { argb: 'FF' + NEGRO } }
+  const bordes = { top: borde, left: borde, bottom: borde, right: borde }
+
+  function headerCell(cell, val) {
+    cell.value = val
+    cell.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + GRIS_HEADER } }
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+    cell.border = bordes
+  }
+  function dataCell(cell, val, align, wrap, fill) {
+    cell.value = val
+    cell.font = { name: FUENTE, family: 2, size: 11, color: { argb: 'FF' + NEGRO } }
+    cell.alignment = { horizontal: align, vertical: 'middle', wrapText: wrap }
+    cell.border = bordes
+    if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + fill } }
+  }
+
+  cols.forEach((c, idx) => { ws.getColumn(idx + 1).width = c.w })
+
+  let fila = 1
+
+  // Banda de logos: Ayuntamiento (izq), Escudo Nogales (centro), Escudo México (der)
+  let logos = null
+  try {
+    const [ay, nog, mex] = await Promise.all([
+      cargarImagen('/logo-ayuntamiento.png'),
+      cargarImagen('/escudo-nogales.png'),
+      cargarImagen('/escudo-mexico.png'),
+    ])
+    logos = { ay, nog, mex }
+  } catch { logos = null }
+
+  if (logos) {
+    const colPx = cols.map(c => Math.round(c.w * 7 + 5))
+    const totalPx = colPx.reduce((a, b) => a + b, 0)
+    const pxToCol = (x) => { let acc = 0; for (let k = 0; k < colPx.length; k++) { if (x < acc + colPx[k]) return k + (x - acc) / colPx[k]; acc += colPx[k] } return cols.length }
+    const H = 80
+    const Hmex = 112   // escudo de México más grande
+    const add = (im, x, h = H) => {
+      const w = h * im.w / im.h
+      const id = wb.addImage({ base64: im.dataURL, extension: 'png' })
+      ws.addImage(id, { tl: { col: pxToCol(x), row: 0.15 }, ext: { width: w, height: h }, editAs: 'oneCell' })
+      return w
+    }
+    add(logos.ay, 6)
+    const wNog = H * logos.nog.w / logos.nog.h
+    add(logos.nog, (totalPx - wNog) / 2)
+    const wMex = Hmex * logos.mex.w / logos.mex.h
+    add(logos.mex, totalPx - wMex - 6, Hmex)
+    ws.getRow(1).height = 62
+    ws.getRow(2).height = 62
+    fila = 4   // banda en filas 1-2, fila 3 de respiro
+  }
+
+  if (titulo) {
+    ws.mergeCells(fila, 1, fila, nCols)
+    const c = ws.getCell(fila, 1)
+    c.value = titulo
+    c.font = { name: FUENTE, family: 2, size: 16, bold: true, underline: true }
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+    fila += 2   // título + fila en blanco
+  }
+
+  // Encabezado dos filas
+  const hr1 = fila, hr2 = fila + 1
+  let col = 1, i = 0
+  while (i < cols.length) {
+    const c = cols[i]
+    if (c.grupo) {
+      let j = i; while (j < cols.length && cols[j].grupo === c.grupo) j++
+      ws.mergeCells(hr1, col, hr1, col + (j - i) - 1)
+      headerCell(ws.getCell(hr1, col), c.grupo)
+      for (let k = i; k < j; k++) headerCell(ws.getCell(hr2, col + (k - i)), cols[k].label)
+      col += (j - i); i = j
+    } else {
+      ws.mergeCells(hr1, col, hr2, col)
+      headerCell(ws.getCell(hr1, col), c.label)
+      col++; i++
+    }
+  }
+  // Bordes en toda la región de encabezado
+  for (let r = hr1; r <= hr2; r++) for (let cc = 1; cc <= nCols; cc++) ws.getCell(r, cc).border = bordes
+  fila = hr2 + 1
+
+  const MONEY_KEYS = ['importe', 'valorfactura']
+  const impIdx = cols.findIndex(c => MONEY_KEYS.includes(c.key))   // índice 0-based de la columna de dinero
+  const FMT_MONEDA = '"$ "#,##0.00'
+  const filaInicioDatos = fila
+
+  rows.forEach((b, idx) => {
+    const row = ws.getRow(fila)
+    const fill = idx % 2 === 1 ? FRANJA : null
+    cols.forEach((c, ci) => {
+      const cell = row.getCell(ci + 1)
+      if (MONEY_KEYS.includes(c.key)) {
+        // Valor como número (para que la fórmula de suma funcione)
+        cell.value = Number(b.costoinicial) || 0
+        cell.numFmt = FMT_MONEDA
+        cell.font = { name: FUENTE, family: 2, size: 11, color: { argb: 'FF' + NEGRO } }
+        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        cell.border = bordes
+        if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + fill } }
+      } else {
+        dataCell(cell, valorMueble(c, b), c.align || 'center', !c.noWrap, fill)
+      }
+    })
+    fila++
+  })
+  const filaFinDatos = fila - 1
+
+  // Ancho automático de la columna de dinero según el contenido
+  if (impIdx >= 0) {
+    let maxImp = 'VALOR FACTURA'.length
+    for (const b of rows) {
+      const txt = '$ ' + (Number(b.costoinicial) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })
+      if (txt.length > maxImp) maxImp = txt.length
+    }
+    ws.getColumn(impIdx + 1).width = maxImp + 3
+  }
+
+  // Combina celdas repetidas consecutivas en ÁREA DE ADSCRIPCIÓN y NÚMERO DE OFICIO
+  const areaIdx = cols.findIndex(c => c.key === 'area')
+  const oficioIdx = cols.findIndex(c => c.key === 'numero_oficio')
+  if (areaIdx >= 0 && filaFinDatos >= filaInicioDatos) {
+    let r = filaInicioDatos
+    while (r <= filaFinDatos) {
+      const val = ws.getCell(r, areaIdx + 1).value
+      let r2 = r
+      while (r2 + 1 <= filaFinDatos && ws.getCell(r2 + 1, areaIdx + 1).value === val) r2++
+      if (r2 > r) {
+        ws.mergeCells(r, areaIdx + 1, r2, areaIdx + 1)
+        ws.getCell(r, areaIdx + 1).alignment = { horizontal: cols[areaIdx].align || 'center', vertical: 'middle', wrapText: true }
+        if (oficioIdx >= 0) {
+          ws.mergeCells(r, oficioIdx + 1, r2, oficioIdx + 1)
+          ws.getCell(r, oficioIdx + 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+        }
+      }
+      r = r2 + 1
+    }
+  }
+
+  // Fila de TOTAL (suma del importe con fórmula + conteo de bienes)
+  if (impIdx >= 0 && rows.length > 0) {
+    const letra = ws.getColumn(impIdx + 1).letter
+    const nombreIdx = cols.findIndex(c => c.key === 'nombrebien')
+    const setTotal = (ci, val, align) => {
+      const cell = ws.getCell(fila, ci + 1)
+      cell.value = val
+      cell.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
+      cell.alignment = { horizontal: align, vertical: 'middle' }
+    }
+    setTotal(0, 'TOTAL', 'left')
+    if (nombreIdx >= 0) setTotal(nombreIdx, `${rows.length} bienes`, 'left')
+    const sumCell = ws.getCell(fila, impIdx + 1)
+    sumCell.value = { formula: `SUM(${letra}${filaInicioDatos}:${letra}${filaFinDatos})` }
+    sumCell.numFmt = FMT_MONEDA
+    sumCell.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
+    sumCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    // Bordes y relleno striped en toda la fila total
+    for (let cc = 1; cc <= nCols; cc++) {
+      const cell = ws.getCell(fila, cc)
+      cell.border = bordes
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + FRANJA } }
+    }
+    fila++
+  }
+
+  const buf = await wb.xlsx.writeBuffer()
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivoM('xlsx'))
+}
+
+// ── ADQUISICIONES: agrupación y exportación ────────────────────────────────────
+const NOMBRES_PARTIDA = {
+  '51101': 'MUEBLES DE OFICINA Y ESTANTERIA',
+  '51201': 'MUEBLES EXCEPTO DE OFICINA Y ESTANTERIA',
+  '51501': 'EQUIPO DE COMPUTO Y DE TECNOLOGIAS DE LA INFORMACION',
+  '51502': 'BIENES INFORMATICOS',
+  '51901': 'OTRO MOBILIARIO Y EQUIPOS DE ADMINISTRACION',
+  '51903': 'ADQUISICION DE SEÑALES DE TRANSITO',
+  '52101': 'EQUIPOS Y APARATOS AUDIOVISUALES',
+  '52201': 'APARATOS DEPORTIVOS',
+  '52301': 'CAMARAS FOTOGRAFICAS Y DE VIDEO',
+  '52901': 'OTRO MOBILIARIO Y EQUIPO EDUCACIONAL Y RECREATIVO',
+  '53101': 'EQUIPO MEDICO Y DE LABORATORIO',
+  '54101': 'AUTOMOVILES Y CAMIONES',
+  '54102': 'VEHICULOS Y EQUIPOS TERRESTRES DESTINADOS A SERVICIO',
+  '54103': 'VEHICULOS DE LIMPIEZA Y RECOLECCION DE BASURA',
+  '54201': 'CARROCERIA Y REMOLQUES',
+  '54901': 'OTROS EQUIPOS DE TRANSPORTE',
+  '55101': 'MAQUINARIA Y EQUIPO DE DEFENSA Y SEGURIDAD PUBLICA',
+  '55103': 'SISTEMAS INTEGRALES DE SEGURIDAD PUBLICA',
+  '56201': 'MAQUINARIA Y EQUIPO INDUSTRIAL',
+  '56301': 'MAQUINARIA Y EQUIPO DE CONSTRUCCION',
+  '56401': 'SISTEMAS DE AIRE ACONDICIONADO CALEFACCION',
+  '56501': 'EQUIPO DE COMUNICACION Y TELECOMUNICACION',
+  '56601': 'EQUIPOS DE GENERACION ELECTRICA Y APARATOS',
+  '56701': 'HERRAMIENTAS',
+  '56702': 'REFACCIONES Y ACCESORIOS MAYORES',
+  '56903': 'OTROS BIENES MUEBLES',
+  '51301': 'BIENES ARTISTICOS CULTURALES Y CIENTIFICOS',
+  '57801': 'ARBOLES Y PLANTAS',
+  '59101': 'SOFTWARE',
+  '59701': 'LICENCIAS INFORMATICAS E INTELECTUALES',
+}
+
+const COLS_ADQ = [
+  { key: 'area',            label: 'DEPENDENCIA',                 w: 42, align: 'left' },
+  { key: 'numerofactura',   label: 'FACTURA',                     w: 20 },
+  { key: 'proveedor',       label: 'PROVEEDOR',                   w: 36, align: 'left' },
+  { key: 'fechafactura',    label: 'FECHA FACTURA',               w: 16 },
+  { key: 'importe',         label: 'IMPORTE',                     w: 22 },
+  { key: 'cantidad',        label: 'CANTIDAD DE BIENES',          w: 16 },
+  { key: 'partida',         label: 'PARTIDA',                     w: 16 },
+]
+
+function agruparAdquisiciones(rows) {
+  const mapa = new Map()
+  for (const b of rows) {
+    // Agrupar por factura+fecha+partida: una misma factura que compró bienes de
+    // distintas partidas produce una fila por cada partida, en vez de mezclarlas.
+    const key = (b.numerofactura || 'SIN FACTURA') + '||' + (b.fechafactura || '') + '||' + (b.partida || '')
+    if (!mapa.has(key)) {
+      mapa.set(key, {
+        areas: new Set(),
+        numerofactura: b.numerofactura || 'SIN FACTURA',
+        proveedor: b.proveedor || '—',
+        fechafactura: b.fechafactura || '—',
+        costoinicial: 0,
+        partida: b.partida || '',
+        count: 0,
+        _idfacturas: new Set(),
+      })
+    }
+    const g = mapa.get(key)
+    g.count++
+    if (b.area) g.areas.add(b.area)
+    // Sumar costoinicial solo una vez por idfactura único
+    if (b.idfactura != null && !g._idfacturas.has(b.idfactura)) {
+      g._idfacturas.add(b.idfactura)
+      g.costoinicial += Number(b.costoinicial) || 0
+    } else if (b.idfactura == null) {
+      g.costoinicial += Number(b.costoinicial) || 0
+    }
+  }
+  return [...mapa.values()].map(g => ({
+    area: [...g.areas].join(', ') || '—',
+    numerofactura: g.numerofactura,
+    proveedor: g.proveedor,
+    fechafactura: g.fechafactura,
+    costoinicial: g.costoinicial,
+    partida: g.partida,
+    count: g.count,
+  }))
+}
+
+function valorAdq(col, g) {
+  switch (col.key) {
+    case 'importe':  return g.costoinicial ? '$ ' + Number(g.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''
+    case 'cantidad': return String(g.count)
+    case 'partida': {
+      const p = g.partida
+      if (!p) return ''
+      const nombre = NOMBRES_PARTIDA[p]
+      return nombre ? `${p} - ${nombre}` : p
+    }
+    default:         return g[col.key] != null ? String(g[col.key]) : ''
+  }
+}
+
+async function exportarAdquisicionesPDF(grupos, titulo, anio) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+  const margin = 18
+  let startY = await dibujarLogosPDF(doc, pageW, margin)
+
+  // Títulos a la izquierda (idénticos al Excel)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0)
+  doc.text('ALTAS ADMINISTRACION 2024-2027', margin, startY + 4)
+  doc.text(`AÑO ${anio}`, margin, startY + 18)
+  startY += 30
+
+  const impIdx = COLS_ADQ.findIndex(c => c.key === 'importe')
+
+  // Anchos de columna proporcionales a los del Excel (misma distribución visual)
+  const totalW = pageW - margin * 2
+  const sumW   = COLS_ADQ.reduce((a, c) => a + c.w, 0)
+  const columnStyles = {}
+  COLS_ADQ.forEach((c, i) => {
+    columnStyles[i] = { cellWidth: totalW * c.w / sumW, halign: c.key === 'importe' ? 'right' : (c.align || 'center') }
+  })
+
+  const hStyle = { fillColor: [191, 191, 191], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' }
+  const head   = [COLS_ADQ.map(c => ({ content: c.label, styles: hStyle }))]
+  const body   = grupos.map(g => COLS_ADQ.map(c => ({ content: valorAdq(c, g), styles: { halign: c.key === 'importe' ? 'right' : (c.align || 'center') } })))
+  const suma   = grupos.reduce((s, g) => s + (Number(g.costoinicial) || 0), 0)
+  const foot   = [COLS_ADQ.map((c, i) => ({
+    content: i === 0 ? 'TOTAL' : i === impIdx ? '$ ' + suma.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '',
+    styles: { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold', halign: i === impIdx ? 'right' : 'left' },
+  }))]
+
+  autoTable(doc, {
+    startY, head, body, foot, showFoot: 'lastPage',
+    columnStyles,
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle', lineColor: [0, 0, 0], lineWidth: 0.5, textColor: [0, 0, 0], fillColor: [255, 255, 255] },
+    headStyles: { fillColor: [191, 191, 191], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8, halign: 'center', valign: 'middle' },
+    alternateRowStyles: { fillColor: [242, 242, 242] },
+    margin: { left: margin, right: margin },
+  })
+  doc.save(`adquisiciones-${anio}.pdf`)
+}
+
+async function exportarAdquisicionesExcel(grupos, titulo, anio) {
+  const FUENTE = 'Arial'
+  const borde  = { style: 'thin', color: { argb: 'FF' + NEGRO } }
+  const bordes = { top: borde, left: borde, bottom: borde, right: borde }
+  const nCols  = COLS_ADQ.length
+  const wb = new ExcelJS.Workbook()
+
+  // ── Geometría espejo del PDF (jsPDF landscape A4) ──
+  // El PDF reparte (pageW - 2*margin) según los pesos c.w. Convertimos ese ancho en pt a
+  // ancho de columna de Excel: px = pt*4/3 ; ancho_chars = (px - 5) / 7.
+  const PT_A_PX = 4 / 3
+  const totalPt = 841.89 - 18 * 2                       // ancho útil del PDF (margin=18)
+  const sumW    = COLS_ADQ.reduce((a, c) => a + c.w, 0)
+  const colChar = COLS_ADQ.map(c => (totalPt * c.w / sumW * PT_A_PX - 5) / 7)
+  const colPxArr = colChar.map(w => Math.round(w * 7 + 5))
+  const totPxAll = colPxArr.reduce((a, b) => a + b, 0)
+  const pxToColG = x => { let acc = 0; for (let k = 0; k < colPxArr.length; k++) { if (x < acc + colPxArr[k]) return k + (x - acc) / colPxArr[k]; acc += colPxArr[k] } return nCols }
+
+  // Logos cargados una sola vez
+  let logos = null
+  try {
+    const [ay, nog, mex] = await Promise.all([
+      cargarImagen('/logo-ayuntamiento.png'),
+      cargarImagen('/escudo-nogales.png'),
+      cargarImagen('/escudo-mexico.png'),
+    ])
+    logos = { ay, nog, mex }
+  } catch { logos = null }
+
+  function agregarLogos(ws) {
+    if (!logos) return 1
+    // Mismos tamaños que el PDF (dibujarLogosPDF): H=46, Hmex=66.
+    const H = 46, Hmex = 66
+    ws.getRow(1).height = 34; ws.getRow(2).height = 34
+    const BAND_PX = Math.round((34 + 34) * PT_A_PX)
+    const add = (im, centroX, h) => {
+      const w = h * im.w / im.h
+      const id = wb.addImage({ base64: im.dataURL, extension: 'png' })
+      ws.addImage(id, {
+        tl: { col: pxToColG(centroX - w / 2), row: (BAND_PX - h) / 2 / BAND_PX * 2 },
+        ext: { width: w, height: h },
+        editAs: 'oneCell',
+      })
+    }
+    const wAy = H * logos.ay.w / logos.ay.h; add(logos.ay, 6 + wAy / 2, H)
+    add(logos.nog, totPxAll / 2, H)
+    const wMex = Hmex * logos.mex.w / logos.mex.h; add(logos.mex, totPxAll - 6 - wMex / 2, Hmex)
+    return 4
+  }
+
+  function llenarHoja(ws, filas) {
+    colChar.forEach((w, idx) => { ws.getColumn(idx + 1).width = w })
+    let fila = agregarLogos(ws)
+
+    // Encabezados fijos
+    const setTxt = (f, val, bold = false) => {
+      ws.mergeCells(f, 1, f, nCols)
+      const c = ws.getCell(f, 1)
+      c.value = val
+      c.font = { name: FUENTE, size: 11, bold }
+      c.alignment = { horizontal: 'left', vertical: 'middle' }
+    }
+    setTxt(fila,     'ALTAS ADMINISTRACION 2024-2027', true); fila++
+    setTxt(fila,     `AÑO ${anio}`,                    true); fila++
+    fila++ // fila en blanco
+
+    // Cabecera de columnas
+    COLS_ADQ.forEach((c, ci) => {
+      const cell = ws.getCell(fila, ci + 1)
+      cell.value = c.label
+      cell.font = { name: FUENTE, size: 8, bold: true }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + GRIS_HEADER } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+      cell.border = bordes
+    })
+    ws.getRow(fila).height = 26
+    fila++
+
+    const FMT_MONEDA = '"$ "#,##0.00'
+    const impIdx = COLS_ADQ.findIndex(c => c.key === 'importe')
+    const filaInicio = fila
+
+    filas.forEach((g, idx) => {
+      const fill = idx % 2 === 1 ? FRANJA : null
+      COLS_ADQ.forEach((c, ci) => {
+        const cell = ws.getCell(fila, ci + 1)
+        cell.font = { name: FUENTE, size: 8 }
+        cell.border = bordes
+        cell.alignment = { horizontal: c.key === 'importe' ? 'right' : (c.align || 'center'), vertical: 'middle', wrapText: true, indent: (c.align === 'left') ? 1 : 0 }
+        if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + fill } }
+        if (c.key === 'importe') {
+          cell.value = Number(g.costoinicial) || 0
+          cell.numFmt = FMT_MONEDA
+        } else if (c.key === 'cantidad') {
+          cell.value = g.count
+        } else {
+          cell.value = valorAdq(c, g)
+        }
+      })
+      // No se fija la altura: con wrapText activo, Excel autoajusta la altura de la fila
+      // al texto envuelto (DEPENDENCIA/PROVEEDOR largos) y así los renglones no se enciman.
+      fila++
+    })
+    const filaFin = fila - 1
+
+    // Fila TOTAL
+    if (filas.length > 0) {
+      const letra = ws.getColumn(impIdx + 1).letter
+      COLS_ADQ.forEach((c, ci) => {
+        const cell = ws.getCell(fila, ci + 1)
+        cell.font = { name: FUENTE, size: 8, bold: true }
+        cell.border = bordes
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + FRANJA } }
+        cell.alignment = { horizontal: ci === impIdx ? 'right' : 'left', vertical: 'middle' }
+        if (ci === 0) cell.value = 'TOTAL'
+      })
+      const sumCell = ws.getCell(fila, impIdx + 1)
+      sumCell.value = { formula: `SUM(${letra}${filaInicio}:${letra}${filaFin})` }
+      sumCell.numFmt = FMT_MONEDA
+      sumCell.font = { name: FUENTE, size: 8, bold: true }
+      sumCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    }
+  }
+
+  // ── Hoja resumen (primera hoja) ──────────────────────────────────────────
+  const COLS_RES = [
+    { label: 'PARTIDA',     w: 10 },
+    { label: 'CAPÍTULO',    w: 52 },
+    { label: 'SINDICATURA', w: 22 },
+    { label: 'TESORERÍA',   w: 22 },
+  ]
+  const resPxArr = COLS_RES.map(c => Math.round(c.w * 7 + 5))
+  const resTotPx = resPxArr.reduce((a, b) => a + b, 0)
+  const wsResumen = wb.addWorksheet(`RESUMEN ${anio}`)
+  COLS_RES.forEach((c, i) => { wsResumen.getColumn(i + 1).width = c.w })
+  const FMT_MONEDA = '"$ "#,##0.00'
+
+  let filaRes = 1
+  if (logos) {
+    const H = 80, Hmex = 112, ROW_H = 62, EMU_PX = 9525
+    wsResumen.getRow(1).height = ROW_H; wsResumen.getRow(2).height = ROW_H
+    const rowPx = ROW_H * 96 / 72, bandPx = rowPx * 2
+    const colNR = px => { let acc = 0; for (let k = 0; k < resPxArr.length; k++) { if (px <= acc + resPxArr[k]) return { nativeCol: k, nativeColOff: Math.round((px - acc) * EMU_PX) }; acc += resPxArr[k] } return { nativeCol: resPxArr.length - 1, nativeColOff: 0 } }
+    const rowNR = px => { const idx = Math.floor(px / rowPx); return { nativeRow: idx, nativeRowOff: Math.round((px - idx * rowPx) * EMU_PX) } }
+    const plR = (im, lx, h) => { const w = h * im.w / im.h; const top = (bandPx - h) / 2; const { nativeCol, nativeColOff } = colNR(lx); const { nativeRow, nativeRowOff } = rowNR(top); const id = wb.addImage({ base64: im.dataURL, extension: 'png' }); wsResumen.addImage(id, { tl: { nativeCol, nativeColOff, nativeRow, nativeRowOff }, ext: { width: w, height: h }, editAs: 'oneCell' }) }
+    const wNog = H * logos.nog.w / logos.nog.h, wMex = Hmex * logos.mex.w / logos.mex.h
+    plR(logos.ay,  6, H)
+    plR(logos.nog, resTotPx / 2 - wNog / 2, H)
+    plR(logos.mex, resTotPx - 6 - wMex, Hmex)
+    wsResumen.getRow(3).height = 8
+    filaRes = 4
+  }
+
+  // Año
+  wsResumen.mergeCells(filaRes, 1, filaRes, COLS_RES.length)
+  Object.assign(wsResumen.getCell(filaRes, 1), { value: String(anio), font: { name: FUENTE, size: 12, bold: true }, alignment: { horizontal: 'left', vertical: 'middle' } })
+  wsResumen.getRow(filaRes).height = 20; filaRes++
+
+  // Encabezado
+  COLS_RES.forEach((c, ci) => {
+    const cell = wsResumen.getCell(filaRes, ci + 1)
+    cell.value = c.label
+    cell.font = { name: FUENTE, size: 10, bold: true }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + GRIS_HEADER } }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    cell.border = bordes
+  })
+  wsResumen.getRow(filaRes).height = 20; filaRes++
+
+  // Fila capítulo 5000
+  const setC = (ci, val, fmt, align, bold) => {
+    const cell = wsResumen.getCell(filaRes, ci)
+    cell.value = val; cell.border = bordes
+    cell.font = { name: FUENTE, size: 10, bold: !!bold }
+    cell.alignment = { horizontal: align || 'center', vertical: 'middle' }
+    if (fmt) cell.numFmt = fmt
+  }
+  setC(1, '5000', null, 'center', true)
+  ;[2, 3, 4].forEach(ci => { wsResumen.getCell(filaRes, ci).border = bordes })
+  filaRes++
+
+  // Suma por partida
+  const partidasMap = new Map()
+  for (const g of grupos) {
+    const p = g.partida || '—'
+    partidasMap.set(p, (partidasMap.get(p) || 0) + (Number(g.costoinicial) || 0))
+  }
+  const partidasSorted = [...partidasMap.entries()].sort(([a], [b]) => String(a).localeCompare(String(b)))
+  const filaResInicio = filaRes - 1  // incluye fila 5000 para el SUM
+  for (const [partida, total] of partidasSorted) {
+    const nombreP = NOMBRES_PARTIDA[partida] || ''
+    const capitulo = nombreP ? `${partida} - ${nombreP}` : partida
+    setC(1, null); setC(2, capitulo, null, 'left'); setC(3, total, FMT_MONEDA, 'right'); setC(4, null, null, 'right')
+    wsResumen.getCell(filaRes, 1).border = bordes
+    filaRes++
+  }
+
+  // Fila TOTAL
+  const filaResFin = filaRes - 1
+  ;[1, 2, 3, 4].forEach(ci => {
+    const cell = wsResumen.getCell(filaRes, ci)
+    cell.font = { name: FUENTE, size: 10, bold: true }
+    cell.border = bordes
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + FRANJA } }
+    cell.alignment = { horizontal: ci >= 3 ? 'right' : 'left', vertical: 'middle' }
+  })
+  wsResumen.getCell(filaRes, 1).value = 'TOTAL'
+  const letraSind = wsResumen.getColumn(3).letter
+  const totCell = wsResumen.getCell(filaRes, 3)
+  totCell.value = { formula: `SUM(${letraSind}${filaResInicio}:${letraSind}${filaResFin})` }
+  totCell.numFmt = FMT_MONEDA
+  totCell.font = { name: FUENTE, size: 10, bold: true }
+  totCell.alignment = { horizontal: 'right', vertical: 'middle' }
+
+  // ── Hoja principal — todos los grupos ────────────────────────────────────
+  const wsMain = wb.addWorksheet(`ADQUISICIONES ${anio}`)
+  llenarHoja(wsMain, grupos)
+
+  // Hojas por capítulo (partida)
+  const partidas = [...new Set(grupos.map(g => g.partida).filter(Boolean))].sort()
+  for (const partida of partidas) {
+    const wsP = wb.addWorksheet(`${partida}-${anio}`)
+    llenarHoja(wsP, grupos.filter(g => g.partida === partida))
+  }
+
+  const buf = await wb.xlsx.writeBuffer()
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `adquisiciones-${anio}.xlsx`)
+}
+
+// ── Modal Adquisiciones ──────────────────────────────────────────────────────────
+export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
+  const hoy = new Date()
+  const [desde, setDesde]   = useState(`${hoy.getFullYear()}-01-01`)
+  const [hasta, setHasta]   = useState(`${hoy.getFullYear()}-12-31`)
+  const [titulo, setTitulo] = useState(`ADQUISICIONES ${hoy.getFullYear()}`)
+  const [generando, setGenerando] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const anio = desde ? desde.slice(0, 4) : String(new Date().getFullYear())
+
+  async function generar(formato) {
+    setGenerando(formato); setErr(null)
+    try {
+      const rows = await fetchPorFechaFactura({ desde: desde || null, hasta: hasta || null, areaIds: filtros.filtroAreaIds })
+      if (!rows.length) { setErr('No hay registros en ese periodo'); setGenerando(null); return }
+      const grupos = agruparAdquisiciones(rows)
+      if (formato === 'excel') await exportarAdquisicionesExcel(grupos, titulo.trim(), anio)
+      else                     await exportarAdquisicionesPDF(grupos, titulo.trim(), anio)
+      onClose()
+    } catch (e) { setErr(e.message) } finally { setGenerando(null) }
+  }
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'480px', maxWidth:'94vw', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,200,255,0.15)' : 'rgba(30,80,200,0.08)', border: dark ? '1px solid rgba(168,200,255,0.3)' : '1px solid rgba(30,80,200,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-file-invoice" style={{ fontSize:'18px', color: dark ? '#a8c8ff' : '#1e4dcc' }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de Adquisiciones</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Agrupado por factura</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        {/* Cuerpo */}
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          <div>
+            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Título del reporte</p>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)} style={iStyle(dark)} placeholder="Ej. ADQUISICIONES 2025" />
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+            <div>
+              <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Fecha desde</p>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={iStyle(dark)} />
+            </div>
+            <div>
+              <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Fecha hasta</p>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={iStyle(dark)} />
+            </div>
+          </div>
+          <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)' }}>
+            Incluye todos los bienes cuya fecha de factura esté en el rango seleccionado, agrupados por número de factura.
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom:'10px' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => generar('excel')} disabled={!!generando}
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: generando ? 'not-allowed' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+              {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize:'16px' }} />Excel</>}
+            </button>
+            <button onClick={() => generar('pdf')} disabled={!!generando}
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: generando ? 'not-allowed' : 'pointer', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+              {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize:'16px' }} />PDF</>}
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── Modal Reporte ───────────────────────────────────────────────────────────────
+function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, totalFiltrados }) {
+  const COLS = colsReporte(modo)
+  const haySel = seleccionados.length > 0
+  const [colsSel, setColsSel] = useState(() => new Set(COLS.map(c => c.key)))
+  const [titulo, setTitulo]   = useState('')
+  const [alcance, setAlcance] = useState(haySel ? 'seleccion' : 'todos')
+  const [generando, setGenerando] = useState(null)
+  const [err, setErr] = useState(null)
+
+  function toggleCol(key) {
+    setColsSel(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  }
+  const todasCols = colsSel.size === COLS.length
+  function toggleTodas() { setColsSel(todasCols ? new Set() : new Set(COLS.map(c => c.key))) }
+
+  async function generar(formato) {
+    if (colsSel.size === 0) { setErr('Selecciona al menos una columna'); return }
+    setGenerando(formato); setErr(null)
+    try {
+      const rows = alcance === 'seleccion' ? await fetchPorIdsMuebles(seleccionados) : await fetchTodosMuebles(filtros)
+      if (!rows.length) { setErr('No hay registros para el reporte'); setGenerando(null); return }
+      const cols = COLS.filter(c => colsSel.has(c.key))
+      const tit = titulo.trim()
+      if (formato === 'excel') await exportarExcelMuebles(rows, cols, tit)
+      else                     await exportarPDFMuebles(rows, cols, tit)
+      onClose()
+    } catch (e) { setErr(e.message) } finally { setGenerando(null) }
+  }
+
+  const sepBorder = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const conteoAlcance = alcance === 'seleccion' ? seleccionados.length : totalFiltrados
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-file-export" style={{ fontSize:'18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Generar Reporte</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Elige columnas y formato</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        {/* Cuerpo desplazable */}
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+          {/* Registros */}
+          <div>
+            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
+              <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
+                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
+                <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{seleccionados.length} seleccionado{seleccionados.length !== 1 ? 's' : ''}
+              </button>
+              <button onClick={() => setAlcance('todos')}
+                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: alcance === 'todos' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'todos' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'todos' ? t.text1 : t.text3 }}>
+                <i className="ti ti-list" style={{ fontSize:'16px' }} />Todos ({totalFiltrados.toLocaleString()})
+              </button>
+            </div>
+            <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', marginTop:'7px' }}>
+              {alcance === 'seleccion' ? 'Solo los registros que marcaste con checkbox.' : 'Todos los registros que cumplen los filtros actuales.'}
+            </p>
+          </div>
+
+          {/* Columnas */}
+          <div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }}>
+              <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Columnas ({colsSel.size}/{COLS.length})</p>
+              <button onClick={toggleTodas} style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', fontSize:'12px', color: dark ? '#f0f0f0' : '#000', fontWeight:500 }}>{todasCols ? 'Quitar todas' : 'Todas'}</button>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
+              {COLS.map(c => {
+                const sel = colsSel.has(c.key)
+                return (
+                  <div key={c.key} onClick={() => toggleCol(c.key)} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', borderRadius:'8px', cursor:'pointer', border:`1px solid ${sel ? (dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)') : (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')}`, background: sel ? (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)') : 'transparent', transition:'all 0.12s' }}>
+                    <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {sel && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                    </div>
+                    <span style={{ fontSize:'13px', color: dark ? '#f0f0f0' : '#111', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.m}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer fijo con botones */}
+        <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom:'10px' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => generar('excel')} disabled={generando || conteoAlcance === 0}
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: generando || conteoAlcance === 0 ? 'not-allowed' : 'pointer', opacity: conteoAlcance === 0 ? 0.5 : 1, background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+              {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize:'16px' }} />Excel</>}
+            </button>
+            <button onClick={() => generar('pdf')} disabled={generando || conteoAlcance === 0}
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: generando || conteoAlcance === 0 ? 'not-allowed' : 'pointer', opacity: conteoAlcance === 0 ? 0.5 : 1, background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+              {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize:'16px' }} />PDF</>}
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── Modal Categoría ───────────────────────────────────────────────────────────
+function ModalTipoFilter({ modo, onSelect, onClose, dark, t }) {
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '440px', maxWidth: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ padding: '1.1rem 1.4rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className="ti ti-category" style={{ fontSize: '18px', color: t.text2 }} />
+            </div>
+            <div>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Categoría</p>
+              <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Elige la categoría de bienes que quieres ver</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize: '15px' }} />
+          </button>
+        </div>
+
+        {/* Lista de categorías */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1rem 1.4rem' }}>
+          {MODOS.map(m => {
+            const sel = m.id === modo
+            return (
+              <button key={m.id} onClick={() => onSelect(m.id)}
+                style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', padding: '11px 13px', borderRadius: '9px', marginBottom: '4px', cursor: 'pointer', fontFamily: 'inherit', background: sel ? (dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)') : 'transparent', border: `1px solid ${sel ? t.cardBorder : 'transparent'}`, color: t.text1, transition: 'background 0.12s' }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent' }}>
+                <i className={`ti ${m.icon}`} style={{ fontSize: '18px', color: sel ? t.text1 : t.text3 }} />
+                <span style={{ fontSize: '14px', fontWeight: sel ? 600 : 400 }}>{m.label}</span>
+                {sel && <i className="ti ti-check" style={{ fontSize: '15px', color: t.text2, marginLeft: 'auto' }} />}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── Modal Nuevo Bien ──────────────────────────────────────────────────────────
+function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
+  const [clave, setClave]     = useState('')
+  const [nombre, setNombre]   = useState('')
+  const [tipo, setTipo]       = useState('')
+  const [marca, setMarca]     = useState('')
+  const [serie, setSerie]     = useState('')
+  const [idarea, setIdarea]   = useState('')
+  const [modoSel, setModoSel] = useState(modo)
+  const [obs, setObs]         = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  // Áreas agrupadas por dependencia para el <select>
+  const grupos = useMemo(() => {
+    const m = new Map()
+    for (const a of allAreas) {
+      const dep = a.nombredependencia || 'Sin dependencia'
+      if (!m.has(dep)) m.set(dep, [])
+      m.get(dep).push(a)
+    }
+    return [...m.entries()]
+  }, [allAreas])
+
+  async function guardar() {
+    if (!nombre.trim()) { setErr('El nombre del bien es obligatorio'); return }
+    if (!idarea)        { setErr('Selecciona el área a la que pertenece'); return }
+    setGuardando(true); setErr(null)
+    try {
+      // idbien no es autoincremental: se calcula como el máximo actual + 1
+      const { data: maxRow, error: e1 } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
+      if (e1) throw e1
+      const idbien = ((maxRow && maxRow[0]?.idbien) || 0) + 1
+      const { error: e2 } = await supabase.from('bienes').insert({
+        idbien,
+        claveinventario: clave.trim() || null,
+        nombrebien: nombre.trim().toUpperCase(),
+        tipo: tipo.trim() || null,
+        marca: marca.trim() || null,
+        serie: serie.trim() || null,
+        observaciones: obs.trim() || null,
+        idarea: Number(idarea),
+        categoriainventario: (CATS_BY_MODO[modoSel] || CATS_BY_MODO.mobiliario)[0],
+        estadobien: 'ACTIVO',
+      })
+      if (e2) throw e2
+      onCreated(modoSel)
+      onClose()
+    } catch (e) { setErr(e.message); setGuardando(false) }
+  }
+
+  const lbl = (txt) => <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>{txt}</p>
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'520px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-circle-plus" style={{ fontSize:'18px', color: t.text2 }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Nuevo bien</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Registrar un bien mueble en el inventario</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        {/* Cuerpo */}
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+            <div>{lbl('Clave de inventario')}<input value={clave} onChange={e => setClave(e.target.value)} placeholder="Ej. JC13-H6-2-007" style={iStyle(dark)} /></div>
+            <div>{lbl('Categoría')}
+              <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
+                {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej. IMPRESORA MULTIFUNCIONAL" style={iStyle(dark)} /></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
+            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} placeholder="Ej. HP" style={iStyle(dark)} /></div>
+            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Ej. DESKJET 3512" style={iStyle(dark)} /></div>
+            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} placeholder="Ej. CN2CSIPHXS" style={iStyle(dark)} /></div>
+          </div>
+          <div>{lbl('Área / Dependencia *')}
+            <select value={idarea} onChange={e => setIdarea(e.target.value)} style={iStyle(dark)}>
+              <option value="">Selecciona un área…</option>
+              {grupos.map(([dep, areas]) => (
+                <optgroup key={dep} label={dep}>
+                  {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div>{lbl('Observaciones')}<textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} placeholder="Opcional" style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} /></div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom:'10px' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={onClose} style={{ flex:1, padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'transparent', border:`1px solid ${t.cardBorder}`, color: t.text2 }}>Cancelar</button>
+            <button onClick={guardar} disabled={guardando}
+              style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</> : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />Registrar</>}
+            </button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── PÁGINA ────────────────────────────────────────────────────────────────────
+export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos' }) {
+  const { dark, t, sidebarOpen } = useTheme()
+
+  const [modo, setModo]                     = useState(initialModo)
+  const [datos, setDatos]                   = useState([])
+  const [allAreas, setAllAreas]             = useState([])
+  const [loading, setLoading]               = useState(true)
+  const [error, setError]                   = useState(null)
+  const [pagina, setPagina]                 = useState(0)
+  const [totalRegistros, setTotalRegistros] = useState(0)
+  const [porPagina, setPorPagina]           = useState(10)
+
+  const [busqueda, setBusqueda]             = useState('')
+  const [filtroBien, setFiltroBien]         = useState('')
+  const [modalTipo, setModalTipo]           = useState(false)
+  const [areasSelec, setAreasSelec]         = useState(initialAreaFilter)
+  const [filtroEstado, setFiltroEstado]     = useState(initialEstado)
+
+  const [modoSeleccion, setModoSeleccion]   = useState(false)
+  const [seleccionados, setSeleccionados]   = useState(() => new Map())   // idbien → bien
+  const [modalReporte, setModalReporte]     = useState(false)
+  const [modalSolicitar, setModalSolicitar] = useState(null)              // array de bienes | null
+
+  const [panelBien, setPanelBien]           = useState(null)
+  const [modalEditar, setModalEditar]       = useState(null)
+  const [modalResguardo, setModalResguardo] = useState(null)
+  const [modalBaja, setModalBaja]           = useState(null)
+  const [modalTrasp, setModalTrasp]         = useState(null)
+  const [modalNuevo, setModalNuevo]         = useState(false)
+
+  const skipDebounce = useRef(true)
+
+  useEffect(() => {
+    fetchAreas().then(setAllAreas).catch(console.error)
+  }, [])
+
+  const cargar = useCallback((pag, params = {}) => {
+    setLoading(true)
+    setError(null)
+    fetchBienes({
+      modo:          params.modo          ?? modo,
+      pagina:        pag,
+      busqueda:      params.busqueda      ?? busqueda,
+      filtroBien:    params.filtroBien    ?? filtroBien,
+      filtroEstado:  params.filtroEstado  ?? filtroEstado,
+      filtroAreaIds: params.filtroAreaIds ?? areasSelec,
+      porPagina:     params.porPagina     ?? porPagina,
+    })
+      .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(pag) })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [modo, busqueda, filtroBien, filtroEstado, areasSelec, porPagina])
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina })
+      .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(0) })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [modo])
+
+  useEffect(() => {
+    if (skipDebounce.current) { skipDebounce.current = false; return }
+    const timer = setTimeout(() => cargar(0), 400)
+    return () => clearTimeout(timer)
+  }, [busqueda, filtroBien, filtroEstado, areasSelec, porPagina])
+
+  const hayFiltros = busqueda || filtroBien || areasSelec.length > 0 || filtroEstado !== 'Todos'
+  const esVehiculo = modo === 'vehiculos' || modo === 'maquinaria'
+  const datosFiltrados = datos
+
+  function toggleSeleccion(b) {
+    setSeleccionados(prev => { const n = new Map(prev); n.has(b.idbien) ? n.delete(b.idbien) : n.set(b.idbien, b); return n })
+  }
+  function toggleModoSeleccion() {
+    setModoSeleccion(m => { if (m) setSeleccionados(new Map()); return !m })
+  }
+  const idsPagina  = datosFiltrados.map(d => d.idbien)
+  const todosEnPag = idsPagina.length > 0 && idsPagina.every(id => seleccionados.has(id))
+  const algunoEnPag = idsPagina.some(id => seleccionados.has(id))
+  function toggleTodosPagina() {
+    setSeleccionados(prev => {
+      const n = new Map(prev)
+      if (todosEnPag) datosFiltrados.forEach(b => n.delete(b.idbien))
+      else            datosFiltrados.forEach(b => n.set(b.idbien, b))
+      return n
+    })
+  }
+
+  // Confirma la solicitud de baja (1 o varios) y guarda la fecha de solicitud
+  async function confirmarSolicitud(bienes) {
+    const ids = bienes.map(b => b.idbien)
+    await actualizarEstadoBienes(ids, 'SOLICITUD BAJA')
+    setFechaBaja(ids, 'solicitud', hoyISO())
+    setSeleccionados(new Map())
+    setModoSeleccion(false)
+    cargar(pagina)
+  }
+
+  function solicitarBaja()      { if (seleccionados.size > 0) setModalSolicitar([...seleccionados.values()]) }
+  function solicitarBajaUno(b)  { setModalSolicitar([b]) }
+
+  const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
+      <Sidebar user={user} active="bienes" onNavigate={onNavigate} />
+
+      <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Bienes Muebles</h1>
+            <p style={{ fontSize: '14px', color: t.text3 }}>
+              Inventario Municipal · {loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
+            </p>
+          </div>
+          <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+            <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
+          </button>
+        </div>
+
+        {/* Filtros */}
+        <div style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', overflow: 'visible', position: 'relative', zIndex: 100 }}>
+          <div style={{ ...searchBoxStyle(dark), flex: 1, minWidth: '180px' }}>
+            <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
+            <input type="text" placeholder="Buscar por nombre o clave..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
+            {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
+          </div>
+
+          <button onClick={() => setModalTipo(true)}
+            style={{ ...searchBoxStyle(dark), minWidth: '200px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+            <i className={`ti ${MODOS.find(m => m.id === modo)?.icon || 'ti-category'}`} style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)', flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: dark ? '#f0f0f0' : '#111' }}>
+              {MODOS.find(m => m.id === modo)?.label || 'Categoría'}
+            </span>
+            <i className="ti ti-chevron-down" style={{ fontSize: '14px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
+          </button>
+
+          <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
+
+          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...iStyle(dark), width: 'auto', padding: '9px 12px' }}>
+            {['Todos', 'Buen estado', 'Deteriorado', 'No verificado'].map(e => <option key={e}>{e}</option>)}
+          </select>
+
+        </div>
+
+        {/* Barra de selección */}
+        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'1rem', flexWrap:'wrap' }}>
+          <div onClick={toggleModoSeleccion}
+            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
+            <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+            </div>
+            Seleccionar registros
+          </div>
+
+          {modoSeleccion && (
+            <span style={{ fontSize:'13px', color:t.text3 }}>
+              {seleccionados.size === 0 ? 'Ningún registro seleccionado' : `${seleccionados.size} registro${seleccionados.size !== 1 ? 's' : ''} seleccionado${seleccionados.size !== 1 ? 's' : ''}`}
+            </span>
+          )}
+          {modoSeleccion && seleccionados.size > 0 && (
+            <button onClick={() => setSeleccionados(new Map())}
+              style={{ display:'flex', alignItems:'center', gap:'6px', padding:'7px 12px', borderRadius:'8px', fontSize:'13px', fontFamily:'inherit', cursor:'pointer', background:'transparent', border:`1px solid ${t.cardBorder}`, color:t.text3 }}>
+              <i className="ti ti-x" style={{ fontSize:'14px' }} />Limpiar
+            </button>
+          )}
+
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
+            {modoSeleccion && (
+              <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
+                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
+                <i className="ti ti-circle-minus" style={{ fontSize:'17px' }} />Solicitar Baja
+              </button>
+            )}
+            <button onClick={() => setModalReporte(true)}
+              style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
+              <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
+            </button>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', color: dark ? '#f4a1a1' : '#c0392b', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="ti ti-alert-circle" style={{ fontSize: '18px' }} />
+            Error al cargar datos: {error}
+          </div>
+        )}
+
+        {/* Tabla */}
+        <div style={{ ...card, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
+                  {modoSeleccion && (
+                    <th rowSpan={2} style={{ ...thBase(dark), width:'40px', minWidth:'40px', textAlign:'center' }}>
+                      <div onClick={toggleTodosPagina} title={todosEnPag ? 'Deseleccionar página' : 'Seleccionar página'}
+                        style={{ width:'17px', height:'17px', borderRadius:'5px', margin:'0 auto', cursor:'pointer', background: todosEnPag ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        {todosEnPag && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                        {!todosEnPag && algunoEnPag && <i className="ti ti-minus" style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)' }} />}
+                      </div>
+                    </th>
+                  )}
+                  <th rowSpan={2} style={thBase(dark)}>CLAVE DE INVENTARIO</th>
+                  <th colSpan={esVehiculo ? 5 : 4} style={{ ...thBase(dark), textAlign: 'center', borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', borderRight: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', letterSpacing: '0.2em' }}>
+                    D &nbsp; E &nbsp; S &nbsp; C &nbsp; R &nbsp; I &nbsp; P &nbsp; C &nbsp; I &nbsp; Ó &nbsp; N
+                  </th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ÁREA DE ADSCRIPCIÓN</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>RESGUARDO A CARGO DE</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>OBSERVACIONES</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>IMPORTE</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FACTURA</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PROVEEDOR</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FECHA FACTURA</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PARTIDA</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ACCIONES</th>
+                </tr>
+                <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>NOMBRE DEL BIEN</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>MARCA</th>
+                  {esVehiculo
+                    ? <>
+                        <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>AÑO</th>
+                        <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>MODELO / PLACA</th>
+                        <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>SERIE (VIN)</th>
+                      </>
+                    : <>
+                        <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>TIPO</th>
+                        <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>SERIE</th>
+                      </>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                        {Array.from({ length: (esVehiculo ? 14 : 13) + (modoSeleccion ? 1 : 0) }).map((_, j) => (
+                          <td key={j} style={tdBase()}>
+                            <div style={{ height: '14px', borderRadius: '6px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', animation: 'pulse 1.5s ease-in-out infinite', width: j === 1 ? '80%' : '60%' }} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  : datosFiltrados.length === 0
+                    ? <tr><td colSpan={15 + (modoSeleccion ? 1 : 0)} style={{ padding: '3rem', textAlign: 'center', color: t.text4 }}>
+                        <i className="ti ti-search-off" style={{ fontSize: '28px', display: 'block', marginBottom: '8px' }} />
+                        Sin resultados
+                      </td></tr>
+                    : datosFiltrados.map((b, i) => {
+                        const sel = seleccionados.has(b.idbien)
+                        const bgFila = sel
+                          ? (dark ? 'rgba(168,197,248,0.10)' : 'rgba(37,99,235,0.06)')
+                          : (i % 2 === 0 ? 'transparent' : (dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)'))
+                        return (
+                        <tr key={b.idbien}
+                          onClick={() => modoSeleccion && toggleSeleccion(b)}
+                          style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, transition: 'background 0.12s', cursor: modoSeleccion ? 'pointer' : 'default' }}
+                          onMouseEnter={e => e.currentTarget.style.background = sel ? (dark ? 'rgba(168,197,248,0.16)' : 'rgba(37,99,235,0.1)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')}
+                          onMouseLeave={e => e.currentTarget.style.background = bgFila}
+                        >
+                          {modoSeleccion && (
+                            <td style={{ ...tdBase(), textAlign:'center', verticalAlign:'middle' }}>
+                              <div style={{ width:'17px', height:'17px', borderRadius:'5px', margin:'0 auto', background: sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                {sel && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                              </div>
+                            </td>
+                          )}
+                          <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinventario || '—'}</span></td>
+                          <td style={{ ...tdBase(), width: '200px', maxWidth: '200px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><p style={{ color: t.text1, fontWeight: 500, lineHeight: 1.3 }}>{b.nombrebien}</p></td>
+                          <td style={tdBase()}><span style={{ color: t.text2 }}>{b.marca || '—'}</span></td>
+                          {esVehiculo
+                            ? <>
+                                <td style={tdBase()}><span style={{ color: t.text2 }}>{b.anio || '—'}</span></td>
+                                <td style={tdBase()}><span style={{ color: t.text2 }}>{b.tipo || '—'}</span></td>
+                                <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.serie || '—'}</span></td>
+                              </>
+                            : <>
+                                <td style={tdBase()}><span style={{ color: t.text2 }}>{b.tipo || '—'}</span></td>
+                                <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.serie || '—'}</span></td>
+                              </>
+                          }
+                          <td style={{ ...tdBase(), width: '160px', maxWidth: '160px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2, lineHeight: 1.3, display: 'block' }}>{b.area}</span></td>
+                          <td style={{ ...tdBase(), width: '160px', maxWidth: '160px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                            <p style={{ color: t.text2 }}>{b.resguardatario}</p>
+                            <p style={{ color: t.text4, fontSize: '11px', marginTop: '2px' }}>{b.puesto}</p>
+                          </td>
+                          <td style={{ ...tdBase(), width: '170px', maxWidth: '170px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                            {(() => { const e = estadoInfo(b.observaciones, dark); return (
+                              <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '20px', display: 'inline-block', marginBottom: '4px', background: e.bg, color: e.color, border: `1px solid ${e.color}44` }}>
+                                {e.label}
+                              </span>
+                            ) })()}
+                            <p title={b.observaciones} style={{ fontSize: '11px', color: t.text4, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{b.observaciones || '—'}</p>
+                          </td>
+                          <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2, fontWeight: 500 }}>{fmt(b.costoinicial)}</span></td>
+                          <td style={tdBase()}><span style={{ color: t.text3, fontSize: '11px' }}>{b.numerofactura}</span></td>
+                          <td style={tdBase()}><span style={{ color: t.text2 }}>{b.proveedor}</span></td>
+                          <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3 }}>{b.fechafactura}</span></td>
+                          <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '11px' }}>{b.partida || '—'}</span></td>
+                          <td style={tdBase()}>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
+                              <button onClick={(e) => { e.stopPropagation(); setPanelBien(b) }}      title="Consultar"    style={btnAccion(dark, 'consulta')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-eye"             style={{ fontSize: '14px' }} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }}    title="Modificar"    style={btnAccion(dark, 'editar')}    onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-pencil"          style={{ fontSize: '14px' }} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setModalResguardo(b) }} title="Ver Resguardo" style={btnAccion(dark, 'resguardo')} onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-file-text"      style={{ fontSize: '14px' }} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setModalTrasp(b) }}     title="Traspaso"     style={btnAccion(dark, 'traspaso')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-arrows-exchange" style={{ fontSize: '14px' }} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); solicitarBajaUno(b) }}  title="Solicitar baja"  style={btnAccion(dark, 'baja')}     onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-circle-minus"    style={{ fontSize: '14px' }} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                        )
+                      })
+                }
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer paginación */}
+          <div style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <p style={{ fontSize: '12px', color: t.text4 }}>
+                {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()} registros`}
+              </p>
+              <div style={{ display: 'flex', gap: '3px' }}>
+                {OPCIONES_POR_PAGINA.map(n => (
+                  <button key={n} onClick={() => setPorPagina(n)}
+                    style={{ padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer', fontWeight: porPagina === n ? 600 : 400, background: porPagina === n ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: porPagina === n ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: porPagina === n ? t.text1 : t.text4, transition: 'all 0.15s' }}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <button onClick={() => cargar(pagina - 1)} disabled={pagina === 0 || loading}
+                style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-chevron-left" style={{ fontSize: '14px' }} />
+              </button>
+              <span style={{ fontSize: '13px', color: t.text2, minWidth: '90px', textAlign: 'center' }}>
+                Pág. {pagina + 1} / {Math.max(1, Math.ceil(totalRegistros / porPagina))}
+              </span>
+              <button onClick={() => cargar(pagina + 1)} disabled={(pagina + 1) * porPagina >= totalRegistros || loading}
+                style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: (pagina + 1) * porPagina >= totalRegistros ? 'not-allowed' : 'pointer', opacity: (pagina + 1) * porPagina >= totalRegistros ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-chevron-right" style={{ fontSize: '14px' }} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} } input::placeholder { color: ${dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}; }`}</style>
+
+      {panelBien      && <PanelConsulta  bien={panelBien}      onClose={() => setPanelBien(null)}      t={t} dark={dark} />}
+      {modalEditar    && <ModalEditar    bien={modalEditar}    onClose={() => setModalEditar(null)}    t={t} dark={dark} onSaved={() => cargar(pagina)} />}
+      {modalResguardo && <ModalResguardo bien={modalResguardo} onClose={() => setModalResguardo(null)} t={t} dark={dark} />}
+      {modalTrasp     && <ModalTraspaso  bien={modalTrasp}     onClose={() => setModalTrasp(null)}     dark={dark} t={t} allAreas={allAreas} />}
+      {modalReporte   && <ModalReporteMuebles
+        onClose={() => setModalReporte(false)}
+        dark={dark} t={t}
+        modo={modo}
+        seleccionados={[...seleccionados.keys()]}
+        filtros={{ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec }}
+        totalFiltrados={totalRegistros}
+      />}
+      {modalSolicitar && <ModalSolicitarBaja
+        bienes={modalSolicitar}
+        onClose={() => setModalSolicitar(null)}
+        dark={dark} t={t}
+        onConfirm={() => confirmarSolicitud(modalSolicitar)}
+      />}
+      {modalTipo && <ModalTipoFilter
+        modo={modo}
+        onSelect={(id) => { setModo(id); setModalTipo(false) }}
+        onClose={() => setModalTipo(false)} dark={dark} t={t}
+      />}
+      {modalNuevo && <ModalNuevoBien
+        modo={modo} allAreas={allAreas} dark={dark} t={t}
+        onCreated={(modoNuevo) => { if (modoNuevo !== modo) setModo(modoNuevo); else cargar(0) }}
+        onClose={() => setModalNuevo(false)}
+      />}
+    </div>
+  )
+}

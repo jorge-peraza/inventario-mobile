@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  --color-guinda: #6D1F3C;
+  --color-guinda-dark: #4A1228;
+  --color-guinda-light: #f5eaee;
+  --color-dorado: #C8912A;
+  --color-dorado-light: #fdf3e3;
+}
