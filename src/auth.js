@@ -20,6 +20,10 @@ export function paginaInicio(rol) {
 
 function perfilDesdeUser(u, fallbackNombre = '') {
   const meta = u?.user_metadata || {}
+  // Aplica la preferencia de tema guardada en la cuenta (se usa al montar ThemeProvider)
+  if (meta.tema === 'dark' || meta.tema === 'light') {
+    try { localStorage.setItem('tema', meta.tema) } catch { /* noop */ }
+  }
   const nombre = meta.usuario || fallbackNombre || u?.email || 'Usuario'
   return {
     nombre,
@@ -27,6 +31,20 @@ function perfilDesdeUser(u, fallbackNombre = '') {
     dependencia: meta.dependencia || 'Tesorería',
     iniciales: meta.iniciales || nombre.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'US',
   }
+}
+
+// Guarda una preferencia en la cuenta del usuario (user_metadata de Supabase):
+// persiste entre dispositivos. Silencioso si no hay sesión.
+export function guardarPreferencia(clave, valor) {
+  supabase.auth.updateUser({ data: { [clave]: valor } }).catch(() => {})
+}
+
+// Lee el user_metadata completo de la sesión actual
+export async function metadataUsuario() {
+  try {
+    const { data } = await supabase.auth.getUser()
+    return data?.user?.user_metadata || {}
+  } catch { return {} }
 }
 
 export async function iniciarSesion(usuario, password) {

@@ -3,10 +3,17 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { guardarPreferencia, metadataUsuario } from '../auth'
 
+// Los reportes personalizados se guardan en la CUENTA del usuario (user_metadata
+// de Supabase) para que lo sigan en cualquier dispositivo; localStorage queda
+// solo como caché local para que la vista cargue al instante.
 const LS_RP = 'reportes_personalizados'
 function getReportes() { try { return JSON.parse(localStorage.getItem(LS_RP) || '[]') } catch { return [] } }
-function saveReportes(arr) { localStorage.setItem(LS_RP, JSON.stringify(arr)) }
+function saveReportes(arr) {
+  try { localStorage.setItem(LS_RP, JSON.stringify(arr)) } catch { /* noop */ }
+  guardarPreferencia('reportes_personalizados', arr)
+}
 const MODOS_RP = [
   { id: 'mobiliario', label: 'Mobiliario' }, { id: 'computo', label: 'Cómputo' }, { id: 'maquinaria', label: 'Maquinaria' }, { id: 'vehiculos', label: 'Vehículos' }, { id: 'radiocomunicacion', label: 'Radiocomunicaciones' },
 ]
@@ -406,6 +413,18 @@ export default function Reportes({ user, onNavigate }) {
   const [modalPeriodo, setModalPeriodo]             = useState(null)   // 'mensual'|'trimestral'|'anual'|null
   const [conteoPeriodo, setConteoPeriodo] = useState({ mensual: null, trimestral: null, anual: null })
   const [reportes, setReportes] = useState(() => getReportes())
+
+  // Carga los reportes guardados en la cuenta del usuario (Supabase)
+  useEffect(() => {
+    let vivo = true
+    metadataUsuario().then(m => {
+      if (vivo && Array.isArray(m.reportes_personalizados)) {
+        setReportes(m.reportes_personalizados)
+        try { localStorage.setItem(LS_RP, JSON.stringify(m.reportes_personalizados)) } catch { /* noop */ }
+      }
+    })
+    return () => { vivo = false }
+  }, [])
   const [modalConfig, setModalConfig] = useState(null)   // config | 'nuevo' | null
   const [modalPreview, setModalPreview] = useState(null) // config | null
 

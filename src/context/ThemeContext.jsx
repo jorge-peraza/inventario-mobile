@@ -1,11 +1,18 @@
 import { createContext, useContext, useState, useMemo } from 'react'
+import { guardarPreferencia } from '../auth'
 
 const ThemeContext = createContext()
 
 export function ThemeProvider({ children }) {
-  const [dark, setDark]           = useState(false)
+  // El tema inicial sale de localStorage (que se sincroniza con la cuenta al iniciar sesión)
+  const [dark, setDark]           = useState(() => { try { return localStorage.getItem('tema') === 'dark' } catch { return false } })
   const [sidebarOpen, setSidebar] = useState(true)
-  const toggle       = () => setDark(d => !d)
+  const toggle = () => setDark(d => {
+    const n = !d
+    try { localStorage.setItem('tema', n ? 'dark' : 'light') } catch { /* noop */ }
+    guardarPreferencia('tema', n ? 'dark' : 'light')   // persiste en la cuenta (Supabase)
+    return n
+  })
   const toggleSidebar = () => setSidebar(o => !o)
   const t = useMemo(() => tokens(dark), [dark])
   return (
