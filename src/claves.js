@@ -107,8 +107,11 @@ export function tipoDeModo(modo) { return TIPO_POR_MODO[modo] || '1' }
 export function tipoDeCategoria(cat) { return TIPO_POR_CATEGORIA[(cat || '').toUpperCase()] || '1' }
 export function claveDeArea(idarea) { return CLAVE_POR_AREA[Number(idarea)] || null }
 
-// Genera la siguiente clave para un área + tipo, consultando el consecutivo más
-// alto ya usado con ese mismo prefijo, año y tipo.
+// Genera la siguiente clave para un área + tipo.
+//
+// El consecutivo NO se reinicia cada año: es una serie continua por
+// prefijo + clave de Tesorería + tipo. Por eso se busca el consecutivo más alto
+// en TODOS los años (el `__` del patrón hace de comodín para los 2 dígitos del año).
 // Devuelve { clave, prefijo, tesoreria, tipo, consecutivo } o null si el área no
 // tiene clave asignada.
 export async function siguienteClave({ idarea, tipo, anio }) {
@@ -116,22 +119,26 @@ export async function siguienteClave({ idarea, tipo, anio }) {
   if (!par) return null
   const [prefijo, tesoreria] = par
   const aa = String(anio ?? new Date().getFullYear()).slice(-2)
-  const raiz = `${prefijo}${aa}-${tesoreria}-${tipo}-`
 
   const { data, error } = await supabase
     .from('bienes')
     .select('claveinventario')
-    .like('claveinventario', `${raiz}%`)
+    .like('claveinventario', `${prefijo}__-${tesoreria}-${tipo}-%`)
   if (error) throw error
 
+  // Solo cuentan las claves con el prefijo exacto (LIKE no distingue, p. ej.,
+  // DS de DSP), y el consecutivo es lo que va después del último guion.
+  const re = new RegExp(`^${prefijo}\\d{2}-${tesoreria}-${tipo}-(\\d+)$`, 'i')
   let max = 0
   for (const r of (data || [])) {
-    const n = parseInt(String(r.claveinventario).slice(raiz.length), 10)
+    const m = String(r.claveinventario || '').match(re)
+    if (!m) continue
+    const n = parseInt(m[1], 10)
     if (Number.isFinite(n) && n > max) max = n
   }
   const consecutivo = max + 1
   return {
-    clave: raiz + String(consecutivo).padStart(3, '0'),
+    clave: `${prefijo}${aa}-${tesoreria}-${tipo}-${String(consecutivo).padStart(3, '0')}`,
     prefijo, tesoreria, tipo, consecutivo,
   }
 }
