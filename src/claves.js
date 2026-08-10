@@ -24,7 +24,7 @@ export const CLAVE_POR_AREA = {
   81: ['BS', '1104'],             // BIENES Y SERVICIOS
   85: ['RM', '1106'],             // RASTRO MUNICIPAL
   91: ['TALLER', '1108'],         // TALLER MUNICIPAL
-  95: ['PM', '0301'],             // SECRETARIA PARTICULAR
+  95: ['SPP', 'C2'],              // SECRETARIA PARTICULAR (su serie propia, SPP-C2)
   112: ['DPDU', '1809'],          // PLANEACION
   119: ['DPDU', '1809'],          // DESARROLLO URBANO
   124: ['DOP', '1803'],           // OBRAS PUBLICAS
@@ -87,6 +87,7 @@ export const CLAVE_POR_AREA = {
   396: ['JC', '0406'],            // COORDINACION DE JUECES
   398: ['JC', '0401'],            // JUECES DELEGACION SUR
   399: ['JC', '0401'],            // JUECES DELEGACION ESTE
+  400: ['PM', '0301'],            // PRESIDENCIA (se separó de Secretaría Particular; se llevó la serie PM-0301)
 }
 
 // Dígito de tipo de inventario, según el uso real en la base
@@ -138,7 +139,25 @@ export async function siguienteClave({ idarea, tipo, anio }) {
   }
   const consecutivo = max + 1
   return {
-    clave: `${prefijo}${aa}-${tesoreria}-${tipo}-${String(consecutivo).padStart(3, '0')}`,
+    clave: armarClave({ prefijo, tesoreria, tipo, anio: aa, consecutivo }),
     prefijo, tesoreria, tipo, consecutivo,
   }
+}
+
+// Arma la clave a partir de sus partes.
+export function armarClave({ prefijo, tesoreria, tipo, anio, consecutivo }) {
+  const aa = String(anio ?? new Date().getFullYear()).slice(-2)
+  return `${prefijo}${aa}-${tesoreria}-${tipo}-${String(consecutivo).padStart(3, '0')}`
+}
+
+// Igual que siguienteClave pero para varios bienes de una misma compra: numera
+// `cantidad` claves seguidas con una sola consulta, en vez de una por bien.
+export async function siguienteClaveLote({ idarea, tipo, anio, cantidad }) {
+  const g = await siguienteClave({ idarea, tipo, anio })
+  if (!g) return null
+  const n = Math.max(1, Number(cantidad) || 1)
+  return Array.from({ length: n }, (_, i) => ({
+    consecutivo: g.consecutivo + i,
+    clave: armarClave({ ...g, anio, consecutivo: g.consecutivo + i }),
+  }))
 }

@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from "../supabase";
-import { siguienteClave, tipoDeModo, tipoDeCategoria } from '../claves'
+import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria } from '../claves'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function estadoInfo(obs, dark) {
@@ -22,6 +22,14 @@ function estadoInfo(obs, dark) {
     bg:    dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.1)',
     label: 'No verificado',
   }
+  // Solo al principio del texto, que es donde lo escribe el formulario. Buscarlo
+  // en cualquier parte marcaría registros viejos que mencionan la palabra en otro
+  // sentido ("...equipo usado donado por...", "AUTOS USADOS EL ARABE").
+  if (/^usado\b/i.test((obs || '').trim())) return {
+    color: dark ? '#e8c07e' : '#8a6414',
+    bg:    dark ? 'rgba(232,192,126,0.15)' : 'rgba(138,100,20,0.1)',
+    label: 'Usado',
+  }
   return {
     color: dark ? '#7ee8a2' : '#1e7e4a',
     bg:    dark ? 'rgba(126,232,162,0.15)' : 'rgba(30,126,74,0.1)',
@@ -33,6 +41,10 @@ function fmt(n) { return n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumF
 // Estados de verificación. El texto es el que leen los filtros y estadoInfo(),
 // por eso se elige de una lista en vez de escribirse a mano.
 const ESTADOS_OBS = ['VERIFICADO', 'NO VERIFICADO', 'DETERIORADO']
+
+// Al dar de alta un bien todavía no hay verificación que reportar: lo que interesa
+// es si entra nuevo o de segunda mano. El combo de editar sigue con ESTADOS_OBS.
+const ESTADOS_ALTA = ['BUEN ESTADO', 'USADO']
 
 // Separa unas observaciones en { estado, resto }. El estado se reconoce en
 // cualquier parte del texto (en los registros históricos suele venir a la mitad)
@@ -1071,7 +1083,9 @@ async function actualizarBien(idbien, campos) {
 }
 
 // ── CAMBIO 2: genera HTML del resguardo con factura, proveedor, importe, fecha ─
-function generarHTMLResguardo(bien) {
+// Contenido de UNA hoja de resguardo. El documento que la envuelve puede llevar
+// una sola o varias, una por bien, cada una en su propia página.
+function cuerpoResguardo(bien) {
   const meses  = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
   const hoy    = new Date()
   const mesStr = meses[hoy.getMonth()]
@@ -1092,45 +1106,12 @@ function generarHTMLResguardo(bien) {
   const costo     = bien.costoinicial ? '$ ' + Number(bien.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—'
   const fechaFac  = (bien.fechafactura   || '—')
 
-  const base = window.location.origin
+  // El resguardo se abre en una ventana nueva, así que las imágenes necesitan URL
+  // absoluta. Hay que incluir BASE_URL porque la app vive en un subdirectorio
+  // (/inventario-nogales/); sin eso las rutas dan 404 y los logos salen rotos.
+  const base = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '')
 
-  return `<!DOCTYPE html>
-<html lang="es"><head>
-<meta charset="UTF-8">
-<title>Resguardo ${clave}</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:10.5pt;color:#000;padding:14mm 18mm}
-.top{display:flex;align-items:stretch;gap:10px;margin-bottom:12px}
-.left-boxes{flex:1;display:flex;flex-direction:column;gap:5px}
-.box{border:1.5px solid #000;padding:5px 9px}
-.box2{border:1.5px solid #000;padding:5px 9px;flex:1;min-height:52px}
-.lbl{font-weight:700;font-size:8.5pt;letter-spacing:.02em;text-transform:uppercase}
-.val{padding-top:3px;font-size:10pt}
-.center-col{flex:0 0 200px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px}
-.center-col img{width:72px;height:72px;object-fit:contain}
-.ch-inst{font-size:8pt;font-weight:700;line-height:1.4;margin-top:2px}
-.ch-dep{font-size:12pt;font-weight:700;margin-top:2px}
-.right-col{flex:0 0 110px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
-.right-col img.escudo{width:68px;object-fit:contain}
-.right-col img.logo-ay{width:105px;object-fit:contain}
-.sec-title{font-size:12.5pt;font-weight:700;text-decoration:underline;margin:12px 0 8px}
-.legal{font-size:9pt;font-weight:700;text-align:justify;line-height:1.55;margin-bottom:12px;text-transform:uppercase}
-table{width:100%;border-collapse:collapse;margin-bottom:7px}
-td{border:1.5px solid #000;padding:6px 10px;vertical-align:top}
-.tdl{font-weight:700;font-size:9pt;letter-spacing:.02em}
-.tdv{padding-top:4px;min-height:20px}
-.date{text-align:center;margin:22px 0 56px;font-size:10.5pt}
-.sigs{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
-.sb{text-align:center;flex:1}
-.sl{border-top:1.5px solid #000;margin:0 auto 5px;width:90%}
-.sn{font-size:9.5pt;font-weight:700;text-transform:uppercase}
-.sr{font-size:9pt}
-.elab{text-align:center;margin-top:55px}
-.el{border-top:1.5px solid #000;width:200px;margin:0 auto 5px}
-@page{size:Letter;margin:14mm 18mm}
-@media print{body{padding:0}}
-</style></head><body>
+  return `<div class="hoja">
 
 <div class="top">
   <div class="left-boxes">
@@ -1209,7 +1190,65 @@ td{border:1.5px solid #000;padding:6px 10px;vertical-align:top}
   <div class="sr">ASISTENTE ADMINISTRATIVO</div>
 </div>
 
+</div>`
+}
+
+// Los márgenes viven en .hoja y no en body, para que cada resguardo del lote
+// conserve los suyos y empiece en página nueva.
+const ESTILOS_RESGUARDO = `
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:10.5pt;color:#000}
+.hoja{padding:14mm 18mm}
+.hoja + .hoja{page-break-before:always;break-before:page}
+@media screen{.hoja + .hoja{border-top:1px dashed #bbb;margin-top:8mm}}
+.top{display:flex;align-items:stretch;gap:10px;margin-bottom:12px}
+.left-boxes{flex:1;display:flex;flex-direction:column;gap:5px}
+.box{border:1.5px solid #000;padding:5px 9px}
+.box2{border:1.5px solid #000;padding:5px 9px;flex:1;min-height:52px}
+.lbl{font-weight:700;font-size:8.5pt;letter-spacing:.02em;text-transform:uppercase}
+.val{padding-top:3px;font-size:10pt}
+.center-col{flex:0 0 200px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px}
+.center-col img{width:72px;height:72px;object-fit:contain}
+.ch-inst{font-size:8pt;font-weight:700;line-height:1.4;margin-top:2px}
+.ch-dep{font-size:12pt;font-weight:700;margin-top:2px}
+.right-col{flex:0 0 110px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.right-col img.escudo{width:68px;object-fit:contain}
+.right-col img.logo-ay{width:105px;object-fit:contain}
+.sec-title{font-size:12.5pt;font-weight:700;text-decoration:underline;margin:12px 0 8px}
+.legal{font-size:9pt;font-weight:700;text-align:justify;line-height:1.55;margin-bottom:12px;text-transform:uppercase}
+table{width:100%;border-collapse:collapse;margin-bottom:7px}
+td{border:1.5px solid #000;padding:6px 10px;vertical-align:top}
+.tdl{font-weight:700;font-size:9pt;letter-spacing:.02em}
+.tdv{padding-top:4px;min-height:20px}
+.date{text-align:center;margin:22px 0 56px;font-size:10.5pt}
+.sigs{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
+.sb{text-align:center;flex:1}
+.sl{border-top:1.5px solid #000;margin:0 auto 5px;width:90%}
+.sn{font-size:9.5pt;font-weight:700;text-transform:uppercase}
+.sr{font-size:9pt}
+.elab{text-align:center;margin-top:55px}
+.el{border-top:1.5px solid #000;width:200px;margin:0 auto 5px}
+@page{size:Letter;margin:14mm 18mm}
+@media print{.hoja{padding:0}}
+`
+
+function envolverResguardos(titulo, cuerpos) {
+  return `<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="UTF-8">
+<title>${titulo}</title>
+<style>${ESTILOS_RESGUARDO}</style></head><body>
+${cuerpos.join('\n')}
 </body></html>`
+}
+
+function generarHTMLResguardo(bien) {
+  return envolverResguardos(`Resguardo ${bien.claveinventario || ''}`, [cuerpoResguardo(bien)])
+}
+
+// Varios resguardos en un solo documento, uno por hoja
+function generarHTMLResguardosLote(bienes) {
+  return envolverResguardos(`Resguardos (${bienes.length})`, bienes.map(cuerpoResguardo))
 }
 
 export async function fetchAreas() {
@@ -1908,19 +1947,23 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
   const FUENTE = 'Arial'
   const borde  = { style: 'thin', color: { argb: 'FF' + NEGRO } }
   const bordes = { top: borde, left: borde, bottom: borde, right: borde }
-  const nCols  = COLS_ADQ.length
   const wb = new ExcelJS.Workbook()
 
   // ── Geometría espejo del PDF (jsPDF landscape A4) ──
   // El PDF reparte (pageW - 2*margin) según los pesos c.w. Convertimos ese ancho en pt a
   // ancho de columna de Excel: px = pt*4/3 ; ancho_chars = (px - 5) / 7.
+  // Se calcula por hoja: las hojas de partida llevan una columna menos y los
+  // logos se colocan según el ancho total de esa hoja en particular.
   const PT_A_PX = 4 / 3
   const totalPt = 841.89 - 18 * 2                       // ancho útil del PDF (margin=18)
-  const sumW    = COLS_ADQ.reduce((a, c) => a + c.w, 0)
-  const colChar = COLS_ADQ.map(c => (totalPt * c.w / sumW * PT_A_PX - 5) / 7)
-  const colPxArr = colChar.map(w => Math.round(w * 7 + 5))
-  const totPxAll = colPxArr.reduce((a, b) => a + b, 0)
-  const pxToColG = x => { let acc = 0; for (let k = 0; k < colPxArr.length; k++) { if (x < acc + colPxArr[k]) return k + (x - acc) / colPxArr[k]; acc += colPxArr[k] } return nCols }
+  function geometria(cols) {
+    const sumW = cols.reduce((a, c) => a + c.w, 0)
+    const colChar = cols.map(c => (totalPt * c.w / sumW * PT_A_PX - 5) / 7)
+    const colPx = colChar.map(w => Math.round(w * 7 + 5))
+    const totPx = colPx.reduce((a, b) => a + b, 0)
+    const pxToCol = x => { let acc = 0; for (let k = 0; k < colPx.length; k++) { if (x < acc + colPx[k]) return k + (x - acc) / colPx[k]; acc += colPx[k] } return cols.length }
+    return { cols, nCols: cols.length, colChar, totPx, pxToCol }
+  }
 
   // Logos cargados una sola vez
   let logos = null
@@ -1933,7 +1976,7 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
     logos = { ay, nog, mex }
   } catch { logos = null }
 
-  function agregarLogos(ws) {
+  function agregarLogos(ws, geo) {
     if (!logos) return 1
     // Mismos tamaños que el PDF (dibujarLogosPDF): H=46, Hmex=66.
     const H = 46, Hmex = 66
@@ -1943,35 +1986,42 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
       const w = h * im.w / im.h
       const id = wb.addImage({ base64: im.dataURL, extension: 'png' })
       ws.addImage(id, {
-        tl: { col: pxToColG(centroX - w / 2), row: (BAND_PX - h) / 2 / BAND_PX * 2 },
+        tl: { col: geo.pxToCol(centroX - w / 2), row: (BAND_PX - h) / 2 / BAND_PX * 2 },
         ext: { width: w, height: h },
         editAs: 'oneCell',
       })
     }
     const wAy = H * logos.ay.w / logos.ay.h; add(logos.ay, 6 + wAy / 2, H)
-    add(logos.nog, totPxAll / 2, H)
-    const wMex = Hmex * logos.mex.w / logos.mex.h; add(logos.mex, totPxAll - 6 - wMex / 2, Hmex)
+    add(logos.nog, geo.totPx / 2, H)
+    const wMex = Hmex * logos.mex.w / logos.mex.h; add(logos.mex, geo.totPx - 6 - wMex / 2, Hmex)
     return 4
   }
 
-  function llenarHoja(ws, filas) {
-    colChar.forEach((w, idx) => { ws.getColumn(idx + 1).width = w })
-    let fila = agregarLogos(ws)
+  // opciones: { cols } columnas propias de la hoja, { titulo } línea extra bajo el año
+  function llenarHoja(ws, filas, opciones = {}) {
+    const cols  = opciones.cols || COLS_ADQ
+    const geo   = geometria(cols)
+    const nCols = geo.nCols
+    geo.colChar.forEach((w, idx) => { ws.getColumn(idx + 1).width = w })
+    let fila = agregarLogos(ws, geo)
 
     // Encabezados fijos
-    const setTxt = (f, val, bold = false) => {
+    const setTxt = (f, val, bold = false, size = 11) => {
       ws.mergeCells(f, 1, f, nCols)
       const c = ws.getCell(f, 1)
       c.value = val
-      c.font = { name: FUENTE, size: 11, bold }
+      c.font = { name: FUENTE, size, bold }
       c.alignment = { horizontal: 'left', vertical: 'middle' }
     }
     setTxt(fila,     'ALTAS ADMINISTRACION 2024-2027', true); fila++
     setTxt(fila,     `AÑO ${anio}`,                    true); fila++
+    // En las hojas de partida el capítulo va como título, y por eso se quita la
+    // columna PARTIDA: repetiría el mismo dato en todos los renglones.
+    if (opciones.titulo) { setTxt(fila, opciones.titulo, true, 12); fila++ }
     fila++ // fila en blanco
 
     // Cabecera de columnas
-    COLS_ADQ.forEach((c, ci) => {
+    cols.forEach((c, ci) => {
       const cell = ws.getCell(fila, ci + 1)
       cell.value = c.label
       cell.font = { name: FUENTE, size: 8, bold: true }
@@ -1983,12 +2033,12 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
     fila++
 
     const FMT_MONEDA = '"$ "#,##0.00'
-    const impIdx = COLS_ADQ.findIndex(c => c.key === 'importe')
+    const impIdx = cols.findIndex(c => c.key === 'importe')
     const filaInicio = fila
 
     filas.forEach((g, idx) => {
       const fill = idx % 2 === 1 ? FRANJA : null
-      COLS_ADQ.forEach((c, ci) => {
+      cols.forEach((c, ci) => {
         const cell = ws.getCell(fila, ci + 1)
         cell.font = { name: FUENTE, size: 8 }
         cell.border = bordes
@@ -2012,7 +2062,7 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
     // Fila TOTAL
     if (filas.length > 0) {
       const letra = ws.getColumn(impIdx + 1).letter
-      COLS_ADQ.forEach((c, ci) => {
+      cols.forEach((c, ci) => {
         const cell = ws.getCell(fila, ci + 1)
         cell.font = { name: FUENTE, size: 8, bold: true }
         cell.border = bordes
@@ -2119,14 +2169,27 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
   totCell.alignment = { horizontal: 'right', vertical: 'middle' }
 
   // ── Hoja principal — todos los grupos ────────────────────────────────────
+  // Ordenadas por fecha de factura, de enero a diciembre. Las fechas vienen como
+  // 'AAAA-MM-DD', así que comparar el texto ya las ordena bien; las que no traen
+  // fecha se van al final para no cortar la secuencia.
+  const porFecha = [...grupos].sort((a, b) => {
+    const fa = /^\d{4}-\d{2}-\d{2}$/.test(a.fechafactura || '') ? a.fechafactura : '9999'
+    const fb = /^\d{4}-\d{2}-\d{2}$/.test(b.fechafactura || '') ? b.fechafactura : '9999'
+    return fa < fb ? -1 : fa > fb ? 1 : 0
+  })
   const wsMain = wb.addWorksheet(`ADQUISICIONES ${anio}`)
-  llenarHoja(wsMain, grupos)
+  llenarHoja(wsMain, porFecha)
 
-  // Hojas por capítulo (partida)
-  const partidas = [...new Set(grupos.map(g => g.partida).filter(Boolean))].sort()
+  // Hojas por capítulo (partida): sin la columna PARTIDA, que va como título
+  const COLS_PARTIDA = COLS_ADQ.filter(c => c.key !== 'partida')
+  const partidas = [...new Set(porFecha.map(g => g.partida).filter(Boolean))].sort()
   for (const partida of partidas) {
     const wsP = wb.addWorksheet(`${partida}-${anio}`)
-    llenarHoja(wsP, grupos.filter(g => g.partida === partida))
+    const nombreP = NOMBRES_PARTIDA[partida]
+    llenarHoja(wsP, porFecha.filter(g => g.partida === partida), {
+      cols: COLS_PARTIDA,
+      titulo: nombreP ? `${partida} - ${nombreP}` : String(partida),
+    })
   }
 
   const buf = await wb.xlsx.writeBuffer()
@@ -2392,12 +2455,37 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [idarea, setIdarea]   = useState('')
   const [modoSel, setModoSel] = useState(modo)
   const [obs, setObs]         = useState('')
-  const [estadoObs, setEstadoObs] = useState('VERIFICADO')
+  const [estadoObs, setEstadoObs] = useState('BUEN ESTADO')
   const [anioClave, setAnioClave] = useState(new Date().getFullYear())
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
 
+  // Datos de la compra: se capturan una vez y se aplican a todos los bienes del lote
+  const [cantidad, setCantidad]   = useState(1)
+  const [numFactura, setNumFactura] = useState('')
+  const [fechaFactura, setFechaFactura] = useState('')
+  const [importe, setImporte]     = useState('')
+  const [partida, setPartida]     = useState('')
+  const [proveedor, setProveedor] = useState('')
+
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  const n = Math.max(1, Math.min(500, Number(cantidad) || 1))
+
+  // El importe es el de UN bien: si se registran varios, cada uno se guarda con
+  // ese mismo costo y el total de la compra es el importe por la cantidad.
+  const costoUnit = useMemo(() => {
+    const v = Number(String(importe).replace(/[^0-9.]/g, ''))
+    return Number.isFinite(v) && v > 0 ? v : null
+  }, [importe])
+  const totalLote = costoUnit ? costoUnit * n : 0
+  const hayCompra = !!(numFactura.trim() || fechaFactura || costoUnit || proveedor.trim())
+
+  // La clave lleva el año de la factura: si se captura la fecha, se toma de ahí
+  useEffect(() => {
+    const a = Number(String(fechaFactura).slice(0, 4))
+    if (a >= 2000 && a <= 2100) setAnioClave(a)
+  }, [fechaFactura])
 
   // Áreas agrupadas por dependencia para el <select>
   const grupos = useMemo(() => {
@@ -2415,39 +2503,95 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
     if (!idarea) { setClave(''); return }
     let vivo = true
     setClave('Generando…')
-    siguienteClave({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave })
-      .then(r => { if (vivo) setClave(r ? r.clave : '') })
+    siguienteClaveLote({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave, cantidad: n })
+      .then(r => {
+        if (!vivo) return
+        if (!r) { setClave(''); return }
+        setClave(r.length === 1 ? r[0].clave : `${r[0].clave}  →  ${r[r.length - 1].clave}`)
+      })
       .catch(() => { if (vivo) setClave('') })
     return () => { vivo = false }
-  }, [idarea, modoSel, anioClave])
+  }, [idarea, modoSel, anioClave, n])
 
   async function guardar() {
     if (!nombre.trim()) { setErr('El nombre del bien es obligatorio'); return }
     if (!idarea)        { setErr('Selecciona el área a la que pertenece'); return }
+    if (importe.trim() && !costoUnit) { setErr('El importe no es un número válido'); return }
     setGuardando(true); setErr(null)
+
+    let facturasCreadas = []
     try {
-      // idbien no es autoincremental: se calcula como el máximo actual + 1
-      const { data: maxRow, error: e1 } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
+      // Proveedor: se escribe a mano. Si el nombre ya está en el catálogo se
+      // reutiliza ese registro; si no, se da de alta uno nuevo.
+      let idproveedor = null
+      if (proveedor.trim()) {
+        const nom = proveedor.trim().toUpperCase()
+        const { data: ya } = await supabase.from('proveedores').select('idproveedor').ilike('nombreproveedor', nom).limit(1)
+        if (ya && ya[0]) idproveedor = ya[0].idproveedor
+        else {
+          const { data: mp, error: ep } = await supabase.from('proveedores').select('idproveedor').order('idproveedor', { ascending: false }).limit(1)
+          if (ep) throw ep
+          idproveedor = ((mp && mp[0]?.idproveedor) || 0) + 1
+          const { error: ep2 } = await supabase.from('proveedores').insert({ idproveedor, nombreproveedor: nom })
+          if (ep2) throw ep2
+        }
+      }
+
+      // Ni idbien ni idfactura son autoincrementales: se toman del máximo actual
+      const { data: maxB, error: e1 } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
       if (e1) throw e1
-      const idbien = ((maxRow && maxRow[0]?.idbien) || 0) + 1
-      // Recalcula la clave justo antes de insertar, por si otro usuario tomó el consecutivo
-      const gen = await siguienteClave({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave })
-      const { error: e2 } = await supabase.from('bienes').insert({
-        idbien,
-        claveinventario: gen ? gen.clave : (clave.trim() || null),
+      const baseBien = ((maxB && maxB[0]?.idbien) || 0) + 1
+
+      // Se recalculan las claves justo antes de insertar, por si otro usuario
+      // tomó el consecutivo mientras el formulario estaba abierto
+      const gen = await siguienteClaveLote({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave, cantidad: n })
+
+      // Una factura por bien con su costo unitario, como el resto del inventario.
+      // Así el costo de cada bien es el suyo y el reporte de adquisiciones agrupa
+      // por número de factura y vuelve a sumar el total de la compra.
+      let baseFact = null
+      if (hayCompra) {
+        const { data: maxF, error: e2 } = await supabase.from('facturas').select('idfactura').order('idfactura', { ascending: false }).limit(1)
+        if (e2) throw e2
+        baseFact = ((maxF && maxF[0]?.idfactura) || 0) + 1
+        const filas = Array.from({ length: n }, (_, i) => ({
+          idfactura: baseFact + i,
+          numerofactura: numFactura.trim() || null,
+          fechafactura: fechaFactura || null,
+          costoinicial: costoUnit,
+          idproveedor,
+        }))
+        const { error: e3 } = await supabase.from('facturas').insert(filas)
+        if (e3) throw e3
+        facturasCreadas = filas.map(f => f.idfactura)
+      }
+
+      const bienes = Array.from({ length: n }, (_, i) => ({
+        idbien: baseBien + i,
+        claveinventario: gen ? gen[i].clave : (n === 1 ? (clave.trim() || null) : null),
+        consecutivo: gen ? gen[i].consecutivo : null,
         nombrebien: nombre.trim().toUpperCase(),
         tipo: tipo.trim() || null,
         marca: marca.trim() || null,
-        serie: serie.trim() || null,
+        serie: n === 1 ? (serie.trim() || null) : null,
         observaciones: unirObs(estadoObs, obs),
         idarea: Number(idarea),
+        idfactura: baseFact != null ? baseFact + i : null,
+        partida: partida || null,
         categoriainventario: (CATS_BY_MODO[modoSel] || CATS_BY_MODO.mobiliario)[0],
         estadobien: 'ACTIVO',
-      })
-      if (e2) throw e2
+      }))
+      const { error: e4 } = await supabase.from('bienes').insert(bienes)
+      if (e4) throw e4
+
       onCreated(modoSel)
       onClose()
-    } catch (e) { setErr(e.message); setGuardando(false) }
+    } catch (e) {
+      // Si los bienes fallaron después de crear las facturas, se borran para no
+      // dejar facturas sueltas que el reporte contaría sin ningún bien detrás
+      if (facturasCreadas.length) await supabase.from('facturas').delete().in('idfactura', facturasCreadas)
+      setErr(e.message); setGuardando(false)
+    }
   }
 
   const lbl = (txt) => <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>{txt}</p>
@@ -2455,7 +2599,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   return createPortal(
     <>
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'520px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'980px', maxWidth:'96vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -2464,8 +2608,8 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
               <i className="ti ti-circle-plus" style={{ fontSize:'18px', color: t.text2 }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Nuevo bien</p>
-              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Registrar un bien mueble en el inventario</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{n === 1 ? 'Nuevo bien' : `${n} bienes nuevos`}</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{n === 1 ? 'Registrar un bien mueble en el inventario' : 'Registrar varios bienes de una misma compra'}</p>
             </div>
           </div>
           <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
@@ -2473,8 +2617,10 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
           </button>
         </div>
 
-        {/* Cuerpo */}
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+        {/* Cuerpo: dos columnas para aprovechar el ancho. En pantallas angostas
+            el grid cae a una sola columna y queda como estaba antes. */}
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(360px, 1fr))', gap:'1rem 1.75rem', alignContent:'start' }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div>{lbl('Área / Dependencia *')}
             <select value={idarea} onChange={e => setIdarea(e.target.value)} style={iStyle(dark)}>
               <option value="">Selecciona un área…</option>
@@ -2485,18 +2631,21 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
               ))}
             </select>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1.4fr 1fr 1fr', gap:'10px' }}>
             <div>{lbl('Categoría')}
               <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
                 {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
+            </div>
+            <div>{lbl('Cantidad')}
+              <input type="number" value={cantidad} onChange={e => setCantidad(e.target.value)} min="1" max="500" style={iStyle(dark)} />
             </div>
             <div>{lbl('Año de la factura')}
               <input type="number" value={anioClave} onChange={e => setAnioClave(e.target.value)} min="2000" max="2100" style={iStyle(dark)} />
             </div>
           </div>
           {/* Clave generada automáticamente a partir del área, categoría y año */}
-          <div>{lbl('Clave de inventario (automática)')}
+          <div>{lbl(n === 1 ? 'Clave de inventario (automática)' : `Claves de inventario (${n} consecutivas)`)}
             <div style={{ ...iStyle(dark), display:'flex', alignItems:'center', gap:'8px', background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}>
               <i className="ti ti-hash" style={{ fontSize:'15px', color: t.text4, flexShrink:0 }} />
               <span style={{ flex:1, fontFamily:'monospace', fontSize:'14px', letterSpacing:'0.02em', color: clave ? t.text1 : t.text4 }}>
@@ -2508,17 +2657,58 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
             <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('No. de serie')}<input value={serie} onChange={e => setSerie(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('No. de serie')}
+              <input value={n > 1 ? '' : serie} onChange={e => setSerie(e.target.value)} disabled={n > 1}
+                placeholder={n > 1 ? 'Uno por bien' : ''}
+                style={{ ...iStyle(dark), opacity: n > 1 ? 0.5 : 1, cursor: n > 1 ? 'not-allowed' : 'text' }} />
+            </div>
           </div>
+          {n > 1 && <p style={{ fontSize:'11px', color: t.text4, marginTop:'-6px' }}>
+            <i className="ti ti-info-circle" style={{ marginRight:'5px' }} />
+            Los {n} bienes se registran con el mismo nombre, marca y modelo. La serie se captura después en cada uno.
+          </p>}
           {/* El estado se elige de la lista para que coincida con los filtros */}
           <div>{lbl('Estado del bien')}
             <select value={estadoObs} onChange={e => setEstadoObs(e.target.value)} style={iStyle(dark)}>
-              {ESTADOS_OBS.map(e => <option key={e} value={e}>{e}</option>)}
+              {ESTADOS_ALTA.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
           </div>
           <div>{lbl('Observaciones adicionales')}
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} />
             <p style={{ fontSize:'11px', color: t.text4, marginTop:'5px' }}>Se guardará como: <span style={{ fontFamily:'monospace' }}>{unirObs(estadoObs, obs) || '—'}</span></p>
+          </div>
+          </div>
+
+          {/* Datos de la compra: segunda columna. Son opcionales, pero es lo que
+              alimenta el reporte de adquisiciones. Se aplican por igual a todos
+              los bienes del lote. */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
+            <p style={{ fontSize:'12px', fontWeight:600, color: t.text2 }}>
+              <i className="ti ti-receipt" style={{ marginRight:'6px' }} />Datos de la compra
+              <span style={{ fontWeight:400, color: t.text4 }}> — opcional</span>
+            </p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+              <div>{lbl('No. de factura')}<input value={numFactura} onChange={e => setNumFactura(e.target.value)} style={iStyle(dark)} /></div>
+              <div>{lbl('Fecha de la factura')}<input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)} style={iStyle(dark)} /></div>
+            </div>
+            <div>{lbl('Proveedor')}
+              <input value={proveedor} onChange={e => setProveedor(e.target.value)}
+                autoComplete="off" autoCorrect="off" spellCheck={false} style={iStyle(dark)} />
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+              <div>{lbl('Importe de cada bien')}
+                <input value={importe} onChange={e => setImporte(e.target.value)} placeholder="0.00"
+                  inputMode="decimal" autoComplete="off" style={iStyle(dark)} />
+              </div>
+              <div>{lbl('Partida / Capítulo')}
+                <input value={partida} onChange={e => setPartida(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                  inputMode="numeric" autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+              </div>
+            </div>
+            {costoUnit && n > 1 &&<p style={{ fontSize:'11px', color: t.text3, marginTop:'-6px' }}>
+              {n} bienes de ${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cada uno
+              {' · total de la compra $'}{totalLote.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </p>}
           </div>
         </div>
 
@@ -2529,12 +2719,84 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
             <button onClick={onClose} style={{ flex:1, padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'transparent', border:`1px solid ${t.cardBorder}`, color: t.text2 }}>Cancelar</button>
             <button onClick={guardar} disabled={guardando}
               style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
-              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</> : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />Registrar</>}
+              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</> : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />{n === 1 ? 'Registrar' : `Registrar ${n}`}</>}
             </button>
           </div>
         </div>
       </div>
       <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── ModalResguardosLote ───────────────────────────────────────────────────────
+// Imprime o descarga en un solo documento los resguardos de los bienes marcados,
+// uno por hoja. Se apoya en las mismas funciones que el resguardo individual.
+function ModalResguardosLote({ bienes, onClose, dark, t }) {
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  function imprimir() {
+    const w = window.open('', '_blank', 'width=880,height=1120')
+    if (!w) { alert('Permite ventanas emergentes para imprimir.'); return }
+    w.document.write(generarHTMLResguardosLote(bienes))
+    w.document.close()
+    w.focus()
+    setTimeout(() => w.print(), 600)
+  }
+
+  function descargar() {
+    const blob = new Blob([generarHTMLResguardosLote(bienes)], { type: 'text/html;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `resguardos-${bienes.length}-bienes.html`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const btn = (extra) => ({ display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:'pointer', ...extra })
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'480px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', gap:'10px', flexShrink:0 }}>
+          <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <i className="ti ti-file-text" style={{ fontSize:'18px', color: t.text2 }} />
+          </div>
+          <div style={{ flex:1 }}>
+            <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>
+              {bienes.length === 1 ? 'Resguardo' : `${bienes.length} resguardos`}
+            </p>
+            <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Un bien por hoja, en un solo documento</p>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1rem 1.5rem' }}>
+          {bienes.map((b, i) => (
+            <div key={b.idbien} style={{ display:'flex', gap:'10px', alignItems:'baseline', padding:'7px 0', borderBottom: i < bienes.length - 1 ? (dark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.05)') : 'none' }}>
+              <span style={{ fontSize:'11px', color:t.text4, width:'22px', flexShrink:0 }}>{i + 1}.</span>
+              <span style={{ fontFamily:'monospace', fontSize:'12.5px', color:t.text1, flexShrink:0 }}>{b.claveinventario || '—'}</span>
+              <span style={{ fontSize:'12.5px', color:t.text3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{b.nombrebien}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
+          <button onClick={descargar} style={btn({ flex:1, background:'transparent', border:`1px solid ${t.cardBorder}`, color:t.text2 })}>
+            <i className="ti ti-download" style={{ fontSize:'16px' }} />Descargar
+          </button>
+          <button onClick={imprimir} style={btn({ flex:1, background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' })}>
+            <i className="ti ti-printer" style={{ fontSize:'16px' }} />Imprimir
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}`}</style>
     </>,
     document.body
   )
@@ -2567,6 +2829,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const [panelBien, setPanelBien]           = useState(null)
   const [modalEditar, setModalEditar]       = useState(null)
   const [modalResguardo, setModalResguardo] = useState(null)
+  const [modalResguardosLote, setModalResguardosLote] = useState(null)   // array de bienes | null
   const [modalBaja, setModalBaja]           = useState(null)
   const [modalTrasp, setModalTrasp]         = useState(null)
   const [modalNuevo, setModalNuevo]         = useState(false)
@@ -2715,6 +2978,13 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           )}
 
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
+            {modoSeleccion && (
+              <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
+                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
+                <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
+                {seleccionados.size > 1 ? `Resguardos (${seleccionados.size})` : 'Resguardo'}
+              </button>
+            )}
             {modoSeleccion && (
               <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
                 style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
@@ -2902,6 +3172,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       {panelBien      && <PanelConsulta  bien={panelBien}      onClose={() => setPanelBien(null)}      t={t} dark={dark} />}
       {modalEditar    && <ModalEditar    bien={modalEditar}    onClose={() => setModalEditar(null)}    t={t} dark={dark} onSaved={() => cargar(pagina)} />}
       {modalResguardo && <ModalResguardo bien={modalResguardo} onClose={() => setModalResguardo(null)} t={t} dark={dark} />}
+      {modalResguardosLote && <ModalResguardosLote bienes={modalResguardosLote} onClose={() => setModalResguardosLote(null)} t={t} dark={dark} />}
       {modalTrasp     && <ModalTraspaso  bien={modalTrasp}     onClose={() => setModalTrasp(null)}     onDone={() => cargar(pagina)} dark={dark} t={t} allAreas={allAreas} />}
       {modalReporte   && <ModalReporteMuebles
         onClose={() => setModalReporte(false)}
