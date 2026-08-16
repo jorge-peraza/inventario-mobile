@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -7,7 +7,10 @@ import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
-import { ID_PROCESO, ID_DESINC, cambiarCategoria, setDesinc, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
+ import { getComentario, setComentario } from '../comentarios'
+import { barraSticky, btnBarra } from './BienesMuebles'
+import { PaginaEvidencias } from './ArmarReporteInmuebles'
+import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
 const POR_PAGINA_OPTS = [10, 15, 20]
 
@@ -29,6 +32,21 @@ function iStyle(dark) {
   }
 }
 
+// Estilo para <select>: dibuja su propia flecha separada del borde derecho
+// (la flecha nativa queda pegada al filo del control).
+function sStyle(dark) {
+  const c = dark ? '%23f0f0f0' : '%23111111'
+  return {
+    ...iStyle(dark),
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+    paddingRight: '34px',
+    backgroundImage: "url(\"data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='" + c + "' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 11px center',
+    backgroundSize: '15px 15px',
+  }
+}
+
 function searchBoxStyle(dark) {
   return {
     display:'flex', alignItems:'center', gap:'8px',
@@ -44,13 +62,16 @@ function thBase(dark) {
 function tdBase() { return { padding:'10px 10px', verticalAlign:'top' } }
 
 // ── Panel de consulta ─────────────────────────────────────────────────────────
-export function PanelConsulta({ inmueble, onClose, t, dark }) {
+export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], extra = [] }) {
   const { close, anim } = useClosing(onClose)
   if (!inmueble) return null
 
+  // Aquí se muestra todo, incluidas las columnas que la tabla oculta
+  // (categoría, valor catastral, adquisición) y el comentario interno.
   const campos = [
     ['Clave de Inventario',   inmueble.claveinmueble],
     ['Nombre del Inmueble',   inmueble.nombreinmueble],
+    ['Categoría',             categorias.find(c => c.idcategoria === inmueble.idcategoria)?.nombrecategoria],
     ['Clave Catastral',       inmueble.clavecatastral],
     ['Adquisición',           inmueble.adquisicion],
     ['Superficie (m²)',       inmueble.superficiem2 ? fmtM2(inmueble.superficiem2) : '—'],
@@ -58,6 +79,8 @@ export function PanelConsulta({ inmueble, onClose, t, dark }) {
     ['Ubicación',             inmueble.ubicacion],
     ['Documento de Propiedad',inmueble.documentopropiedad],
     ['Expediente',            inmueble.expediente],
+    ['Comentarios',           getComentario(inmueble.idinmueble)],
+    ...extra,
   ]
 
   return (
@@ -304,12 +327,14 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [comentario, setComentarioTxt] = useState(() => getComentario(inmueble.idinmueble))
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
   async function guardar() {
     setSaving(true); setSaveErr(null)
     try {
+      setComentario(inmueble.idinmueble, comentario)
       await actualizarInmueble(inmueble.idinmueble, form)
       setSaved(true)
       setTimeout(() => { onSaved?.(); close() }, 800)
@@ -362,6 +387,13 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
         </div>
 
         <div style={{ flex:1, overflowY:'auto', padding:'0.5rem 1.5rem' }}>
+          {/* Comentario interno: solo se ve aquí y en el panel de consulta */}
+          <div style={{ padding:'11px 0', borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+            <p style={{ fontSize:'10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'5px' }}>Comentarios</p>
+            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2}
+              placeholder="Nota interna sobre este inmueble"
+              style={{ width:'100%', background:'transparent', border:'none', outline:'none', fontSize:'14px', color: dark ? '#f0f0f0' : '#111', fontFamily:'inherit', resize:'none', lineHeight:1.5, padding:0 }} />
+          </div>
           {/* Categoría (combobox) */}
           <div style={{ padding:'11px 0', borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
             <p style={{ fontSize:'10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'5px' }}>Categoría</p>
@@ -412,23 +444,26 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
     </>
   )
 }
 
 // ── Reporte: columnas disponibles (orden y etiquetas del formato oficial) ──────────
+// En los reportes, un campo vacío se imprime como "—"; si es de dinero, como 0
+// (la celda lleva formato de moneda, así que se ve "$ 0.00").
+const TXT = v => (v == null || String(v).trim() === '' ? '—' : v)
 export const REPORT_COLS = [
-  { key:'claveinmueble',      label:'No. (clave)',           rLabel:'NO.',                    ancho:12,     value:(r) => r.claveinmueble || '' },
-  { key:'nombreinmueble',     label:'Nombre del Inmueble',   rLabel:'NOMBRE DEL INMUEBLE',    ancho:50.375, value:(r) => r.nombreinmueble || '' },
-  { key:'clavecatastral',     label:'Clave Catastral',       rLabel:'CLAVE CATASTRAL',        ancho:19.125, value:(r) => r.clavecatastral || '' },
-  { key:'superficiem2',       label:'Superficie',            rLabel:'SUPERFICIE M2',          ancho:15.25,  value:(r) => r.superficiem2 != null ? r.superficiem2 : '' },
-  { key:'ubicacion',          label:'Ubicación',             rLabel:'UBICACIÓN',              ancho:44.75,  value:(r) => r.ubicacion || '' },
-  { key:'adquisicion',        label:'Adquisición',           rLabel:'ADQUISICIÓN',            ancho:34.25,  value:(r) => r.adquisicion || '' },
-  { key:'valorcatastral',     label:'Valor Catastral',       rLabel:'VALOR CATASTRAL',        ancho:18.125, value:(r) => r.valorcatastral != null ? r.valorcatastral : '' },
-  { key:'documentopropiedad', label:'Documento de Propiedad',rLabel:'DOCUMENTO DE PROPIEDAD', ancho:51,     value:(r) => r.documentopropiedad || '' },
-  { key:'expediente',         label:'Expediente',            rLabel:'EXPEDIENTE',             ancho:20,     value:(r) => r.expediente || '' },
-  { key:'categoria',          label:'Agrupar por Categoría', rLabel:'CATEGORÍA',              ancho:30,     value:(r, cats) => cats.find(c => c.idcategoria === r.idcategoria)?.nombrecategoria || '' },
+  { key:'claveinmueble',      label:'No. (clave)',           rLabel:'NO.',                    ancho:12,     value:(r) => TXT(r.claveinmueble) },
+  { key:'nombreinmueble',     label:'Nombre del Inmueble',   rLabel:'NOMBRE DEL INMUEBLE',    ancho:50.375, value:(r) => TXT(r.nombreinmueble) },
+  { key:'clavecatastral',     label:'Clave Catastral',       rLabel:'CLAVE CATASTRAL',        ancho:19.125, value:(r) => TXT(r.clavecatastral) },
+  { key:'superficiem2',       label:'Superficie',            rLabel:'SUPERFICIE M2',          ancho:15.25,  value:(r) => r.superficiem2 != null ? r.superficiem2 : '—' },
+  { key:'ubicacion',          label:'Ubicación',             rLabel:'UBICACIÓN',              ancho:44.75,  value:(r) => TXT(r.ubicacion) },
+  { key:'adquisicion',        label:'Adquisición',           rLabel:'ADQUISICIÓN',            ancho:34.25,  value:(r) => TXT(r.adquisicion) },
+  { key:'valorcatastral',     label:'Valor Catastral',       rLabel:'VALOR CATASTRAL',        ancho:18.125, value:(r) => r.valorcatastral != null ? r.valorcatastral : 0 },
+  { key:'documentopropiedad', label:'Documento de Propiedad',rLabel:'DOCUMENTO DE PROPIEDAD', ancho:51,     value:(r) => TXT(r.documentopropiedad) },
+  { key:'expediente',         label:'Expediente',            rLabel:'EXPEDIENTE',             ancho:20,     value:(r) => TXT(r.expediente) },
+  { key:'categoria',          label:'Agrupar por Categoría', rLabel:'CATEGORÍA',              ancho:30,     value:(r, cats) => TXT(cats.find(c => c.idcategoria === r.idcategoria)?.nombrecategoria) },
 ]
 
 const TITULO_REPORTE = 'INVENTARIO DE BIENES INMUEBLES MUNICIPIO DE NOGALES SONORA PERIODO 2024-2027'
@@ -510,7 +545,7 @@ async function dibujarLogosPDF(doc, pageW, margin) {
 }
 
 // ── Export PDF ──────────────────────────────────────────────────────────────────
-export async function exportarPDF(rows, cols, cats, titulo = '') {
+export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 28
@@ -529,47 +564,104 @@ export async function exportarPDF(rows, cols, cats, titulo = '') {
   }
 
   const agrupar  = cols.some(c => c.key === 'categoria')
-  const dataCols = cols.filter(c => c.key !== 'categoria')
+  // Si hay evidencias, se agregan como dos columnas al final de la misma tabla
+  const evid = new Map((evidencias || []).map(e => [e.idinmueble, e]))
+  const colsImg = evid.size > 0
+    ? [{ key: '__foto', rLabel: 'FOTO' }, { key: '__doc', rLabel: 'DOCUMENTO' }]
+    : []
+  const dataCols = [...cols.filter(c => c.key !== 'categoria'), ...colsImg]
 
   const hStyle = { fillColor: RGB_GRIS, textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' }
   const blanco = () => ({ fillColor: [255, 255, 255], lineWidth: 0 })
 
+  const body = []
+  const meta = []   // por fila: el inmueble con imagen, o null
+  const push = (fila, r) => { body.push(fila); meta.push(r && evid.get(r.idinmueble) ? evid.get(r.idinmueble) : null) }
+  const filaBlanca = () => dataCols.map(() => ({ content: '', styles: blanco() }))
+  const celdas = (r) => dataCols.map(c =>
+    c.key.startsWith('__')
+      ? ({ content: '' })
+      : ({ content: valorTexto(c, r, cats), styles: { halign: alineacion(c.key) } }))
+
+  const anchoImg = 110
   const common = {
     startY,
     styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, overflow: 'linebreak', valign: 'middle', halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.5, textColor: [0, 0, 0], fillColor: [255, 255, 255] },
     margin: { left: 24, right: 24 },
+    columnStyles: evid.size > 0
+      ? { [dataCols.length - 2]: { cellWidth: anchoImg }, [dataCols.length - 1]: { cellWidth: anchoImg } }
+      : undefined,
+    // Las filas con imagen necesitan alto suficiente para que se vea
+    didParseCell: (d) => { if (d.section === 'body' && meta[d.row.index]) d.cell.styles.minCellHeight = 74 },
+    didDrawCell: (d) => {
+      if (d.section !== 'body') return
+      const m = meta[d.row.index]; if (!m) return
+      const col = dataCols[d.column.index]
+      if (!col || !col.key.startsWith('__')) return
+      const img = col.key === '__foto' ? m.foto : m.documento
+      if (!img) return
+      const pad = 3
+      const maxW = d.cell.width - pad * 2, maxH = d.cell.height - pad * 2
+      let w = img.w, h = img.h
+      const rr = Math.min(maxW / w, maxH / h)
+      w *= rr; h *= rr
+      const px = d.cell.x + (d.cell.width - w) / 2, py = d.cell.y + (d.cell.height - h) / 2
+      try { doc.addImage(img.dataURL, 'PNG', px, py, w, h) } catch { /* noop */ }
+    },
   }
 
-  const body = []
-  const filaBlanca = () => dataCols.map(() => ({ content: '', styles: blanco() }))
-
   if (agrupar) {
+    // Cada categoría se dibuja en su propia tabla: así se controla el salto de
+    // página y la banda gris nunca queda sola al final de una hoja.
     const grupos = agruparPorCategoria(rows, cats)
-    let primero = true
+    const altoPag = doc.internal.pageSize.getHeight()
+    let y = startY
     for (const [nombre, items] of grupos) {
-      if (!primero) { body.push(filaBlanca()); body.push(filaBlanca()); body.push(filaBlanca()) } // 3 renglones en blanco
-      primero = false
-      // Fila de encabezado de la categoría
-      body.push(dataCols.map(c => ({ content: c.key === 'nombreinmueble' ? ('CATEGORIA: ' + nombre) : c.rLabel, styles: hStyle })))
-      // Filas de datos
-      items.forEach(r => body.push(dataCols.map(c => ({ content: valorTexto(c, r, cats), styles: { halign: alineacion(c.key) } }))))
+      // Espacio mínimo para la banda + encabezado + una fila; si no cabe, nueva hoja
+      const minimo = evid.size > 0 ? 150 : 90
+      if (y + minimo > altoPag - 24) { doc.addPage(); y = 40 }
+
+      body.length = 0; meta.length = 0
+      push([{ content: nombre.toUpperCase(), colSpan: dataCols.length, styles: { ...hStyle, fontSize: 8 } }], null)
+      push(dataCols.map(c => ({ content: c.rLabel, styles: hStyle })), null)
+      items.forEach(r => push(celdas(r), r))
+
+      autoTable(doc, { ...common, startY: y, body: [...body], rowPageBreak: 'avoid' })
+      y = doc.lastAutoTable.finalY + 18   // separación entre categorías
     }
-    autoTable(doc, { ...common, body })
   } else {
     const head = [dataCols.map(c => c.rLabel)]
-    rows.forEach(r => body.push(dataCols.map(c => ({ content: valorTexto(c, r, cats), styles: { halign: alineacion(c.key) } }))))
+    rows.forEach(r => push(celdas(r), r))
     autoTable(doc, { ...common, head, body, headStyles: hStyle })
   }
   doc.save(nombreArchivo('pdf'))
 }
 
 // ── Export Excel (ExcelJS — réplica exacta del formato oficial) ────────────────────
-export async function exportarExcel(rows, cols, cats, titulo = '') {
+export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = []) {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('INVENTARIO BIENES INMUEBLES')
+  // Impresión: horizontal, ajustada al ancho de la hoja para que no se corten
+  // las columnas ni los encabezados al imprimir o exportar a PDF.
+  ws.pageSetup = {
+    orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+  }
+
 
   const agrupar  = cols.some(c => c.key === 'categoria')
-  const dataCols = cols.filter(c => c.key !== 'categoria')
+  // Si hay evidencias, se agregan dos columnas al final de la misma tabla
+  const evid = new Map((evidencias || []).map(e => [e.idinmueble, e]))
+  // Recuadro fijo de la evidencia (px) y celda calculada a partir de él
+  const FOTO_W = 190, FOTO_H = 120, PAD = 10
+  const CELDA_W_PX = FOTO_W + PAD * 2
+  const CELDA_H_PX = FOTO_H + PAD * 2
+  const ANCHO_IMG = (CELDA_W_PX - 5) / 7            // ancho de columna en "chars"
+  const ALTO_IMG_PT = Math.round(CELDA_H_PX * 3 / 4) // alto de fila en puntos
+  const colsImg = evid.size > 0
+    ? [{ key: '__foto', rLabel: 'FOTO', ancho: ANCHO_IMG }, { key: '__doc', rLabel: 'DOCUMENTO', ancho: ANCHO_IMG }]
+    : []
+  const dataCols = [...cols.filter(c => c.key !== 'categoria'), ...colsImg]
   const nCols    = dataCols.length
 
   const borde  = { style: 'thin', color: { argb: 'FF' + NEGRO } }
@@ -596,6 +688,31 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
   // Anchos exactos
   dataCols.forEach((c, i) => { ws.getColumn(i + 1).width = c.ancho })
 
+  // Coloca la foto y el documento del inmueble en las dos últimas columnas
+  function ponerEvidencias(r, nFila) {
+    const e = evid.get(r.idinmueble); if (!e) return
+    ws.getRow(nFila).height = ALTO_IMG_PT
+    const EMU = 9525                       // EMUs por píxel
+    const idxFoto = dataCols.findIndex(c => c.key === '__foto')
+    const poner = (img, col) => {
+      if (!img) return
+      // La imagen se ajusta al recuadro fijo conservando su proporción
+      const k = Math.min(FOTO_W / img.w, FOTO_H / img.h)
+      const w = img.w * k, h = img.h * k
+      const id = wb.addImage({ base64: img.dataURL, extension: 'png' })
+      ws.addImage(id, {
+        tl: {
+          nativeCol: col,    nativeColOff: Math.round((CELDA_W_PX - w) / 2 * EMU),
+          nativeRow: nFila - 1, nativeRowOff: Math.round((CELDA_H_PX - h) / 2 * EMU),
+        },
+        ext: { width: w, height: h },
+        editAs: 'oneCell',
+      })
+    }
+    poner(e.foto, idxFoto)
+    poner(e.documento, idxFoto + 1)
+  }
+
   let fila = 1
 
   // Banda de logos: Ayuntamiento (izq), Escudo Nogales (centro), Escudo México (der)
@@ -613,8 +730,10 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
     const colPx = dataCols.map(c => Math.round(c.ancho * 7 + 5))
     const totalPx = colPx.reduce((a, b) => a + b, 0)
     const pxToCol = (x) => { let acc = 0; for (let k = 0; k < colPx.length; k++) { if (x < acc + colPx[k]) return k + (x - acc) / colPx[k]; acc += colPx[k] } return dataCols.length }
-    const H = 80, Hmex = 112
-    const ROW_H = 62
+    // La banda mide 2 filas; los logos se dimensionan para caber dentro con
+    // holgura, si no invaden la fila del título.
+    const H = 58, Hmex = 80
+    const ROW_H = 46
     ws.getRow(1).height = ROW_H; ws.getRow(2).height = ROW_H
     const EMU_PX = 9525
     const rowPx  = ROW_H * 96 / 72
@@ -642,7 +761,9 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
     const wAy  = H    * logos.ay.w  / logos.ay.h;  place(logos.ay,  6,                                H)
     const wNog = H    * logos.nog.w / logos.nog.h;  place(logos.nog, totalPx / 2 - wNog / 2,           H)
     const wMex = Hmex * logos.mex.w / logos.mex.h;  place(logos.mex, totalPx - 6 - wMex,              Hmex)
-    fila = 4
+    // Filas de aire entre los logos y el título, para que nada se encime
+    ws.getRow(3).height = 14; ws.getRow(4).height = 14
+    fila = 5
   }
 
   // Título opcional
@@ -662,16 +783,23 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
       if (!primero) fila += 3       // 3 renglones en blanco entre categorías
       primero = false
 
-      // Fila de encabezado de categoría (altura automática)
+      // Banda con el nombre de la categoría, combinada a lo ancho de la tabla
+      ws.mergeCells(fila, 1, fila, dataCols.length)
+      dataCols.forEach((c, idx) => headerCell(ws.getCell(fila, idx + 1), idx === 0 ? nombre.toUpperCase() : ''))
+      ws.getCell(fila, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+      fila++
+
+      // Debajo, el encabezado de columnas
       const hRow = ws.getRow(fila)
-      dataCols.forEach((c, idx) => headerCell(hRow.getCell(idx + 1), c.key === 'nombreinmueble' ? ('CATEGORIA: ' + nombre) : c.rLabel))
+      dataCols.forEach((c, idx) => headerCell(hRow.getCell(idx + 1), c.rLabel))
       fila++
 
       // Datos (altura automática + franjas alternas)
       items.forEach((r, i) => {
         const row = ws.getRow(fila)
         const fill = i % 2 === 1 ? FRANJA : null
-        dataCols.forEach((c, idx) => dataCell(row.getCell(idx + 1), valorTexto(c, r, cats), alineacion(c.key), c.key !== 'claveinmueble', fill))
+        dataCols.forEach((c, idx) => dataCell(row.getCell(idx + 1), c.key.startsWith('__') ? '' : valorTexto(c, r, cats), alineacion(c.key), c.key !== 'claveinmueble', fill))
+        if (evid.has(r.idinmueble)) ponerEvidencias(r, fila)
         fila++
       })
     }
@@ -685,7 +813,8 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
     rows.forEach((r, i) => {
       const row = ws.getRow(fila)
       const fill = i % 2 === 1 ? FRANJA : null
-      dataCols.forEach((c, idx) => dataCell(row.getCell(idx + 1), valorTexto(c, r, cats), alineacion(c.key), c.key !== 'claveinmueble', fill))
+      dataCols.forEach((c, idx) => dataCell(row.getCell(idx + 1), c.key.startsWith('__') ? '' : valorTexto(c, r, cats), alineacion(c.key), c.key !== 'claveinmueble', fill))
+        if (evid.has(r.idinmueble)) ponerEvidencias(r, fila)
       fila++
     })
   }
@@ -695,15 +824,16 @@ export async function exportarExcel(rows, cols, cats, titulo = '') {
 }
 
 // Trae todos los registros que cumplen los filtros actuales (paginado)
-async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds }) {
+async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categorias }) {
   const BATCH = 1000
   let todos = [], desde = 0
   while (true) {
     let q = supabase.from('bienesinmuebles').select('*').order('consecutivo', { ascending: true }).range(desde, desde + BATCH - 1)
-    if (busqueda) q = q.or(`nombreinmueble.ilike.%${busqueda}%,claveinmueble.ilike.%${busqueda}%,clavecatastral.ilike.%${busqueda}%,ubicacion.ilike.%${busqueda}%`)
+    q = aplicarBusquedaInmuebles(q, busqueda, categorias)
     if (m2Min !== '' && m2Min != null) q = q.gte('superficiem2', Number(m2Min))
     if (m2Max !== '' && m2Max != null) q = q.lte('superficiem2', Number(m2Max))
     if (categoriaIds && categoriaIds.length > 0) q = q.in('idcategoria', categoriaIds)
+    else q = q.not('idcategoria', 'in', `(${CATS_FUERA.join(',')})`)
     const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break
@@ -727,14 +857,47 @@ async function fetchPorIds(ids) {
   return todos
 }
 
+
+// Mide la página activa de un modal de dos páginas y devuelve su altura, para
+// que el recuadro se ajuste al contenido en vez de quedar con espacio vacío.
+function useAlturaPagina(pagina, deps = []) {
+  const refs = [useRef(null), useRef(null)]
+  const [alto, setAlto] = useState(null)
+  useLayoutEffect(() => {
+    const el = refs[pagina]?.current
+    if (!el) return
+    const medir = () => setAlto(el.scrollHeight)
+    medir()
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [pagina, ...deps])
+  return [refs, alto]
+}
+
 // ── Modal Reporte ───────────────────────────────────────────────────────────────
-function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, totalFiltrados }) {
+export function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, totalFiltrados, tituloInicial }) {
   const haySel = seleccionados.length > 0
   const [colsSel, setColsSel] = useState(() => new Set(REPORT_COLS.map(c => c.key)))
-  const [titulo, setTitulo]   = useState('')
+  const [titulo, setTitulo]   = useState(tituloInicial || '')
   const [alcance, setAlcance] = useState(haySel ? 'seleccion' : 'todos')
   const [generando, setGenerando] = useState(null)   // 'excel' | 'pdf' | null
   const [err, setErr] = useState(null)
+  const [pagina, setPagina] = useState(0)   // 0 = reporte, 1 = evidencias
+  const [filasEvid, setFilasEvid] = useState([])
+  const [adjuntos, setAdjuntos] = useState({})   // { idinmueble: { foto, documento } }
+  const [refsPag, altoPag] = useAlturaPagina(pagina, [filasEvid, err])
+  // Cuántos inmuebles llevan alguna imagen: si es 0, el reporte sale sin anexo
+  const totalEvidencias = Object.values(adjuntos).filter(a => a && (a.foto || a.documento)).length
+
+  // Al pasar a evidencias se traen los inmuebles del alcance elegido
+  useEffect(() => {
+    if (pagina !== 1) return
+    let vivo = true
+    const p = alcance === 'seleccion' ? fetchPorIds(seleccionados) : fetchTodosFiltrados(filtros)
+    p.then(r => { if (vivo) setFilasEvid(r || []) }).catch(() => { if (vivo) setFilasEvid([]) })
+    return () => { vivo = false }
+  }, [pagina])
 
   function toggleCol(key) {
     setColsSel(prev => {
@@ -758,8 +921,20 @@ function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, to
       if (!rows.length) { setErr('No hay registros para el reporte'); setGenerando(null); return }
       const cols = REPORT_COLS.filter(c => colsSel.has(c.key))
       const tit  = titulo.trim()
-      if (formato === 'excel') await exportarExcel(rows, cols, categorias, tit)
-      else                     await exportarPDF(rows, cols, categorias, tit)
+      // Las evidencias se anexan al final del MISMO documento, y solo si se
+      // capturó alguna imagen; si no, el reporte sale como siempre.
+      const evidencias = rows
+        .filter(r => adjuntos[r.idinmueble]?.foto || adjuntos[r.idinmueble]?.documento)
+        .map(r => ({
+          idinmueble: r.idinmueble,
+          clave: r.claveinmueble,
+          nombre: r.nombreinmueble,
+          categoria: categorias.find(c => c.idcategoria === r.idcategoria)?.nombrecategoria || 'SIN CATEGORÍA',
+          foto: adjuntos[r.idinmueble]?.foto || null,
+          documento: adjuntos[r.idinmueble]?.documento || null,
+        }))
+      if (formato === 'excel') await exportarExcel(rows, cols, categorias, tit, evidencias)
+      else                     await exportarPDF(rows, cols, categorias, tit, evidencias)
       onClose()
     } catch (e) {
       setErr(e.message)
@@ -775,6 +950,12 @@ function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, to
     <>
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'760px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        {/* Dos páginas dentro del mismo modal */}
+        <div style={{ display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden' }}>
+
+        {/* ── Página 1: columnas y formato ── */}
+        <div ref={refsPag[0]} style={{ display: pagina === 0 ? 'flex' : 'none', flexDirection:'column', maxHeight:'92vh', animation: pagina === 0 ? 'entraIzq 0.22s cubic-bezier(0.32,0.72,0,1)' : undefined }}>
 
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -855,6 +1036,16 @@ function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, to
                   ? 'Solo los registros que marcaste con checkbox.'
                   : 'Todos los registros que cumplen los filtros actuales.'}
               </p>
+
+              {/* Evidencias: se anexan al final del mismo reporte */}
+              <button onClick={() => setPagina(1)} disabled={conteoAlcance === 0}
+                style={{ width:'100%', marginTop:'10px', display:'flex', alignItems:'center', gap:'8px', padding:'10px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: conteoAlcance === 0 ? 'not-allowed' : 'pointer', opacity: conteoAlcance === 0 ? 0.5 : 1, background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}`, color: t.text1 }}>
+                <i className="ti ti-camera" style={{ fontSize:'16px', color: t.text3 }} />
+                <span style={{ flex:1, textAlign:'left' }}>
+                  Agregar evidencias{totalEvidencias > 0 ? ` (${totalEvidencias})` : ''}
+                </span>
+                <i className="ti ti-chevron-right" style={{ fontSize:'14px', color: t.text4 }} />
+              </button>
             </div>
 
             <div style={{ flex:1 }} />
@@ -877,15 +1068,65 @@ function ModalReporte({ onClose, dark, t, categorias, seleccionados, filtros, to
             </div>
           </div>
         </div>
+        </div>
+
+        {/* ── Página 2: evidencias ── */}
+        <div ref={refsPag[1]} style={{ display: pagina === 1 ? 'flex' : 'none', flexDirection:'column', maxHeight:'92vh', animation: pagina === 1 ? 'entraDer 0.22s cubic-bezier(0.32,0.72,0,1)' : undefined }}>
+          <PaginaEvidencias onVolver={() => setPagina(0)} bienes={filasEvid}
+            adjuntos={adjuntos} setAdjuntos={setAdjuntos} dark={dark} t={t} />
+        </div>
+
+        </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
 }
 
+// Aplica la búsqueda libre sobre la consulta de inmuebles.
+//
+// El valor va entre comillas dobles porque PostgREST separa las condiciones de
+// or() con comas: si el texto trae una coma sin comillas, la consulta se rompe.
+// Además del nombre y las claves, busca en ubicación, documento de propiedad
+// (número de escritura), expediente y categoría; y si el texto es un número o una
+// fecha, también en superficie, valor catastral y fecha.
+function aplicarBusquedaInmuebles(query, busqueda, categorias) {
+  const txt = String(busqueda || '').trim()
+  if (!txt) return query
+  const val = `"%${txt.replace(/"/g, '')}%"`
+  const cond = [
+    `nombreinmueble.ilike.${val}`,
+    `claveinmueble.ilike.${val}`,
+    `clavecatastral.ilike.${val}`,
+    `ubicacion.ilike.${val}`,
+    `documentopropiedad.ilike.${val}`,
+    `expediente.ilike.${val}`,
+    `adquisicion.ilike.${val}`,
+  ]
+
+  // Categoría: se resuelven los ids cuyo nombre coincide (p. ej. "espacios deportivos")
+  const ids = (categorias || [])
+    .filter(c => (c.nombrecategoria || '').toLowerCase().includes(txt.toLowerCase()))
+    .map(c => c.idcategoria)
+  if (ids.length) cond.push(`idcategoria.in.(${ids.join(',')})`)
+
+  // Número: superficie o valor catastral exactos
+  const num = Number(txt.replace(/[$,\s]/g, ''))
+  if (Number.isFinite(num) && txt.replace(/[$,\s]/g, '') !== '') {
+    cond.push(`superficiem2.eq.${num}`)
+    cond.push(`valorcatastral.eq.${num}`)
+  }
+  // Fecha completa (2024-05-01) o año (2024). El rango del año va dentro de un
+  // and(...): como condiciones sueltas del or() el "lte" dejaría pasar todo.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) cond.push(`fecha_enajenacion.eq.${txt}`)
+  else if (/^\d{4}$/.test(txt)) cond.push(`and(fecha_enajenacion.gte.${txt}-01-01,fecha_enajenacion.lte.${txt}-12-31)`)
+
+  return query.or(cond.join(','))
+}
+
 // ── Query Supabase ────────────────────────────────────────────────────────────
-async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categoriaIds }) {
+async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categoriaIds, categorias }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
 
@@ -895,8 +1136,7 @@ async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categ
     .order('consecutivo', { ascending:true })
     .range(desde, hasta)
 
-  if (busqueda)
-    query = query.or(`nombreinmueble.ilike.%${busqueda}%,claveinmueble.ilike.%${busqueda}%,clavecatastral.ilike.%${busqueda}%,ubicacion.ilike.%${busqueda}%`)
+  query = aplicarBusquedaInmuebles(query, busqueda, categorias)
 
   if (m2Min !== '' && m2Min != null)
     query = query.gte('superficiem2', Number(m2Min))
@@ -907,7 +1147,7 @@ async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categ
   if (categoriaIds && categoriaIds.length > 0)
     query = query.in('idcategoria', categoriaIds)
   else
-    query = query.not('idcategoria', 'in', `(${ID_PROCESO},${ID_DESINC})`)
+    query = query.not('idcategoria', 'in', `(${CATS_FUERA.join(',')})`)
 
   const { data, error, count } = await query
   if (error) throw error
@@ -932,6 +1172,7 @@ const COLS_ENAJ = [
   { key: 'afavorde',          label: 'A FAVOR DE',            w: 30, align: 'left' },
   { key: 'valorcatastral',    label: 'VALOR CATASTRAL',       w: 18 },
   { key: 'documentopropiedad',label: 'DOCUMENTO DE PROPIEDAD',w: 40, align: 'left' },
+  { key: 'tipo_mov',          label: 'MOVIMIENTO',            w: 22 },
 ]
 
 function fmtValEnaj(n) { return n != null && n !== '' ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$0.00' }
@@ -972,10 +1213,23 @@ export async function exportarEnajenacionesPDF(desinc, incorp, titulo = '') {
   const hStyle = { fillColor: GRIS_RGB, textColor: [0,0,0], fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: 7 }
   const dStyle = { fontSize: 7, cellPadding: 3 }
   const colStyles = {}
-  COLS_ENAJ.forEach((c, i) => { colStyles[i] = { halign: c.align === 'left' ? 'left' : 'center' } })
+  // El ancho se fija por columna: si se deja automático, cada sección se
+  // dimensiona según su propio contenido y las dos tablas salen distintas.
+  const anchoUtil = pageW - margin * 2
+  const sumaW = COLS_ENAJ.reduce((s, c) => s + c.w, 0)
+  COLS_ENAJ.forEach((c, i) => {
+    colStyles[i] = {
+      halign: c.align === 'left' ? 'left' : 'center',
+      cellWidth: anchoUtil * c.w / sumaW,
+    }
+  })
 
   const renderSeccion = (filas, tituloSeccion, y) => {
     if (filas.length === 0) return y
+    // Si no queda espacio para la banda + encabezado + una fila, se pasa a la
+    // hoja siguiente: así el título nunca queda solo al pie de la página.
+    const altoPag = doc.internal.pageSize.getHeight()
+    if (y + 90 > altoPag - margin) { doc.addPage(); y = margin + 8 }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
     // Casilla con relleno gris Y contorno (antes solo sombreado, sin borde)
     doc.setFillColor(...GRIS_RGB)
@@ -992,6 +1246,8 @@ export async function exportarEnajenacionesPDF(desinc, incorp, titulo = '') {
       columnStyles: colStyles,
       styles: { lineColor: [0,0,0], lineWidth: 0.3, font: 'helvetica', overflow: 'linebreak' },
       margin: { left: margin, right: margin },
+      rowPageBreak: 'avoid',   // ninguna fila se parte entre dos hojas
+      showHead: 'everyPage',   // si continúa en otra hoja, repite el encabezado
     })
     return doc.lastAutoTable.finalY + 10
   }
@@ -1007,6 +1263,13 @@ export async function exportarEnajenacionesExcel(desinc, incorp, titulo = '') {
   const { saveAs } = await import('file-saver')
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('ENAJENACIONES')
+  // Impresión: horizontal, ajustada al ancho de la hoja para que no se corten
+  // las columnas ni los encabezados al imprimir o exportar a PDF.
+  ws.pageSetup = {
+    orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+  }
+
   const FUENTE = 'Arial'
   const borde = { style: 'thin', color: { argb: 'FF000000' } }
   const bordes = { top: borde, left: borde, bottom: borde, right: borde }
@@ -1142,7 +1405,7 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -1212,11 +1475,11 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
         </div>
 
         {/* Cuerpo */}
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:'10px' }}>
             <div>{lbl('Clave')}<input value={clave} onChange={e => setClave(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Categoría *')}
-              <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={iStyle(dark)}>
+              <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={sStyle(dark)}>
                 <option value="">Selecciona una categoría…</option>
                 {categorias.map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
               </select>
@@ -1248,13 +1511,13 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
 }
 
-export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [] }) {
+export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [], abrirNuevo = false, abrirReporte = false }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [datos, setDatos]                   = useState([])
@@ -1263,7 +1526,10 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
   const [pagina, setPagina]                 = useState(0)
   const [totalRegistros, setTotalRegistros] = useState(0)
   const [busqueda, setBusqueda]             = useState('')
-  const [porPagina, setPorPagina]           = useState(10)
+  const [porPagina, setPorPagina]           = useState(20)
+  // Lo que se ve escrito en la caja de página, aparte de la página real: así se
+  // puede borrar y teclear otro número sin que la tabla salte en cada tecla.
+  const [paginaTexto, setPaginaTexto]       = useState('1')
   const [panelInmueble, setPanelInmueble]   = useState(null)
   const [modalEditar, setModalEditar]       = useState(null)
   const [m2Min, setM2Min]                   = useState('')
@@ -1272,9 +1538,10 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
   const [catSelec, setCatSelec]             = useState(initialCatFilter)
   const [modoSeleccion, setModoSeleccion]   = useState(false)
   const [seleccionados, setSeleccionados]   = useState(() => new Set())
-  const [modalReporte, setModalReporte]     = useState(false)
+  const [modalReporte, setModalReporte]     = useState(abrirReporte)
   const [modalDesinc, setModalDesinc]       = useState(null)   // array de ids | null
-  const [modalNuevo, setModalNuevo]         = useState(false)
+  // Al entrar desde las acciones rápidas del inicio se abre directo el formulario
+  const [modalNuevo, setModalNuevo]         = useState(abrirNuevo)
   const skipDebounce = useRef(false)
 
   useEffect(() => {
@@ -1290,17 +1557,31 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
       m2Min:        params.m2Min        ?? m2Min,
       m2Max:        params.m2Max        ?? m2Max,
       categoriaIds: params.categoriaIds ?? catSelec,
+      categorias,
     })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(pag) })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
-  }, [busqueda, porPagina, m2Min, m2Max, catSelec])
+  }, [busqueda, porPagina, m2Min, m2Max, catSelec, categorias])
+
+  const totalPaginas = Math.max(1, Math.ceil(totalRegistros / porPagina))
+
+  // La caja sigue a la página real: al filtrar o usar las flechas se actualiza sola
+  useEffect(() => { setPaginaTexto(String(pagina + 1)) }, [pagina])
+
+  // Se salta al escribir Enter o al salir de la caja, no en cada tecla. Un número
+  // fuera de rango se ajusta al extremo más cercano en vez de dejar la tabla vacía.
+  function irAPagina() {
+    const n = Math.min(totalPaginas, Math.max(1, Number(paginaTexto) || 1))
+    setPaginaTexto(String(n))
+    if (n - 1 !== pagina) cargar(n - 1)
+  }
 
   useEffect(() => {
     if (skipDebounce.current) { skipDebounce.current = false; return }
     const timer = setTimeout(() => cargar(0), 400)
     return () => clearTimeout(timer)
-  }, [busqueda, porPagina, m2Min, m2Max, catSelec])
+  }, [busqueda, porPagina, m2Min, m2Max, catSelec, categorias])
 
   function toggleSeleccion(id) {
     setSeleccionados(prev => {
@@ -1367,7 +1648,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         {/* Header */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1.5rem' }}>
           <div>
-            <h1 style={{ fontSize:'24px', fontWeight:600, color:t.text1, marginBottom:'4px' }}>Bienes Inmuebles</h1>
+            <h1 style={{ fontSize:'24px', fontWeight:600, color:t.text1, marginBottom:'4px' }}>Bienes Inmuebles del HAN</h1>
             <p style={{ fontSize:'14px', color:t.text3 }}>
               Inventario Municipal · {loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
             </p>
@@ -1408,7 +1689,8 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         </div>
 
         {/* Barra de selección */}
-        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'1rem', flexWrap:'wrap' }}>
+        {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
+        <div style={barraSticky(dark, t)}>
           <div onClick={toggleModoSeleccion}
             style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
               background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
@@ -1438,12 +1720,11 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
           )}
 
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
-            {modoSeleccion && (
-              <button onClick={() => seleccionados.size > 0 && setModalDesinc([...seleccionados])} disabled={seleccionados.size === 0}
-                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
-                <i className="ti ti-archive-off" style={{ fontSize:'17px' }} />Desincorporación
-              </button>
-            )}
+            {/* Siempre visible; atenuado mientras no haya registros marcados */}
+            <button onClick={() => seleccionados.size > 0 && setModalDesinc([...seleccionados])} disabled={seleccionados.size === 0}
+              style={btnBarra(dark, t, seleccionados.size > 0)}>
+              <i className="ti ti-archive-off" style={{ fontSize:'17px' }} />Desincorporación
+            </button>
             <button onClick={() => setModalReporte(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
                 background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
@@ -1477,28 +1758,21 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                       </div>
                     </th>
                   )}
-                  <th rowSpan={2} style={{ ...thBase(dark), width:'80px', minWidth:'80px' }}>CLAVE</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>NOMBRE DEL INMUEBLE</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>UBICACIÓN</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>CATEGORÍA</th>
-                  <th colSpan={5} style={{ ...thBase(dark), textAlign:'center', borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', borderRight: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', letterSpacing:'0.2em' }}>
-                    C &nbsp; A &nbsp; T &nbsp; A &nbsp; S &nbsp; T &nbsp; R &nbsp; O
-                  </th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ACCIONES</th>
-                </tr>
-                <tr style={{ borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
+                  <th style={{ ...thBase(dark), width:'80px', minWidth:'80px' }}>CLAVE</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>NOMBRE DEL INMUEBLE</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>CLAVE CATASTRAL</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>UBICACIÓN</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', width:'120px', minWidth:'120px' }}>SUPERFICIE</th>
-                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>VALOR CATASTRAL</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>DOCUMENTO</th>
-                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', width:'110px', minWidth:'110px' }}>ADQUISICIÓN</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', width:'110px', minWidth:'110px' }}>EXPEDIENTE</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
                 {loading
                   ? Array.from({ length: porPagina }).map((_, i) => (
                       <tr key={i} style={{ borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
-                        {Array.from({ length: modoSeleccion ? 11 : 10 }).map((_, j) => (
+                        {Array.from({ length: modoSeleccion ? 9 : 8 }).map((_, j) => (
                           <td key={j} style={tdBase()}>
                             <div style={{ height:'14px', borderRadius:'6px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', animation:'pulse 1.5s ease-in-out infinite', width: j === 1 ? '80%' : '60%' }} />
                           </td>
@@ -1506,7 +1780,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                       </tr>
                     ))
                   : datos.length === 0
-                    ? <tr><td colSpan={modoSeleccion ? 11 : 10} style={{ padding:'3rem', textAlign:'center', color:t.text4 }}>
+                    ? <tr><td colSpan={modoSeleccion ? 9 : 8} style={{ padding:'3rem', textAlign:'center', color:t.text4 }}>
                         <i className="ti ti-search-off" style={{ fontSize:'28px', display:'block', marginBottom:'8px' }} />
                         Sin resultados
                       </td></tr>
@@ -1533,18 +1807,12 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                             </td>
                           )}
                           <td style={tdBase()}><span style={{ fontFamily:'monospace', fontSize:'11px', color:t.text3 }}>{b.claveinmueble || '—'}</span></td>
-                          <td style={{ ...tdBase(), maxWidth:'220px' }}><p style={{ color:t.text1, fontWeight:500, lineHeight:1.3 }}>{b.nombreinmueble || '—'}</p></td>
-                          <td style={{ ...tdBase(), maxWidth:'180px' }}><span style={{ color:t.text2, fontSize:'12px', lineHeight:1.3, display:'block' }}>{b.ubicacion || '—'}</span></td>
-                          <td style={{ ...tdBase(), maxWidth:'140px' }}>
-                            <span style={{ fontSize:'11px', color:t.text2 }}>
-                              {categorias.find(c => c.idcategoria === b.idcategoria)?.nombrecategoria || '—'}
-                            </span>
-                          </td>
+                          <td style={{ ...tdBase(), maxWidth:'240px' }}><p style={{ color:t.text1, fontWeight:500, lineHeight:1.3 }}>{b.nombreinmueble || '—'}</p></td>
                           <td style={tdBase()}><span style={{ fontFamily:'monospace', fontSize:'11px', color:t.text3 }}>{b.clavecatastral || '—'}</span></td>
+                          <td style={{ ...tdBase(), maxWidth:'200px' }}><span style={{ color:t.text2, fontSize:'12px', lineHeight:1.3, display:'block' }}>{b.ubicacion || '—'}</span></td>
                           <td style={{ ...tdBase(), whiteSpace:'nowrap' }}><span style={{ color:t.text2 }}>{b.superficiem2 ? fmtM2(b.superficiem2) : '—'}</span></td>
-                          <td style={{ ...tdBase(), whiteSpace:'nowrap' }}><span style={{ color:t.text2, fontWeight:500 }}>{fmt(b.valorcatastral)}</span></td>
-                          <td style={{ ...tdBase(), maxWidth:'160px' }}><span title={b.documentopropiedad} style={{ color:t.text3, fontSize:'11px', display:'-webkit-box', WebkitLineClamp:6, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{b.documentopropiedad || '—'}</span></td>
-                          <td style={tdBase()}><span style={{ color:t.text2, fontSize:'12px' }}>{b.adquisicion || '—'}</span></td>
+                          <td style={{ ...tdBase(), maxWidth:'200px' }}><span title={b.documentopropiedad} style={{ color:t.text3, fontSize:'11px', display:'-webkit-box', WebkitLineClamp:6, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{b.documentopropiedad || '—'}</span></td>
+                          <td style={tdBase()}><span style={{ color:t.text2, fontSize:'12px' }}>{b.expediente || '—'}</span></td>
                           <td style={tdBase()}>
                             <div style={{ display:'flex', gap:'4px' }}>
                               <button onClick={(e) => { e.stopPropagation(); setPanelInmueble(b) }} title="Consultar"
@@ -1598,8 +1866,15 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                 style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color:t.text1, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <i className="ti ti-chevron-left" style={{ fontSize:'14px' }} />
               </button>
-              <span style={{ fontSize:'13px', color:t.text2, minWidth:'90px', textAlign:'center' }}>
-                Pág. {pagina + 1} / {Math.max(1, Math.ceil(totalRegistros / porPagina))}
+              <span style={{ fontSize:'13px', color:t.text2, display:'flex', alignItems:'center', gap:'6px' }}>
+                Pág.
+                {/* Selector de página, igual que en Bienes Muebles */}
+                <select value={pagina} disabled={loading} aria-label="Ir a la página"
+                  onChange={e => cargar(Number(e.target.value))}
+                  style={{ ...sStyle(dark), width:'auto', height:'28px', padding:'0 30px 0 9px', fontSize:'13px', backgroundPosition:'right 8px center', backgroundSize:'13px 13px' }}>
+                  {Array.from({ length: totalPaginas }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                </select>
+                / {totalPaginas}
               </span>
               <button onClick={() => cargar(pagina + 1)} disabled={(pagina + 1) * porPagina >= totalRegistros || loading}
                 style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor:(pagina + 1) * porPagina >= totalRegistros ? 'not-allowed' : 'pointer', opacity:(pagina + 1) * porPagina >= totalRegistros ? 0.4 : 1, color:t.text1, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -1612,7 +1887,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
       </main>
 
       {panelInmueble && (
-        <PanelConsulta inmueble={panelInmueble} onClose={() => setPanelInmueble(null)} t={t} dark={dark} />
+        <PanelConsulta inmueble={panelInmueble} onClose={() => setPanelInmueble(null)} t={t} dark={dark} categorias={categorias} />
       )}
       {modalEditar && (
         <ModalEditar inmueble={modalEditar} onClose={() => setModalEditar(null)} t={t} dark={dark} categorias={categorias} onSaved={() => cargar(pagina)} />
@@ -1633,7 +1908,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
           dark={dark} t={t}
           categorias={categorias}
           seleccionados={[...seleccionados]}
-          filtros={{ busqueda, m2Min, m2Max, categoriaIds: catSelec }}
+          filtros={{ busqueda, m2Min, m2Max, categoriaIds: catSelec, categorias }}
           totalFiltrados={totalRegistros}
         />
       )}

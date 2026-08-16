@@ -5,12 +5,18 @@ import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../supabase'
 
 // Tipos (mismos que Bienes Muebles)
+// Deben cubrir TODAS las categorías activas: si falta alguna, el total de la dona
+// no cuadra con el total de bienes activos de la tarjeta.
 const TIPOS = [
   { id: 'mobiliario', label: 'Mobiliario', icon: 'ti-armchair',      cats: ['MOBILIARIO'] },
-  { id: 'computo',    label: 'Cómputo',    icon: 'ti-device-laptop', cats: ['EQUIPO DE COMPUTO'] },
+  { id: 'computo',    label: 'Cómputo',    icon: 'ti-device-laptop', cats: ['EQUIPO DE COMPUTO', 'EQUIPO'] },
+  { id: 'defensa',    label: 'Defensa y Seguridad', icon: 'ti-shield', cats: ['MAQUINARIA Y EQUIPO DE DEFENSA Y SEGURIDAD PUBLICA'] },
   { id: 'maquinaria', label: 'Maquinaria', icon: 'ti-bulldozer',     cats: ['MAQUINARIA'] },
   { id: 'vehiculos',  label: 'Vehículos',  icon: 'ti-car',           cats: ['VEHICULAR', 'VEHICULAR-MAQUINARIA', 'VEHICULAR-REMOLQUES-CARROCERIAS'] },
   { id: 'radiocomunicacion', label: 'Radiocomunicaciones', icon: 'ti-phone', cats: ['RADIOCOMUNICACION'] },
+  { id: 'parquimetros',   label: 'Parquímetros',      icon: 'ti-clock',     cats: ['EQUIPO DE CONTROL TIEMPO PARQUI'] },
+  { id: 'senalizaciones', label: 'Señalizaciones',    icon: 'ti-road-sign', cats: ['SEÑALIZACIONES'] },
+  { id: 'arbolesplantas', label: 'Árboles y Plantas', icon: 'ti-tree',      cats: ['ARBOLES Y PLANTAS'] },
 ]
 const CAT_A_MODO = {}
 for (const t of TIPOS) for (const c of t.cats) CAT_A_MODO[c] = t.id
@@ -254,9 +260,12 @@ export default function Dashboard({ user, onNavigate }) {
                       const off = activo ? 7 : 0
                       const dx = Math.cos(s.mid) * off
                       const dy = Math.sin(s.mid) * off
+                      // En segmentos muy pequeños la separación no puede ser fija:
+                      // se reduce para que el arco no quede invertido.
+                      const g = Math.min(GAP, (s.a1 - s.a0) / 3)
                       return (
                         <path key={s.i}
-                          d={arcoDona(cx, cy, rOut, rIn, s.a0 + GAP, s.a1 - GAP)}
+                          d={arcoDona(cx, cy, rOut, rIn, s.a0 + g, s.a1 - g)}
                           fill={activo ? OSCURO : CLARO}
                           transform={`translate(${dx} ${dy})`}
                           onMouseEnter={() => setHoverTipo(s.i)}

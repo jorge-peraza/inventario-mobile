@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { sStyle } from './BienesMuebles'
 import { createPortal } from 'react-dom'
 import { fetchInventarioInmuebles } from '../desincorporaciones'
 import { exportarEvidenciasPDF, exportarEvidenciasExcel, fileADataURL } from '../reporteEvidencias'
@@ -32,11 +33,13 @@ function Dropzone({ valor, onArchivo, dark }) {
   )
 }
 
-export function ModalEvidencias({ bienes, categorias, onClose, dark, t, tituloInicial }) {
-  const [adjuntos, setAdjuntos] = useState({})   // { idinmueble: { foto, documento } }
-  const [titulo, setTitulo] = useState(tituloInicial || `REPORTE INMUEBLES HAN ${mesAnioActual()}`)
-  const [generando, setGenerando] = useState(null)
-  useEffect(() => { const p = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = p } }, [])
+
+// ── Página de evidencias ──────────────────────────────────────────────────────
+// Se muestra como segunda página del modal de Generar Reporte: adjunta la foto y
+// el documento de cada inmueble y genera el reporte con esas imágenes.
+export function PaginaEvidencias({ onVolver, bienes, adjuntos, setAdjuntos, dark, t }) {
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const conImagen = bienes.filter(b => adjuntos[b.idinmueble]?.foto || adjuntos[b.idinmueble]?.documento).length
 
   async function setArchivo(id, campo, file) {
     const img = await fileADataURL(file)
@@ -44,95 +47,65 @@ export function ModalEvidencias({ bienes, categorias, onClose, dark, t, tituloIn
   }
   function quitar(id, campo) { setAdjuntos(prev => ({ ...prev, [id]: { ...prev[id], [campo]: null } })) }
 
-  async function generar(formato) {
-    setGenerando(formato)
-    try {
-      const items = bienes.map(b => ({
-        idinmueble: b.idinmueble,
-        clave: b.claveinmueble,
-        nombre: b.nombreinmueble,
-        categoria: categorias.find(c => c.idcategoria === b.idcategoria)?.nombrecategoria || 'SIN CATEGORÍA',
-        foto: adjuntos[b.idinmueble]?.foto || null,
-        documento: adjuntos[b.idinmueble]?.documento || null,
-      }))
-      if (formato === 'excel') await exportarEvidenciasExcel(items, titulo.trim())
-      else                     await exportarEvidenciasPDF(items, titulo.trim())
-      onClose()
-    } catch (e) { console.error(e); setGenerando(null) }
-  }
-
-  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
-  return createPortal(
+  return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '720px', maxWidth: '94vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
-        <div style={{ padding: '1.25rem 1.5rem', borderBottom: sep, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <i className="ti ti-photo" style={{ fontSize: '18px', color: t.text1 }} />
-            </div>
-            <div>
-              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Armar reporte con evidencias</p>
-              <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bienes.length} inmueble{bienes.length !== 1 ? 's' : ''} · adjunta foto y documento</p>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
-            <i className="ti ti-x" style={{ fontSize: '15px' }} />
-          </button>
-        </div>
-
-        <div style={{ padding: '1rem 1.5rem', borderBottom: sep, flexShrink: 0 }}>
-          <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Título del documento</p>
-          <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} style={{ width: '100%', padding: '9px 13px', borderRadius: '9px', outline: 'none', fontFamily: 'inherit', fontSize: '13px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', boxSizing: 'border-box' }} />
-        </div>
-
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thBase(dark), width: '44px' }}>NO.</th>
-                <th style={{ ...thBase(dark) }}>NOMBRE DEL INMUEBLE</th>
-                <th style={{ ...thBase(dark), width: '150px' }}>FOTO</th>
-                <th style={{ ...thBase(dark), width: '150px' }}>DOCUMENTO</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bienes.map((b, i) => (
-                <tr key={b.idinmueble} style={{ borderBottom: sep }}>
-                  <td style={{ ...tdBase(), verticalAlign: 'middle' }}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinmueble || (i + 1)}</span></td>
-                  <td style={{ ...tdBase(), verticalAlign: 'middle' }}><span style={{ color: t.text1, fontSize: '12px' }}>{b.nombreinmueble || '—'}</span></td>
-                  <td style={tdBase()}>
-                    <div style={{ position: 'relative' }}>
-                      <Dropzone valor={adjuntos[b.idinmueble]?.foto} onArchivo={f => setArchivo(b.idinmueble, 'foto', f)} dark={dark} />
-                      {adjuntos[b.idinmueble]?.foto && <button onClick={() => quitar(b.idinmueble, 'foto')} style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: dark ? '#333' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`, cursor: 'pointer', fontSize: '10px', color: dark ? '#ccc' : '#555', padding: 0 }}>✕</button>}
-                    </div>
-                  </td>
-                  <td style={tdBase()}>
-                    <div style={{ position: 'relative' }}>
-                      <Dropzone valor={adjuntos[b.idinmueble]?.documento} onArchivo={f => setArchivo(b.idinmueble, 'documento', f)} dark={dark} />
-                      {adjuntos[b.idinmueble]?.documento && <button onClick={() => quitar(b.idinmueble, 'documento')} style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: dark ? '#333' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`, cursor: 'pointer', fontSize: '10px', color: dark ? '#ccc' : '#555', padding: 0 }}>✕</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: sep, display: 'flex', gap: '8px' }}>
-          <button onClick={() => generar('excel')} disabled={generando}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '11px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: generando ? 'not-allowed' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
-            {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize: '16px' }} />Excel</>}
-          </button>
-          <button onClick={() => generar('pdf')} disabled={generando}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '11px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: generando ? 'not-allowed' : 'pointer', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
-            {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize: '16px' }} />PDF</>}
-          </button>
+      <div style={{ padding: '1.25rem 1.5rem', borderBottom: sep, display: 'flex', alignItems: 'center', gap: '11px', flexShrink: 0 }}>
+        <button onClick={onVolver} title="Volver"
+          style={{ width: '34px', height: '34px', borderRadius: '9px', flexShrink: 0, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text2 }}>
+          <i className="ti ti-arrow-left" style={{ fontSize: '17px' }} />
+        </button>
+        <div style={{ minWidth: 0 }}>
+          <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Evidencias</p>
+          <p style={{ fontSize: '12px', color: t.text4 }}>
+            {conImagen} de {bienes.length} con evidencia · se anexan al final del reporte
+          </p>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
-    </>,
-    document.body
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {bienes.length === 0
+          ? <p style={{ fontSize: '13px', color: t.text4, textAlign: 'center', padding: '3rem 0' }}>Cargando inmuebles…</p>
+          : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thBase(dark), width: '56px' }}>NO.</th>
+                  <th style={{ ...thBase(dark), width: '110px' }}>CLAVE</th>
+                  <th style={{ ...thBase(dark) }}>NOMBRE DEL INMUEBLE</th>
+                  <th style={{ ...thBase(dark), width: '140px' }}>FOTO</th>
+                  <th style={{ ...thBase(dark), width: '140px' }}>DOCUMENTO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bienes.map((b, i) => (
+                  <tr key={b.idinmueble} style={{ borderBottom: sep }}>
+                    <td style={{ ...tdBase(), verticalAlign: 'middle', color: t.text4 }}>{i + 1}</td>
+                    <td style={{ ...tdBase(), verticalAlign: 'middle' }}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinmueble || '—'}</span></td>
+                    <td style={{ ...tdBase(), verticalAlign: 'middle' }}><span style={{ color: t.text1, fontSize: '12px' }}>{b.nombreinmueble || '—'}</span></td>
+                    <td style={tdBase()}>
+                      <div style={{ position: 'relative' }}>
+                        <Dropzone valor={adjuntos[b.idinmueble]?.foto} onArchivo={f => setArchivo(b.idinmueble, 'foto', f)} dark={dark} />
+                        {adjuntos[b.idinmueble]?.foto && <button onClick={() => quitar(b.idinmueble, 'foto')} style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: dark ? '#333' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`, cursor: 'pointer', fontSize: '10px', color: dark ? '#ccc' : '#555', padding: 0 }}>✕</button>}
+                      </div>
+                    </td>
+                    <td style={tdBase()}>
+                      <div style={{ position: 'relative' }}>
+                        <Dropzone valor={adjuntos[b.idinmueble]?.documento} onArchivo={f => setArchivo(b.idinmueble, 'documento', f)} dark={dark} />
+                        {adjuntos[b.idinmueble]?.documento && <button onClick={() => quitar(b.idinmueble, 'documento')} style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: dark ? '#333' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`, cursor: 'pointer', fontSize: '10px', color: dark ? '#ccc' : '#555', padding: 0 }}>✕</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>}
+      </div>
+
+      <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: sep, display: 'flex' }}>
+        <button onClick={onVolver}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '7px', padding: '11px 22px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', border: `1px solid ${t.cardBorder}`, color: t.text1 }}>
+          <i className="ti ti-check" style={{ fontSize: '15px' }} />Listo
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -141,7 +114,7 @@ export default function ArmarReporteInmuebles({ dark, t, categorias }) {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [pagina, setPagina] = useState(0)
-  const [porPagina, setPorPagina] = useState(10)
+  const [porPagina, setPorPagina] = useState(20)
   const [busqueda, setBusqueda] = useState('')
   const [seleccionados, setSeleccionados] = useState(() => new Map())
   const [modal, setModal] = useState(false)
@@ -223,7 +196,14 @@ export default function ArmarReporteInmuebles({ dark, t, categorias }) {
           </div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             <button onClick={() => cargar(pagina - 1, busqueda)} disabled={pagina === 0 || loading} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-chevron-left" style={{ fontSize: '14px' }} /></button>
-            <span style={{ fontSize: '13px', color: t.text2, minWidth: '90px', textAlign: 'center' }}>Pág. {pagina + 1} / {totalPag}</span>
+            <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Pág.
+                    <select value={pagina} onChange={e => setPagina(Number(e.target.value))} aria-label="Ir a la página"
+                      style={{ ...sStyle(dark), width: 'auto', height: '28px', padding: '0 30px 0 9px', fontSize: '13px', backgroundPosition: 'right 8px center', backgroundSize: '13px 13px' }}>
+                      {Array.from({ length: totalPag }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                    </select>
+                    / {totalPag}
+                  </span>
             <button onClick={() => cargar(pagina + 1, busqueda)} disabled={(pagina + 1) * porPagina >= total || loading} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: (pagina + 1) * porPagina >= total ? 'not-allowed' : 'pointer', opacity: (pagina + 1) * porPagina >= total ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-chevron-right" style={{ fontSize: '14px' }} /></button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -81,6 +81,20 @@ function iStyle(dark) {
     colorScheme: dark ? 'dark' : 'light',
   }
 }
+// Estilo para <select>. La flecha nativa queda pegada al borde derecho; aquí se
+// dibuja una propia y se separa del borde con el mismo margen que tiene arriba.
+export function sStyle(dark) {
+  const c = dark ? '%23f0f0f0' : '%23111111'
+  return {
+    ...iStyle(dark),
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+    paddingRight: '34px',
+    backgroundImage: `url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${c}' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 11px center',
+    backgroundSize: '15px 15px',
+  }
+}
 function searchBoxStyle(dark) {
   return {
     display: 'flex', alignItems: 'center', gap: '8px',
@@ -88,6 +102,45 @@ function searchBoxStyle(dark) {
     background: dark ? '#2a2a2c' : '#ffffff',
     border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
   }
+}
+// Tarjeta que agrupa un bloque de campos dentro de un modal
+
+// Barra de acciones que queda fija al bajar en la tabla. En claro se usa un
+// blanco más transparente: con el fondo de la tarjeta se veía sólido y perdía
+// el efecto de vidrio que sí se aprecia en oscuro.
+// Botón de la barra de acciones. Cuando no aplica (sin registros marcados) se
+// muestra igual pero atenuado, para que la barra no cambie de forma.
+export function btnBarra(dark, t, activo = true) {
+  return {
+    display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px',
+    fontSize: '14px', fontWeight: 500, fontFamily: 'inherit',
+    cursor: activo ? 'pointer' : 'not-allowed', opacity: activo ? 1 : 0.45,
+    background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1,
+    backdropFilter: 'blur(10px)', transition: 'opacity 0.15s',
+  }
+}
+
+export function barraSticky(dark, t) {
+  return {
+    display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap',
+    position: 'sticky', top: '-1rem', zIndex: 90, padding: '0.7rem 1rem', borderRadius: '14px',
+    background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.45)',
+    border: `1px solid ${t.cardBorder}`,
+    backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+    boxShadow: dark ? '0 6px 20px rgba(0,0,0,0.28)' : '0 6px 20px rgba(0,0,0,0.07)',
+  }
+}
+
+function panelStyle(dark) {
+  return {
+    padding: '0.8rem 0.9rem 0.85rem',
+    borderRadius: '12px',
+    background: dark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.022)',
+    border: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)',
+  }
+}
+function tituloSec(t) {
+  return { fontSize: '12px', fontWeight: 600, color: t.text2, marginBottom: '0.7rem' }
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -285,7 +338,7 @@ export function GroupedAreaSelector({ areas, selected, onChange, dark }) {
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {Object.keys(groups).length === 0
                 ? <p style={{ padding: '2rem', textAlign: 'center', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontSize: '14px' }}>Sin resultados</p>
-                : <ListaGrupos />
+                : ListaGrupos()
               }
             </div>
 
@@ -319,6 +372,12 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
     anio:          bien.anio          || '',
     observaciones: bien.observaciones || '',
   })
+  // El titular no vive en la tabla de bienes sino en el catálogo de resguardos,
+  // así que se maneja aparte del resto del formulario. El '—' que pone la
+  // consulta cuando el bien no tiene titular se muestra como campo vacío.
+  const sinGuion = v => (v && v !== '—' ? v : '')
+  const [resgNombre, setResgNombre] = useState(sinGuion(bien.resguardatario))
+  const [resgPuesto, setResgPuesto] = useState(sinGuion(bien.puesto))
   const [saving, setSaving]     = useState(false)
   const [saveErr, setSaveErr]   = useState(null)
   const [saved, setSaved]       = useState(false)
@@ -328,7 +387,14 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
   async function guardar() {
     setSaving(true); setSaveErr(null)
     try {
-      await actualizarBien(bien.idbien, form)
+      const campos = { ...form }
+      // Solo se toca el titular si se modificó, para no reescribirlo sin razón
+      const cambioNombre = resgNombre.trim() !== sinGuion(bien.resguardatario)
+      const cambioPuesto = resgPuesto.trim() !== sinGuion(bien.puesto)
+      if (cambioNombre || cambioPuesto) {
+        campos.idresguardo = await resolverResguardo(resgNombre, resgPuesto)
+      }
+      await actualizarBien(bien.idbien, campos)
       setSaved(true)
       setTimeout(() => { onSaved?.(); close() }, 800)
     } catch(e) {
@@ -386,6 +452,23 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
               />
             </div>
           ))}
+          {/* Titular: vive en el catálogo de resguardos, no en el bien */}
+          {[
+            { label: 'Resguardo a cargo de', valor: resgNombre, set: setResgNombre },
+            { label: 'Puesto del titular',   valor: resgPuesto, set: setResgPuesto },
+          ].map(({ label, valor, set: setV }) => (
+            <div key={label} style={{ padding: '11px 0', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+              <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>{label}</p>
+              <input value={valor} onChange={e => setV(e.target.value)} autoComplete="off" spellCheck={false}
+                style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }} />
+            </div>
+          ))}
+          {(resgNombre.trim() !== sinGuion(bien.resguardatario) || resgPuesto.trim() !== sinGuion(bien.puesto)) && (
+            <p style={{ fontSize: '11px', color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)', paddingTop: '8px' }}>
+              <i className="ti ti-info-circle" style={{ marginRight: '5px' }} />
+              El cambio aplica solo a este bien.
+            </p>
+          )}
           {/* Estado en lista (alimenta los filtros) + notas libres */}
           <div style={{ padding: '11px 0' }}>
             <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Estado del bien</p>
@@ -431,7 +514,7 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
     </>
   )
 }
@@ -876,7 +959,29 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
       // Al cambiar idarea, el bien deja de aparecer en el área de origen y pasa
       // al destino con su nueva clave de inventario.
       const parche = { idarea: Number(dep) }
-      if (gen) parche.claveinventario = gen.clave
+      if (gen) { parche.claveinventario = gen.clave; parche.consecutivo = gen.consecutivo }
+
+      // Nuevo titular: si la persona ya está en el catálogo se reutiliza su
+      // registro; si no, se da de alta. Igual que al registrar un bien.
+      if (resg.trim()) parche.idresguardo = await resolverResguardo(resg, puesto)
+
+      // El motivo y la fecha no tienen columna propia, así que se anotan en
+      // observaciones. Se conserva el estado al inicio del texto (de ahí lo leen
+      // el filtro y el badge) y lo que ya estuviera escrito antes.
+      // Se deja constancia del origen y de la clave anterior: al traspasar, la
+      // clave se reemplaza por la del área destino y si no se anota aquí no queda
+      // forma de saber de dónde salió el bien.
+      const destino = allAreas.find(a => String(a.idarea) === String(dep))
+      const nota = ['TRASPASO A ' + String(destino?.nombrearea || 'OTRA AREA').toUpperCase()]
+      if (fecha) { const [a, m, d] = fecha.split('-'); nota.push(`EL ${d}/${m}/${a}`) }
+      const origen = []
+      if (bien.area && bien.area !== '—') origen.push(String(bien.area).toUpperCase())
+      if (bien.claveinventario) origen.push('CLAVE ANTERIOR ' + bien.claveinventario)
+      if (origen.length) nota.push('· DE ' + origen.join(', '))
+      if (motivo) nota.push('· MOTIVO: ' + motivo.toUpperCase())
+      const { estado, resto } = partirObs(bien.observaciones)
+      parche.observaciones = unirObs(estado, [resto, nota.join(' ')].filter(Boolean).join(' | '))
+
       const { error } = await supabase.from('bienes').update(parche).eq('idbien', bien.idbien)
       if (error) throw error
       onDone && onDone()
@@ -909,7 +1014,7 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
           </div>
           <div style={{ padding: '0 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             <MField label="Dependencia destino" dark={dark}>
-              <select value={dep} onChange={e => setDep(e.target.value)} style={iStyle(dark)}>
+              <select value={dep} onChange={e => setDep(e.target.value)} style={sStyle(dark)}>
                 <option value="">Seleccionar dependencia...</option>
                 {allAreas.map(a => (
                   <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>
@@ -933,7 +1038,7 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
               <input type="text" placeholder="Cargo o puesto" value={puesto} onChange={e => setPuesto(e.target.value)} style={iStyle(dark)} />
             </MField>
             <MField label="Motivo del traspaso" dark={dark}>
-              <select value={motivo} onChange={e => setMotivo(e.target.value)} style={iStyle(dark)}>
+              <select value={motivo} onChange={e => setMotivo(e.target.value)} style={sStyle(dark)}>
                 <option value="">Seleccionar motivo...</option>
                 <option>Reasignación de funciones</option>
                 <option>Necesidad operativa</option>
@@ -945,6 +1050,10 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
             <MField label="Fecha de traspaso" dark={dark}>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
             </MField>
+            {/* No hay columnas para el motivo ni la fecha: se anotan en observaciones */}
+            <p style={{ fontSize: '11px', color: t.text4, marginTop: '-6px' }}>
+              El motivo y la fecha se agregan a las observaciones del bien, sin borrar lo que ya tenía.
+            </p>
           </div>
           <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
             {err && <p style={{ fontSize: '12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom: '10px' }}><i className="ti ti-alert-circle" style={{ marginRight: '5px' }} />{err}</p>}
@@ -1014,7 +1123,51 @@ const MODOS = [
   { id: 'defensa',           label: 'Defensa y Seguridad', icon: 'ti-shield' },
 ]
 
+
+// Mide la página activa de un modal de dos páginas y devuelve su altura, para
+// que el recuadro se ajuste al contenido en vez de quedar con espacio vacío.
+function useAlturaPagina(pagina, deps = []) {
+  const refs = [useRef(null), useRef(null)]
+  const [alto, setAlto] = useState(null)
+  useLayoutEffect(() => {
+    const el = refs[pagina]?.current
+    if (!el) return
+    const medir = () => setAlto(el.scrollHeight)
+    medir()
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [pagina, ...deps])
+  return [refs, alto]
+}
+
 const OPCIONES_POR_PAGINA = [10, 15, 20]
+
+// Partidas presupuestales usadas en el inventario, tomadas de los bienes ya
+// registrados. La primera de cada categoría es la que se propone al dar de alta.
+const PARTIDAS = [
+  { cod: '51101', nombre: 'Mobiliario' },
+  { cod: '51501', nombre: 'Equipo de cómputo' },
+  { cod: '51901', nombre: 'Otros mobiliarios y equipos' },
+  { cod: '51903', nombre: 'Señalizaciones' },
+  { cod: '52101', nombre: 'Equipos audiovisuales' },
+  { cod: '52301', nombre: 'Cámaras fotográficas y de video' },
+  { cod: '52901', nombre: 'Equipo educacional y recreativo' },
+  { cod: '54101', nombre: 'Vehículos y equipo terrestre' },
+  { cod: '54901', nombre: 'Otros equipos de transporte' },
+  { cod: '55101', nombre: 'Equipo de defensa y seguridad' },
+  { cod: '56201', nombre: 'Maquinaria y equipo industrial' },
+  { cod: '56401', nombre: 'Aire acondicionado y refrigeración' },
+  { cod: '56501', nombre: 'Equipo de comunicación' },
+  { cod: '56701', nombre: 'Herramientas y máquinas-herramienta' },
+  { cod: '57801', nombre: 'Árboles y plantas' },
+]
+// Partida que se propone según la categoría elegida
+const PARTIDA_POR_MODO = {
+  mobiliario: '51101', computo: '51501', maquinaria: '56201', vehiculos: '54101',
+  radiocomunicacion: '56501', parquimetros: '54901', senalizaciones: '51903',
+  arbolesplantas: '57801', defensa: '55101',
+}
 
 // ── QUERY SUPABASE ────────────────────────────────────────────────────────────
 async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina }) {
@@ -1072,6 +1225,32 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
     })),
     count,
   }
+}
+
+// Devuelve el idresguardo que corresponde a ese nombre y puesto. Devuelve null
+// si no se capturó nombre.
+//
+// Busca la combinación EXACTA de nombre + puesto y, si no existe, da de alta un
+// registro nuevo. Nunca modifica un registro que ya estaba: así, corregir el
+// titular de un bien afecta solo a ese bien y no a los demás de esa persona
+// (hay titulares con más de 120 bienes a su cargo). Si no se capturó puesto,
+// basta con que coincida el nombre.
+async function resolverResguardo(nombre, puesto) {
+  const nom = (nombre || '').trim().toUpperCase()
+  if (!nom) return null
+  const pue = (puesto || '').trim().toUpperCase()
+  const { data } = await supabase.from('resguardos').select('idresguardo, puesto').ilike('nombre', nom).limit(50)
+  const candidatos = data || []
+  const exacto = pue
+    ? candidatos.find(r => (r.puesto || '').trim().toUpperCase() === pue)
+    : candidatos[0]
+  if (exacto) return exacto.idresguardo
+  const { data: mr, error } = await supabase.from('resguardos').select('idresguardo').order('idresguardo', { ascending: false }).limit(1)
+  if (error) throw error
+  const idresguardo = ((mr && mr[0]?.idresguardo) || 0) + 1
+  const { error: e2 } = await supabase.from('resguardos').insert({ idresguardo, nombre: nom, puesto: pue || null })
+  if (e2) throw e2
+  return idresguardo
 }
 
 async function actualizarBien(idbien, campos) {
@@ -1477,7 +1656,7 @@ export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
             <i className="ti ti-x" style={{ fontSize:'15px' }} />
           </button>
         </div>
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'0.5rem 0' }}>
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'0.5rem 0' }}>
           {bienes.map((b, i) => (
             <div key={b.idbien} style={{ padding:'11px 1.5rem', borderBottom: i < bienes.length - 1 ? sep : 'none' }}>
               <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'2px' }}>
@@ -1495,7 +1674,7 @@ export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -2276,7 +2455,7 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -2336,7 +2515,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
         </div>
 
         {/* Cuerpo desplazable */}
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
@@ -2392,7 +2571,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -2423,7 +2602,7 @@ function ModalTipoFilter({ modo, onSelect, onClose, dark, t }) {
         </div>
 
         {/* Lista de categorías */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1rem 1.4rem' }}>
+        <div style={{ minHeight: 0, maxHeight: '62vh', overflowY: 'auto', padding: '1rem 1.4rem' }}>
           {MODOS.map(m => {
             const sel = m.id === modo
             return (
@@ -2446,6 +2625,86 @@ function ModalTipoFilter({ modo, onSelect, onClose, dark, t }) {
 }
 
 // ── Modal Nuevo Bien ──────────────────────────────────────────────────────────
+// ── Página 2 del modal: números de serie ──────────────────────────────────────
+// Ocupa el modal completo; muestra la clave de inventario y el nombre de cada
+// bien para capturar su serie sin tener que buscar a cuál corresponde.
+function PaginaSeries({ onVolver, claves, nombre, marca, tipo, area, partida, series, setSeries, dark, t, onRegistrar, guardando, n }) {
+  const filas = claves && claves.length ? claves : []
+  const set = (i, v) => setSeries(prev => { const a = [...prev]; a[i] = v; return a })
+  const capturadas = series.filter(s => (s || '').trim()).length
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+
+  return (
+    <>
+      <div style={{ padding:'1.25rem 1.5rem', borderBottom: sep, display:'flex', alignItems:'center', gap:'11px', flexShrink:0 }}>
+        <button onClick={onVolver} title="Volver"
+          style={{ width:'34px', height:'34px', borderRadius:'9px', flexShrink:0, background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border:`1px solid ${t.cardBorder}`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: t.text2 }}>
+          <i className="ti ti-arrow-left" style={{ fontSize:'17px' }} />
+        </button>
+        <div style={{ minWidth:0 }}>
+          <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Números de serie</p>
+          <p style={{ fontSize:'12px', color: t.text4 }}>{capturadas} de {filas.length} capturada{filas.length === 1 ? '' : 's'}</p>
+        </div>
+      </div>
+
+      {/* Se captura sobre la propia tabla, como si se llenara a mano */}
+      <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto' }}>
+        {filas.length === 0
+          ? <p style={{ fontSize:'13px', color: t.text4, textAlign:'center', padding:'3rem 0' }}>Elige el área para generar las claves.</p>
+          : <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thBase(dark), width:'46px' }}>NO.</th>
+                  <th style={{ ...thBase(dark), width:'170px' }}>CLAVE DE INVENTARIO</th>
+                  <th style={{ ...thBase(dark) }}>NOMBRE DEL BIEN</th>
+                  <th style={{ ...thBase(dark), width:'120px' }}>MARCA</th>
+                  <th style={{ ...thBase(dark), width:'130px' }}>TIPO / MODELO</th>
+                  <th style={{ ...thBase(dark), width:'150px' }}>ÁREA</th>
+                  <th style={{ ...thBase(dark), width:'85px' }}>PARTIDA</th>
+                  <th style={{ ...thBase(dark), width:'210px' }}>NO. DE SERIE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((c, i) => (
+                  <tr key={c.clave} style={{ borderBottom: sep }}>
+                    <td style={{ ...tdBase(), verticalAlign:'middle', color: t.text4 }}>{i + 1}</td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}>
+                      <span style={{ fontFamily:'monospace', fontSize:'12px', color: t.text1 }}>{c.clave}</span>
+                    </td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}>
+                      <span style={{ fontSize:'12px', color: t.text1, fontWeight:500 }}>{nombre || '—'}</span>
+                    </td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}><span style={{ fontSize:'12px', color: t.text2 }}>{marca || '—'}</span></td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}><span style={{ fontSize:'12px', color: t.text2 }}>{tipo || '—'}</span></td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}><span style={{ fontSize:'11px', color: t.text3 }}>{area || '—'}</span></td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle' }}><span style={{ fontFamily:'monospace', fontSize:'11px', color: t.text3 }}>{partida || '—'}</span></td>
+                    <td style={{ ...tdBase(), verticalAlign:'middle', padding:'6px 10px' }}>
+                      <input value={series[i] || ''} onChange={e => set(i, e.target.value)}
+                        placeholder="Capturar serie" autoComplete="off" spellCheck={false}
+                        style={{ ...iStyle(dark), fontSize:'13px', padding:'7px 10px' }} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>}
+      </div>
+
+      <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: sep, display:'flex', gap:'8px' }}>
+        <button onClick={onVolver}
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px 18px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'transparent', border:`1px solid ${t.cardBorder}`, color: t.text2 }}>
+          <i className="ti ti-arrow-left" style={{ fontSize:'15px' }} />Volver
+        </button>
+        <button onClick={onRegistrar} disabled={guardando}
+          style={{ marginLeft:'auto', display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px 22px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+          {guardando
+            ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</>
+            : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />{n === 1 ? 'Registrar' : `Registrar ${n}`}</>}
+        </button>
+      </div>
+    </>
+  )
+}
+
 function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [clave, setClave]     = useState('')
   const [nombre, setNombre]   = useState('')
@@ -2459,18 +2718,25 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [anioClave, setAnioClave] = useState(new Date().getFullYear())
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
+  // Series: se capturan en un panel aparte, una por cada clave generada
+  const [clavesLote, setClavesLote] = useState([])
+  const [series, setSeries] = useState([])
+  const [pagina, setPagina] = useState(0)   // 0 = formulario, 1 = series
 
   // Datos de la compra: se capturan una vez y se aplican a todos los bienes del lote
   const [cantidad, setCantidad]   = useState(1)
   const [numFactura, setNumFactura] = useState('')
   const [fechaFactura, setFechaFactura] = useState('')
   const [importe, setImporte]     = useState('')
-  const [partida, setPartida]     = useState('')
+  const [partida, setPartida]     = useState(PARTIDA_POR_MODO[modo] || '')
   const [proveedor, setProveedor] = useState('')
+  const [resgNombre, setResgNombre] = useState('')
+  const [resgPuesto, setResgPuesto] = useState('')
 
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
 
   const n = Math.max(1, Math.min(500, Number(cantidad) || 1))
+  const [refsPag, altoPag] = useAlturaPagina(pagina, [n, clavesLote, err])
 
   // El importe es el de UN bien: si se registran varios, cada uno se guarda con
   // ese mismo costo y el total de la compra es el importe por la cantidad.
@@ -2486,6 +2752,36 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
     const a = Number(String(fechaFactura).slice(0, 4))
     if (a >= 2000 && a <= 2100) setAnioClave(a)
   }, [fechaFactura])
+
+  // Al elegir el área se propone quién resguarda ahí: la persona con más bienes
+  // ACTIVOS de esa área. Es solo una propuesta —los campos se pueden editar— y
+  // se cuentan los activos para no proponer a alguien que salga solo en bajas.
+  useEffect(() => {
+    if (!idarea) { setResgNombre(''); setResgPuesto(''); return }
+    let vivo = true
+    const limpiar = () => { if (vivo) { setResgNombre(''); setResgPuesto('') } }
+    supabase.from('bienes').select('idresguardo, estadobien')
+      .eq('idarea', Number(idarea)).not('idresguardo', 'is', null).limit(5000)
+      .then(({ data }) => {
+        if (!vivo) return
+        if (!data || !data.length) { limpiar(); return }
+        const activos = new Map(), todos = new Map()
+        for (const b of data) {
+          todos.set(b.idresguardo, (todos.get(b.idresguardo) || 0) + 1)
+          if (b.estadobien === 'ACTIVO') activos.set(b.idresguardo, (activos.get(b.idresguardo) || 0) + 1)
+        }
+        const cuenta = activos.size ? activos : todos
+        const top = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        return supabase.from('resguardos').select('nombre, puesto').eq('idresguardo', top).limit(1)
+          .then(({ data: r }) => {
+            if (!vivo) return
+            setResgNombre(r?.[0]?.nombre || '')
+            setResgPuesto(r?.[0]?.puesto || '')
+          })
+      })
+      .catch(limpiar)
+    return () => { vivo = false }
+  }, [idarea])
 
   // Áreas agrupadas por dependencia para el <select>
   const grupos = useMemo(() => {
@@ -2506,12 +2802,20 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
     siguienteClaveLote({ idarea, tipo: tipoDeModo(modoSel), anio: anioClave, cantidad: n })
       .then(r => {
         if (!vivo) return
-        if (!r) { setClave(''); return }
+        if (!r) { setClave(''); setClavesLote([]); return }
+        setClavesLote(r)
         setClave(r.length === 1 ? r[0].clave : `${r[0].clave}  →  ${r[r.length - 1].clave}`)
       })
-      .catch(() => { if (vivo) setClave('') })
+      .catch(() => { if (vivo) { setClave(''); setClavesLote([]) } })
     return () => { vivo = false }
   }, [idarea, modoSel, anioClave, n])
+
+  // La lista de series sigue a la cantidad, conservando lo ya capturado
+  useEffect(() => { setSeries(prev => Array.from({ length: n }, (_, i) => prev[i] || '')) }, [n])
+
+  // Al cambiar de categoría se propone la partida que le corresponde
+  useEffect(() => { setPartida(PARTIDA_POR_MODO[modoSel] || '') }, [modoSel])
+  const seriesCargadas = series.filter(s => (s || '').trim()).length
 
   async function guardar() {
     if (!nombre.trim()) { setErr('El nombre del bien es obligatorio'); return }
@@ -2536,6 +2840,10 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
           if (ep2) throw ep2
         }
       }
+
+      // Resguardatario: se reutiliza la persona si ya está en el catálogo (y
+      // conserva su puesto actual); si no, se da de alta con el capturado.
+      const idresguardo = await resolverResguardo(resgNombre, resgPuesto)
 
       // Ni idbien ni idfactura son autoincrementales: se toman del máximo actual
       const { data: maxB, error: e1 } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
@@ -2573,9 +2881,10 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
         nombrebien: nombre.trim().toUpperCase(),
         tipo: tipo.trim() || null,
         marca: marca.trim() || null,
-        serie: n === 1 ? (serie.trim() || null) : null,
+        serie: (series[i] || '').trim() || null,
         observaciones: unirObs(estadoObs, obs),
         idarea: Number(idarea),
+        idresguardo,
         idfactura: baseFact != null ? baseFact + i : null,
         partida: partida || null,
         categoriainventario: (CATS_BY_MODO[modoSel] || CATS_BY_MODO.mobiliario)[0],
@@ -2601,6 +2910,12 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'980px', maxWidth:'96vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
+        {/* Dos páginas dentro del mismo modal: se desliza el contenido completo */}
+        <div style={{ display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden' }}>
+
+        {/* ── Página 1: formulario ── */}
+        <div ref={refsPag[0]} style={{ display: pagina === 0 ? 'flex' : 'none', flexDirection:'column', maxHeight:'92vh', animation: pagina === 0 ? 'entraIzq 0.22s cubic-bezier(0.32,0.72,0,1)' : undefined }}>
+
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
@@ -2617,98 +2932,121 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
           </button>
         </div>
 
-        {/* Cuerpo: dos columnas para aprovechar el ancho. En pantallas angostas
-            el grid cae a una sola columna y queda como estaba antes. */}
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(360px, 1fr))', gap:'1rem 1.75rem', alignContent:'start' }}>
-          <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
-          <div>{lbl('Área / Dependencia *')}
-            <select value={idarea} onChange={e => setIdarea(e.target.value)} style={iStyle(dark)}>
-              <option value="">Selecciona un área…</option>
-              {grupos.map(([dep, areas]) => (
-                <optgroup key={dep} label={dep}>
-                  {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1.4fr 1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Categoría')}
-              <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={iStyle(dark)}>
-                {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </div>
-            <div>{lbl('Cantidad')}
-              <input type="number" value={cantidad} onChange={e => setCantidad(e.target.value)} min="1" max="500" style={iStyle(dark)} />
-            </div>
-            <div>{lbl('Año de la factura')}
-              <input type="number" value={anioClave} onChange={e => setAnioClave(e.target.value)} min="2000" max="2100" style={iStyle(dark)} />
-            </div>
-          </div>
-          {/* Clave generada automáticamente a partir del área, categoría y año */}
-          <div>{lbl(n === 1 ? 'Clave de inventario (automática)' : `Claves de inventario (${n} consecutivas)`)}
-            <div style={{ ...iStyle(dark), display:'flex', alignItems:'center', gap:'8px', background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}>
-              <i className="ti ti-hash" style={{ fontSize:'15px', color: t.text4, flexShrink:0 }} />
-              <span style={{ flex:1, fontFamily:'monospace', fontSize:'14px', letterSpacing:'0.02em', color: clave ? t.text1 : t.text4 }}>
-                {clave || (idarea ? 'Sin clave asignada para esta área' : 'Selecciona un área…')}
-              </span>
-            </div>
-          </div>
-          <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
-            <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('No. de serie')}
-              <input value={n > 1 ? '' : serie} onChange={e => setSerie(e.target.value)} disabled={n > 1}
-                placeholder={n > 1 ? 'Uno por bien' : ''}
-                style={{ ...iStyle(dark), opacity: n > 1 ? 0.5 : 1, cursor: n > 1 ? 'not-allowed' : 'text' }} />
-            </div>
-          </div>
-          {n > 1 && <p style={{ fontSize:'11px', color: t.text4, marginTop:'-6px' }}>
-            <i className="ti ti-info-circle" style={{ marginRight:'5px' }} />
-            Los {n} bienes se registran con el mismo nombre, marca y modelo. La serie se captura después en cada uno.
-          </p>}
-          {/* El estado se elige de la lista para que coincida con los filtros */}
-          <div>{lbl('Estado del bien')}
-            <select value={estadoObs} onChange={e => setEstadoObs(e.target.value)} style={iStyle(dark)}>
-              {ESTADOS_ALTA.map(e => <option key={e} value={e}>{e}</option>)}
-            </select>
-          </div>
-          <div>{lbl('Observaciones adicionales')}
-            <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} style={{ ...iStyle(dark), resize:'none', lineHeight:1.5 }} />
-            <p style={{ fontSize:'11px', color: t.text4, marginTop:'5px' }}>Se guardará como: <span style={{ fontFamily:'monospace' }}>{unirObs(estadoObs, obs) || '—'}</span></p>
-          </div>
-          </div>
+        {/* Cuerpo: dos columnas equilibradas, dimensionadas para caber sin scroll */}
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'0.8rem 1.1rem', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.85rem', alignItems:'start' }}>
 
-          {/* Datos de la compra: segunda columna. Son opcionales, pero es lo que
-              alimenta el reporte de adquisiciones. Se aplican por igual a todos
-              los bienes del lote. */}
-          <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
-            <p style={{ fontSize:'12px', fontWeight:600, color: t.text2 }}>
-              <i className="ti ti-receipt" style={{ marginRight:'6px' }} />Datos de la compra
-              <span style={{ fontWeight:400, color: t.text4 }}> — opcional</span>
-            </p>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
-              <div>{lbl('No. de factura')}<input value={numFactura} onChange={e => setNumFactura(e.target.value)} style={iStyle(dark)} /></div>
-              <div>{lbl('Fecha de la factura')}<input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)} style={iStyle(dark)} /></div>
-            </div>
-            <div>{lbl('Proveedor')}
-              <input value={proveedor} onChange={e => setProveedor(e.target.value)}
-                autoComplete="off" autoCorrect="off" spellCheck={false} style={iStyle(dark)} />
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
-              <div>{lbl('Importe de cada bien')}
-                <input value={importe} onChange={e => setImporte(e.target.value)} placeholder="0.00"
-                  inputMode="decimal" autoComplete="off" style={iStyle(dark)} />
+          {/* ── Columna 1: el bien ── */}
+          <section style={panelStyle(dark)}>
+            <p style={tituloSec(t)}><i className="ti ti-box" style={{ marginRight:'7px' }} />Datos del bien</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+
+              <div>{lbl('Área / Dependencia *')}
+                <select value={idarea} onChange={e => setIdarea(e.target.value)} style={sStyle(dark)}>
+                  <option value="">Selecciona un área…</option>
+                  {grupos.map(([dep, areas]) => (
+                    <optgroup key={dep} label={dep}>
+                      {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
               </div>
-              <div>{lbl('Partida / Capítulo')}
-                <input value={partida} onChange={e => setPartida(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                  inputMode="numeric" autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+
+              <div style={{ display:'grid', gridTemplateColumns:'1.5fr 0.75fr 0.85fr', gap:'8px' }}>
+                <div>{lbl('Categoría')}
+                  <select value={modoSel} onChange={e => setModoSel(e.target.value)} style={sStyle(dark)}>
+                    {MODOS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
+                </div>
+                <div>{lbl('Cantidad')}
+                  <input type="number" value={cantidad} onChange={e => setCantidad(e.target.value)} min="1" max="500" style={iStyle(dark)} />
+                </div>
+                <div>{lbl('Año fact.')}
+                  <input type="number" value={anioClave} onChange={e => setAnioClave(e.target.value)} min="2000" max="2100" style={iStyle(dark)} />
+                </div>
+              </div>
+
+              <div>{lbl(n === 1 ? 'Clave de inventario (automática)' : `Claves de inventario (${n} consecutivas)`)}
+                <div style={{ ...iStyle(dark), display:'flex', alignItems:'center', gap:'8px', background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}>
+                  <i className="ti ti-hash" style={{ fontSize:'15px', color: t.text4, flexShrink:0 }} />
+                  <span style={{ flex:1, fontFamily:'monospace', fontSize:'13px', color: clave ? t.text1 : t.text4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {clave || (idarea ? 'Sin clave para esta área' : 'Selecciona un área…')}
+                  </span>
+                </div>
+              </div>
+
+              <div>{lbl('Nombre del bien *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px' }}>
+                <div>{lbl('Marca')}<input value={marca} onChange={e => setMarca(e.target.value)} style={iStyle(dark)} /></div>
+                <div>{lbl('Tipo / Modelo')}<input value={tipo} onChange={e => setTipo(e.target.value)} style={iStyle(dark)} /></div>
+                {/* La serie se captura aparte, junto a la clave de cada bien */}
+                <div>{lbl(n === 1 ? 'No. de serie' : `Series (${n})`)}
+                  <button onClick={() => setPagina(1)} disabled={!idarea}
+                    title={!idarea ? 'Elige primero el área' : 'Capturar números de serie'}
+                    style={{ ...iStyle(dark), display:'flex', alignItems:'center', gap:'6px', cursor: idarea ? 'pointer' : 'not-allowed', opacity: idarea ? 1 : 0.55, textAlign:'left', fontFamily:'inherit' }}>
+                    <i className="ti ti-barcode" style={{ fontSize:'15px', color: t.text4, flexShrink:0 }} />
+                    <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:'13px', color: seriesCargadas ? t.text1 : t.text4 }}>
+                      {seriesCargadas ? `${seriesCargadas}/${n}` : 'Capturar'}
+                    </span>
+                    <i className="ti ti-chevron-right" style={{ fontSize:'14px', color: t.text4, flexShrink:0 }} />
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'0.85fr 1.5fr', gap:'8px' }}>
+                <div>{lbl('Estado')}
+                  <select value={estadoObs} onChange={e => setEstadoObs(e.target.value)} style={sStyle(dark)}>
+                    {ESTADOS_ALTA.map(e => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
+                <div>{lbl('Observaciones')}
+                  <input value={obs} onChange={e => setObs(e.target.value)} style={iStyle(dark)} />
+                </div>
               </div>
             </div>
-            {costoUnit && n > 1 &&<p style={{ fontSize:'11px', color: t.text3, marginTop:'-6px' }}>
-              {n} bienes de ${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cada uno
-              {' · total de la compra $'}{totalLote.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-            </p>}
+          </section>
+
+          {/* ── Columna 2: resguardo y compra ── */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.9rem' }}>
+
+            <section style={panelStyle(dark)}>
+              <p style={tituloSec(t)}><i className="ti ti-user" style={{ marginRight:'7px' }} />Resguardo<span style={{ fontWeight:400, color:t.text4 }}> — opcional</span></p>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                <div>{lbl('A cargo de')}
+                  <input value={resgNombre} onChange={e => setResgNombre(e.target.value)} autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+                </div>
+                <div>{lbl('Puesto')}
+                  <input value={resgPuesto} onChange={e => setResgPuesto(e.target.value)} autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+                </div>
+              </div>
+            </section>
+
+            <section style={panelStyle(dark)}>
+              <p style={tituloSec(t)}><i className="ti ti-receipt" style={{ marginRight:'7px' }} />Datos de la compra<span style={{ fontWeight:400, color:t.text4 }}> — opcional</span></p>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                  <div>{lbl('No. de factura')}<input value={numFactura} onChange={e => setNumFactura(e.target.value)} style={iStyle(dark)} /></div>
+                  <div>{lbl('Fecha')}<input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)} style={iStyle(dark)} /></div>
+                </div>
+                <div>{lbl('Proveedor')}
+                  <input value={proveedor} onChange={e => setProveedor(e.target.value)} autoComplete="off" autoCorrect="off" spellCheck={false} style={iStyle(dark)} />
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                  <div>{lbl('Importe c/u')}
+                    <input value={importe} onChange={e => setImporte(e.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" style={iStyle(dark)} />
+                  </div>
+                  <div>{lbl('Partida')}
+                    <select value={partida} onChange={e => setPartida(e.target.value)} style={sStyle(dark)}>
+                      <option value="">Sin partida</option>
+                      {PARTIDAS.map(p => <option key={p.cod} value={p.cod}>{p.nombre} — {p.cod}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {costoUnit && n > 1 && <p style={{ fontSize:'11px', color: t.text3 }}>
+                  {n} × ${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · total ${totalLote.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </p>}
+              </div>
+            </section>
           </div>
         </div>
 
@@ -2723,8 +3061,20 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
             </button>
           </div>
         </div>
+        </div>
+
+        {/* ── Página 2: números de serie ── */}
+        <div ref={refsPag[1]} style={{ display: pagina === 1 ? 'flex' : 'none', flexDirection:'column', maxHeight:'92vh', animation: pagina === 1 ? 'entraDer 0.22s cubic-bezier(0.32,0.72,0,1)' : undefined }}>
+          <PaginaSeries onVolver={() => setPagina(0)}
+            claves={clavesLote} nombre={nombre} marca={marca} tipo={tipo}
+            area={allAreas.find(a => String(a.idarea) === String(idarea))?.nombrearea} partida={partida}
+            series={series} setSeries={setSeries} dark={dark} t={t}
+            onRegistrar={guardar} guardando={guardando} n={n} />
+        </div>
+
+        </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -2777,7 +3127,7 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
           </button>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1rem 1.5rem' }}>
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1rem 1.5rem' }}>
           {bienes.map((b, i) => (
             <div key={b.idbien} style={{ display:'flex', gap:'10px', alignItems:'baseline', padding:'7px 0', borderBottom: i < bienes.length - 1 ? (dark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.05)') : 'none' }}>
               <span style={{ fontSize:'11px', color:t.text4, width:'22px', flexShrink:0 }}>{i + 1}.</span>
@@ -2813,7 +3163,10 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const [error, setError]                   = useState(null)
   const [pagina, setPagina]                 = useState(0)
   const [totalRegistros, setTotalRegistros] = useState(0)
-  const [porPagina, setPorPagina]           = useState(10)
+  const [porPagina, setPorPagina]           = useState(20)
+  // Lo que se ve escrito en la caja de página, aparte de la página real: así se
+  // puede borrar y teclear otro número sin que la tabla salte en cada tecla.
+  const [paginaTexto, setPaginaTexto]       = useState('1')
 
   const [busqueda, setBusqueda]             = useState('')
   const [filtroBien, setFiltroBien]         = useState('')
@@ -2856,6 +3209,20 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
   }, [modo, busqueda, filtroBien, filtroEstado, areasSelec, porPagina])
+
+  const totalPaginas = Math.max(1, Math.ceil(totalRegistros / porPagina))
+
+  // La caja sigue a la página real: al filtrar, al cambiar de categoría o al usar
+  // las flechas, el número que se ve se actualiza solo.
+  useEffect(() => { setPaginaTexto(String(pagina + 1)) }, [pagina])
+
+  // Se salta al escribir Enter o al salir de la caja, no en cada tecla. Un número
+  // fuera de rango se ajusta al extremo más cercano en vez de dejar la tabla vacía.
+  function irAPagina() {
+    const n = Math.min(totalPaginas, Math.max(1, Number(paginaTexto) || 1))
+    setPaginaTexto(String(n))
+    if (n - 1 !== pagina) cargar(n - 1)
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -2949,14 +3316,15 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
           <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
 
-          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...iStyle(dark), width: 'auto', padding: '9px 12px' }}>
+          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...sStyle(dark), width: 'auto' }}>
             {['Todos', 'Buen estado', 'Deteriorado', 'No verificado'].map(e => <option key={e}>{e}</option>)}
           </select>
 
         </div>
 
         {/* Barra de selección */}
-        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'1rem', flexWrap:'wrap' }}>
+        {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
+        <div style={barraSticky(dark, t)}>
           <div onClick={toggleModoSeleccion}
             style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
             <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -2977,22 +3345,18 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             </button>
           )}
 
+          {/* Siempre visibles; se atenúan mientras no haya registros marcados */}
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
-            {modoSeleccion && (
-              <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
-                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
-                <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
-                {seleccionados.size > 1 ? `Resguardos (${seleccionados.size})` : 'Resguardo'}
-              </button>
-            )}
-            {modoSeleccion && (
-              <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
-                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
-                <i className="ti ti-circle-minus" style={{ fontSize:'17px' }} />Solicitar Baja
-              </button>
-            )}
-            <button onClick={() => setModalReporte(true)}
-              style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
+            <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
+              style={btnBarra(dark, t, seleccionados.size > 0)}>
+              <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
+              {seleccionados.size > 1 ? `Resguardos (${seleccionados.size})` : 'Resguardo'}
+            </button>
+            <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
+              style={btnBarra(dark, t, seleccionados.size > 0)}>
+              <i className="ti ti-circle-minus" style={{ fontSize:'17px' }} />Solicitar Baja
+            </button>
+            <button onClick={() => setModalReporte(true)} style={btnBarra(dark, t, true)}>
               <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
             </button>
           </div>
@@ -3122,7 +3486,11 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
                               <button onClick={(e) => { e.stopPropagation(); setPanelBien(b) }}      title="Consultar"    style={btnAccion(dark, 'consulta')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-eye"             style={{ fontSize: '14px' }} /></button>
                               <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }}    title="Modificar"    style={btnAccion(dark, 'editar')}    onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-pencil"          style={{ fontSize: '14px' }} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); setModalResguardo(b) }} title="Ver Resguardo" style={btnAccion(dark, 'resguardo')} onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-file-text"      style={{ fontSize: '14px' }} /></button>
+                              {/* Con varios bienes marcados abre el resguardo del lote,
+                                  igual que el botón de arriba de la tabla. */}
+                              <button onClick={(e) => { e.stopPropagation(); seleccionados.size > 1 ? setModalResguardosLote([...seleccionados.values()]) : setModalResguardo(b) }}
+                                title={seleccionados.size > 1 ? `Resguardo de ${seleccionados.size} bienes` : 'Ver Resguardo'}
+                                style={btnAccion(dark, 'resguardo')} onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-file-text"      style={{ fontSize: '14px' }} /></button>
                               <button onClick={(e) => { e.stopPropagation(); setModalTrasp(b) }}     title="Traspaso"     style={btnAccion(dark, 'traspaso')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-arrows-exchange" style={{ fontSize: '14px' }} /></button>
                               <button onClick={(e) => { e.stopPropagation(); solicitarBajaUno(b) }}  title="Solicitar baja"  style={btnAccion(dark, 'baja')}     onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-circle-minus"    style={{ fontSize: '14px' }} /></button>
                             </div>
@@ -3139,7 +3507,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           <div style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <p style={{ fontSize: '12px', color: t.text4 }}>
-                {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()} registros`}
+                {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()}`}
               </p>
               <div style={{ display: 'flex', gap: '3px' }}>
                 {OPCIONES_POR_PAGINA.map(n => (
@@ -3155,8 +3523,15 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                 style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <i className="ti ti-chevron-left" style={{ fontSize: '14px' }} />
               </button>
-              <span style={{ fontSize: '13px', color: t.text2, minWidth: '90px', textAlign: 'center' }}>
-                Pág. {pagina + 1} / {Math.max(1, Math.ceil(totalRegistros / porPagina))}
+              <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                Pág.
+                {/* Selector de página: evita teclear y saber de memoria cuántas hay */}
+                <select value={pagina} disabled={loading} aria-label="Ir a la página"
+                  onChange={e => cargar(Number(e.target.value))}
+                  style={{ ...sStyle(dark), width: 'auto', height: '28px', padding: '0 30px 0 9px', fontSize: '13px', backgroundPosition: 'right 8px center', backgroundSize: '13px 13px' }}>
+                  {Array.from({ length: totalPaginas }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                </select>
+                / {totalPaginas}
               </span>
               <button onClick={() => cargar(pagina + 1)} disabled={(pagina + 1) * porPagina >= totalRegistros || loading}
                 style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: (pagina + 1) * porPagina >= totalRegistros ? 'not-allowed' : 'pointer', opacity: (pagina + 1) * porPagina >= totalRegistros ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

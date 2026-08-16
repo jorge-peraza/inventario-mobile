@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import { useState, useEffect } from 'react'
 import { supabaseInmuebles } from '../supabaseInmuebles'
+import { ID_PROCESO, ID_DESINC, ID_COMODATO, CATS_FUERA, CATS_SALIDA } from '../desincorporaciones'
 
 function useFecha() {
   const [fecha, setFecha] = useState('')
@@ -45,7 +46,7 @@ export default function DashboardInmuebles({ user, onNavigate }) {
         while (true) {
           const { data: batch, error } = await supabaseInmuebles
             .from('bienesinmuebles')
-            .select('valorcatastral, documentopropiedad, espendiente, idcategoria')
+            .select('valorcatastral, documentopropiedad, espendiente, idcategoria, fecha_enajenacion')
             .range(desde, desde + BATCH - 1)
           if (error || !batch || batch.length === 0) break
           todos = [...todos, ...batch]
@@ -54,11 +55,18 @@ export default function DashboardInmuebles({ user, onNavigate }) {
         }
 
         if (todos.length) {
-          const total      = todos.length
-          const valorTotal = todos.reduce((s, r) => s + (r.valorcatastral || 0), 0)
-          const conDoc     = todos.filter(r => r.documentopropiedad && r.documentopropiedad.trim() !== '').length
-          const pendientes = todos.filter(r => r.espendiente === true).length
-          setStats({ total, valorTotal, conDoc, pendientes })
+          // El patrimonio son los inmuebles del HAN: no cuentan los que están en
+          // comodato ni los que salieron (en proceso / desincorporados).
+          const patrimonio = todos.filter(r => !CATS_FUERA.includes(r.idcategoria))
+          const total      = patrimonio.length
+          const valorTotal = patrimonio.reduce((s, r) => s + (r.valorcatastral || 0), 0)
+          const enProceso  = todos.filter(r => r.idcategoria === ID_PROCESO).length
+          // Incorporaciones del año: movimientos de este año que no son salidas
+          const anio = String(new Date().getFullYear())
+          const incorporaciones = todos.filter(r =>
+            String(r.fecha_enajenacion || '').startsWith(anio) && !CATS_SALIDA.includes(r.idcategoria)
+          ).length
+          setStats({ total, valorTotal, incorporaciones, enProceso })
 
           // Conteo y valor total por categoría (client-side)
           const mapaConteo = {}
@@ -77,7 +85,10 @@ export default function DashboardInmuebles({ user, onNavigate }) {
             .order('nombrecategoria', { ascending: true })
 
           if (cats) {
+            // Comodato y desincorporado no forman parte del patrimonio; "en proceso"
+            // sí se muestra porque son inmuebles que todavía pertenecen al HAN.
             const lista = cats
+              .filter(c => c.idcategoria !== ID_COMODATO && c.idcategoria !== ID_DESINC)
               .map(c => ({
                 ...c,
                 total:      mapaConteo[c.idcategoria] || 0,
@@ -120,14 +131,14 @@ export default function DashboardInmuebles({ user, onNavigate }) {
       hint:  'suma de todos los inmuebles',
     },
     {
-      label: 'Con documento', icon: 'ti-file-text', iconColor: (t) => t.colorBlue,
-      value: loading ? '…' : stats?.conDoc.toLocaleString() ?? '—',
-      hint:  'escritura o contrato registrado',
+      label: 'Incorporaciones en el año', icon: 'ti-circle-plus', iconColor: (t) => t.colorBlue,
+      value: loading ? '…' : stats?.incorporaciones.toLocaleString() ?? '—',
+      hint:  `altas registradas en ${new Date().getFullYear()}`,
     },
     {
-      label: 'Pendientes', icon: 'ti-clock', iconColor: (t) => t.colorYellow,
-      value: loading ? '…' : stats?.pendientes.toLocaleString() ?? '—',
-      hint:  'sin clave de inventario asignada',
+      label: 'En proceso de desincorporación', icon: 'ti-progress', iconColor: (t) => t.colorYellow,
+      value: loading ? '…' : stats?.enProceso.toLocaleString() ?? '—',
+      hint:  'inmuebles en trámite de salida',
     },
   ]
 
@@ -169,11 +180,12 @@ export default function DashboardInmuebles({ user, onNavigate }) {
           <p style={{ fontSize:'11px', fontWeight:600, color:t.text4, textTransform:'uppercase', letterSpacing:'0.09em', marginBottom:'10px' }}>Acciones rápidas</p>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'10px' }}>
             {[
-              { icon:'ti-building-plus', label:'Registrar inmueble', desc:'Alta de bien inmueble municipal', page:'inmuebles' },
-              { icon:'ti-table',         label:'Ver inventario',     desc:'Tabla completa de inmuebles',    page:'inmuebles' },
-              { icon:'ti-file-export',   label:'Exportar reporte',   desc:'PDF o Excel del inventario',     page:null },
+              { icon:'ti-table',         label:'Ver inventario',   desc:'Tabla completa de inmuebles',    page:'inmuebles' },
+              { icon:'ti-file-export',   label:'Exportar reporte', desc:'PDF o Excel del inventario',     page:'inmuebles', estado:{ abrirReporte:true } },
+              // Va al final (derecha) y entra directo al formulario de alta
+              { icon:'ti-building-plus', label:'Nuevo Inmueble',   desc:'Alta de bien inmueble municipal', page:'inmuebles', estado:{ abrirNuevo:true } },
             ].map((a, i) => (
-              <button key={i} onClick={() => a.page && onNavigate(a.page)}
+              <button key={i} onClick={() => a.page && onNavigate(a.page, a.estado || {})}
                 style={{ ...card, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'1rem 1.25rem', cursor:'pointer', textAlign:'left', transition:'opacity 0.15s' }}
                 onMouseEnter={e => e.currentTarget.style.opacity='0.75'}
                 onMouseLeave={e => e.currentTarget.style.opacity='1'}

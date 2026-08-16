@@ -1,8 +1,18 @@
 import { supabaseInmuebles as supabase } from './supabaseInmuebles'
 
 // Categorías reales de la BD
-export const ID_PROCESO = 12   // EN PROCESO DE DESINCORPORACION
-export const ID_DESINC  = 13   // DESINCORPORADO DEL HAN
+export const ID_PROCESO  = 12   // EN PROCESO DE DESINCORPORACION
+export const ID_DESINC   = 13   // DESINCORPORADO DEL HAN
+export const ID_COMODATO = 11   // EN COMODATO
+
+// Movimientos de salida (para distinguir incorporaciones de desincorporaciones)
+export const CATS_SALIDA = [ID_PROCESO, ID_DESINC]
+
+// Categorías que NO son patrimonio del HAN y por lo tanto no suman en ningún
+// total: el comodato (no es propio) y lo ya desincorporado (ya salió).
+// "En proceso de desincorporación" SÍ cuenta: el trámite no ha concluido y el
+// inmueble sigue siendo del Ayuntamiento.
+export const CATS_FUERA  = [ID_COMODATO, ID_DESINC]
 
 // Fecha/observaciones/categoría original se guardan localmente (la BD no tiene esas columnas)
 // mapa: { [idinmueble]: { catOriginal, fechaProceso, obsProceso, fechaDesinc, obsDesinc } }

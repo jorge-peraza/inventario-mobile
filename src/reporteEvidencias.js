@@ -68,8 +68,22 @@ async function dibujarLogosPDF(doc, pageW, margin) {
 }
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
+// Anexa las evidencias al final de un PDF ya construido (mismo documento).
+// Se usa desde el reporte de inmuebles cuando se capturaron imágenes.
+export async function anexarEvidenciasPDF(doc, items, titulo = '') {
+  if (!items || items.length === 0) return
+  doc.addPage('a4', 'landscape')
+  await dibujarEvidenciasPDF(doc, items, titulo)
+}
+
 export async function exportarEvidenciasPDF(items, titulo = '') {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+  await dibujarEvidenciasPDF(doc, items, titulo)
+  doc.save(nombreArchivo('pdf'))
+}
+
+// Dibuja la sección de evidencias en la página actual del documento
+async function dibujarEvidenciasPDF(doc, items, titulo = '') {
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 24
   let startY = await dibujarLogosPDF(doc, pageW, margin)
@@ -113,12 +127,23 @@ export async function exportarEvidenciasPDF(items, titulo = '') {
     },
     margin: { left: margin, right: margin },
   })
-  doc.save(nombreArchivo('pdf'))
 }
 
 // ── Excel ────────────────────────────────────────────────────────────────────
+// Anexa las evidencias como hoja adicional de un libro ya construido
+export async function anexarEvidenciasExcel(wb, items, titulo = '') {
+  if (!items || items.length === 0) return
+  await llenarHojaEvidencias(wb, items, titulo)
+}
+
 export async function exportarEvidenciasExcel(items, titulo = '') {
   const wb = new ExcelJS.Workbook()
+  await llenarHojaEvidencias(wb, items, titulo)
+  const buf = await wb.xlsx.writeBuffer()
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo('xlsx'))
+}
+
+async function llenarHojaEvidencias(wb, items, titulo = '') {
   const ws = wb.addWorksheet('EVIDENCIAS')
   const FUENTE = 'Arial'
   const borde = { style: 'thin', color: { argb: 'FF' + NEGRO } }
@@ -236,7 +261,4 @@ export async function exportarEvidenciasExcel(items, titulo = '') {
       fila++
     })
   }
-
-  const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo('xlsx'))
 }

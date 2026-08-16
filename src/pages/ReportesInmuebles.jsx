@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
-import { PanelConsulta, ModalDesincorporacion, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
-import { ModalEvidencias } from './ArmarReporteInmuebles'
+import { PanelConsulta, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
+import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
 import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, getDesinc, setDesinc, quitarDesinc, hoyISO } from '../desincorporaciones'
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
@@ -88,7 +88,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [m2Min, setM2Min] = useState('')
   const [m2Max, setM2Max] = useState('')
   const [pagina, setPagina] = useState(0)
-  const [porPagina, setPorPagina] = useState(10)
+  const [porPagina, setPorPagina] = useState(20)
   const OPCIONES = [10, 15, 20]
 
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
@@ -146,15 +146,29 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const q = busqueda.toLowerCase()
   const min = m2Min !== '' ? Number(m2Min) : null
   const max = m2Max !== '' ? Number(m2Max) : null
+  // Mismos criterios que la búsqueda del inventario general: nombre, claves,
+  // ubicación, documento (escritura), expediente, adquisición, categoría, y
+  // también número (superficie o valor) y fecha/año.
+  const coincide = (b) => {
+    if (!q) return true
+    const cat = (categorias.find(c => c.idcategoria === b.idcategoria)?.nombrecategoria || '').toLowerCase()
+    const textos = [b.nombreinmueble, b.claveinmueble, b.clavecatastral, b.ubicacion,
+      b.documentopropiedad, b.expediente, b.adquisicion, cat]
+    if (textos.some(v => (v || '').toString().toLowerCase().includes(q))) return true
+    const num = Number(q.replace(/[$,\s]/g, ''))
+    if (Number.isFinite(num) && q.replace(/[$,\s]/g, '') !== '' &&
+        (Number(b.superficiem2) === num || Number(b.valorcatastral) === num)) return true
+    return (b.fecha_enajenacion || '').startsWith(q)
+  }
   const filtrados = datos.filter(b =>
-    (!q || (b.nombreinmueble || '').toLowerCase().includes(q) || (b.claveinmueble || '').toLowerCase().includes(q) || (b.clavecatastral || '').toLowerCase().includes(q) || (b.ubicacion || '').toLowerCase().includes(q)) &&
+    coincide(b) &&
     (min == null || (b.superficiem2 != null && Number(b.superficiem2) >= min)) &&
     (max == null || (b.superficiem2 != null && Number(b.superficiem2) <= max))
   )
   useEffect(() => { setPagina(0) }, [vista, busqueda, m2Min, m2Max, porPagina])
   const totalPag = Math.max(1, Math.ceil(filtrados.length / porPagina))
   const paginados = filtrados.slice(pagina * porPagina, (pagina + 1) * porPagina)
-  const totalCols = 11 + (modoSeleccion ? 1 : 0)
+  const totalCols = 8 + (modoSeleccion ? 1 : 0)
 
   const idsPagina = paginados.map(d => d.idinmueble)
   const todosEnPag = idsPagina.length > 0 && idsPagina.every(id => seleccionados.has(id))
@@ -170,7 +184,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   ]
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: bg, transition: 'background 0.3s' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg, transition: 'background 0.3s' }}>
       <Sidebar user={user} active="reportes" onNavigate={onNavigate} />
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
@@ -233,7 +247,8 @@ export default function ReportesInmuebles({ user, onNavigate }) {
             </div>
 
             {/* Seleccionar + Generar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
+            <div style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
                 style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none' }}>
                 <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -244,12 +259,8 @@ export default function ReportesInmuebles({ user, onNavigate }) {
               {modoSeleccion && seleccionados.size > 0 && (
                 <span style={{ fontSize: '13px', color: t.text3 }}>{seleccionados.size} seleccionado{seleccionados.size !== 1 ? 's' : ''}</span>
               )}
-              <button onClick={() => setModalEnaj(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
-                <i className="ti ti-transfer" style={{ fontSize: '17px' }} />Enajenaciones
-              </button>
               <button onClick={() => setModalReporte(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
+                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
                 <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Generar Reporte
               </button>
             </div>
@@ -268,23 +279,14 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                           </div>
                         </th>
                       )}
-                      <th rowSpan={2} style={{ ...thBase(dark), width: '80px', minWidth: '80px' }}>CLAVE</th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>NOMBRE DEL INMUEBLE</th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>UBICACIÓN</th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>CATEGORÍA</th>
-                      <th colSpan={5} style={{ ...thBase(dark), textAlign: 'center', borderLeft: bordeIzq, borderRight: bordeIzq, letterSpacing: '0.2em' }}>
-                        C &nbsp; A &nbsp; T &nbsp; A &nbsp; S &nbsp; T &nbsp; R &nbsp; O
-                      </th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>OBSERVACIONES</th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>{esDesinc ? 'FECHA DE DESINCORPORACIÓN' : 'FECHA DE SOLICITUD'}</th>
-                      <th rowSpan={2} style={{ ...thBase(dark), borderLeft: bordeIzq }}>ACCIONES</th>
-                    </tr>
-                    <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
+                      <th style={{ ...thBase(dark), width: '80px', minWidth: '80px' }}>CLAVE</th>
+                      <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>NOMBRE DEL INMUEBLE</th>
                       <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>CLAVE CATASTRAL</th>
+                      <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>UBICACIÓN</th>
                       <th style={{ ...thBase(dark), borderLeft: bordeIzq, width: '120px', minWidth: '120px' }}>SUPERFICIE</th>
-                      <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>VALOR CATASTRAL</th>
                       <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>DOCUMENTO</th>
-                      <th style={{ ...thBase(dark), borderLeft: bordeIzq, width: '110px', minWidth: '110px' }}>ADQUISICIÓN</th>
+                      <th style={{ ...thBase(dark), borderLeft: bordeIzq, width: '110px', minWidth: '110px' }}>EXPEDIENTE</th>
+                      <th style={{ ...thBase(dark), borderLeft: bordeIzq }}>ACCIONES</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -307,16 +309,12 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                                 </td>
                               )}
                               <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinmueble || '—'}</span></td>
-                              <td style={{ ...tdBase(), maxWidth: '220px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><p style={{ color: t.text1, fontWeight: 500, lineHeight: 1.3 }}>{b.nombreinmueble || '—'}</p></td>
-                              <td style={{ ...tdBase(), maxWidth: '180px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2, fontSize: '12px', lineHeight: 1.3, display: 'block' }}>{b.ubicacion || '—'}</span></td>
-                              <td style={{ ...tdBase(), maxWidth: '140px' }}><span style={{ fontSize: '11px', color: t.text2 }}>{categorias.find(c => c.idcategoria === b.idcategoria)?.nombrecategoria || '—'}</span></td>
+                              <td style={{ ...tdBase(), maxWidth: '240px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><p style={{ color: t.text1, fontWeight: 500, lineHeight: 1.3 }}>{b.nombreinmueble || '—'}</p></td>
                               <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.clavecatastral || '—'}</span></td>
+                              <td style={{ ...tdBase(), maxWidth: '200px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2, fontSize: '12px', lineHeight: 1.3, display: 'block' }}>{b.ubicacion || '—'}</span></td>
                               <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2 }}>{b.superficiem2 ? fmtM2(b.superficiem2) : '—'}</span></td>
-                              <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2, fontWeight: 500 }}>{fmtVal(b.valorcatastral)}</span></td>
-                              <td style={{ ...tdBase(), maxWidth: '160px' }}><span title={b.documentopropiedad} style={{ color: t.text3, fontSize: '11px', display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.documentopropiedad || '—'}</span></td>
-                              <td style={tdBase()}><span style={{ color: t.text2, fontSize: '12px' }}>{b.adquisicion || '—'}</span></td>
-                              <td style={{ ...tdBase(), maxWidth: '180px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2, fontSize: '11px', lineHeight: 1.3, display: 'block' }}>{(esDesinc ? b._d.obsDesinc : b._d.obsProceso) || '—'}</span></td>
-                              <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '12px' }}>{fmtFecha(esDesinc ? b._d.fechaDesinc : b._d.fechaProceso)}</span></td>
+                              <td style={{ ...tdBase(), maxWidth: '200px' }}><span title={b.documentopropiedad} style={{ color: t.text3, fontSize: '11px', display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.documentopropiedad || '—'}</span></td>
+                              <td style={tdBase()}><span style={{ color: t.text2, fontSize: '12px' }}>{b.expediente || '—'}</span></td>
                               <td style={tdBase()}>
                                 <div style={{ display: 'flex', gap: '4px' }}>
                                   <button onClick={(e) => { e.stopPropagation(); setPanel(b) }} title="Consultar"
@@ -358,7 +356,14 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-chevron-left" style={{ fontSize: '14px' }} /></button>
-                  <span style={{ fontSize: '13px', color: t.text2, minWidth: '90px', textAlign: 'center' }}>Pág. {pagina + 1} / {totalPag}</span>
+                  <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Pág.
+                    <select value={pagina} onChange={e => setPagina(Number(e.target.value))} aria-label="Ir a la página"
+                      style={{ ...sStyle(dark), width: 'auto', height: '28px', padding: '0 30px 0 9px', fontSize: '13px', backgroundPosition: 'right 8px center', backgroundSize: '13px 13px' }}>
+                      {Array.from({ length: totalPag }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                    </select>
+                    / {totalPag}
+                  </span>
                   <button onClick={() => setPagina(p => Math.min(totalPag - 1, p + 1))} disabled={pagina >= totalPag - 1} style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina >= totalPag - 1 ? 'not-allowed' : 'pointer', opacity: pagina >= totalPag - 1 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-chevron-right" style={{ fontSize: '14px' }} /></button>
                 </div>
               </div>
@@ -367,14 +372,24 @@ export default function ReportesInmuebles({ user, onNavigate }) {
         )}
       </main>
 
-      {panel && <PanelConsulta inmueble={panel} onClose={() => setPanel(null)} t={t} dark={dark} />}
+      {/* Las columnas ocultas de la tabla (observaciones y fecha) se ven aquí */}
+      {panel && <PanelConsulta inmueble={panel} onClose={() => setPanel(null)} t={t} dark={dark} categorias={categorias}
+        extra={[
+          [esDesinc ? 'Observaciones de desincorporación' : 'Observaciones de la solicitud', (esDesinc ? panel._d?.obsDesinc : panel._d?.obsProceso) || ''],
+          [esDesinc ? 'Fecha de desincorporación' : 'Fecha de solicitud', fmtFecha(esDesinc ? panel._d?.fechaDesinc : panel._d?.fechaProceso)],
+        ]} />}
       {modalDesinc && (
         <ModalDesincorporacion cantidad={1} onClose={() => setModalDesinc(null)} dark={dark} t={t}
           titulo="Desincorporar" textoBoton="Desincorporar"
           onConfirm={({ obs, fecha }) => desincorporar(modalDesinc, { obs, fecha })} />
       )}
+      {/* Mismo generador de reportes que en Bienes Inmuebles */}
       {modalReporte && (
-        <ModalEvidencias bienes={seleccionados.size > 0 ? [...seleccionados.values()] : filtrados} categorias={categorias} onClose={() => setModalReporte(false)} dark={dark} t={t}
+        <ModalReporte onClose={() => setModalReporte(false)} dark={dark} t={t}
+          categorias={categorias}
+          seleccionados={[...seleccionados.keys()]}
+          filtros={{ busqueda, m2Min, m2Max, categoriaIds: [idCatActual], categorias }}
+          totalFiltrados={filtrados.length}
           tituloInicial={`${esDesinc ? 'DESINCORPORACIONES' : 'EN PROCESO DE DESINCORPORACIÓN'} HAN ${mesAnioActual()}`} />
       )}
       {modalEnaj && <ModalEnajenaciones onClose={() => setModalEnaj(false)} dark={dark} t={t} />}
@@ -414,14 +429,18 @@ function ModalEnajenaciones({ onClose, dark, t }) {
     setGen(formato)
     try {
       let q = supabaseInmuebles.from('bienesinmuebles')
-        .select('idinmueble,nombreinmueble,clavecatastral,superficiem2,ubicacion,afavorde,valorcatastral,documentopropiedad,tipo_enajenacion,fecha_enajenacion')
+        .select('idinmueble,idcategoria,nombreinmueble,clavecatastral,superficiem2,ubicacion,afavorde,valorcatastral,documentopropiedad,tipo_enajenacion,fecha_enajenacion')
         .not('fecha_enajenacion', 'is', null)
         .gte('fecha_enajenacion', d)
         .lte('fecha_enajenacion', h)
       const { data } = await q
       const rows = data || []
-      const desinc = rows
-      const incorp  = []
+      // El movimiento se determina por la categoría del inmueble: si está en
+      // proceso o ya desincorporado salió del patrimonio; el resto son altas.
+      const esSalida = r => [ID_PROCESO, ID_DESINC].includes(r.idcategoria)
+      const marcar = (r, tipo) => ({ ...r, tipo_mov: tipo })
+      const desinc = rows.filter(esSalida).map(r => marcar(r, 'DESINCORPORACIÓN'))
+      const incorp = rows.filter(r => !esSalida(r)).map(r => marcar(r, 'INCORPORACIÓN'))
       const tit = titulo.trim() || `ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${lbl}`
       if (formato === 'pdf') await exportarEnajenacionesPDF(desinc, incorp, tit)
       else                   await exportarEnajenacionesExcel(desinc, incorp, tit)

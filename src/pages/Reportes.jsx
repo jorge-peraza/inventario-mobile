@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
+import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
 import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { guardarPreferencia, metadataUsuario } from '../auth'
 
@@ -404,7 +405,7 @@ export default function Reportes({ user, onNavigate }) {
   const [conteos, setConteos] = useState({ solicitud: null, baja: null })
   const [fechas, setFechas]   = useState(() => getFechasBajas())
   const [pagina, setPagina]   = useState(0)
-  const [porPagina, setPorPagina] = useState(10)
+  const [porPagina, setPorPagina] = useState(20)
   const OPCIONES_POR_PAGINA = [10, 15, 20]
   const [modoSeleccion, setModoSeleccion] = useState(false)
   const [seleccionados, setSeleccionados] = useState(() => new Set())
@@ -535,7 +536,7 @@ export default function Reportes({ user, onNavigate }) {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: bg, transition: 'background 0.3s' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg, transition: 'background 0.3s' }}>
       <Sidebar user={user} active="reportes" onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
@@ -655,8 +656,8 @@ export default function Reportes({ user, onNavigate }) {
               <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
             </div>
 
-            {/* Barra de selección */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
+            <div style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
                 style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none' }}>
                 <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -793,7 +794,14 @@ export default function Reportes({ user, onNavigate }) {
                     style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="ti ti-chevron-left" style={{ fontSize: '14px' }} />
                   </button>
-                  <span style={{ fontSize: '13px', color: t.text2, minWidth: '90px', textAlign: 'center' }}>Pág. {pagina + 1} / {totalPag}</span>
+                  <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Pág.
+                    <select value={pagina} onChange={e => setPagina(Number(e.target.value))} aria-label="Ir a la página"
+                      style={{ ...sStyle(dark), width: 'auto', height: '28px', padding: '0 30px 0 9px', fontSize: '13px', backgroundPosition: 'right 8px center', backgroundSize: '13px 13px' }}>
+                      {Array.from({ length: totalPag }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                    </select>
+                    / {totalPag}
+                  </span>
                   <button onClick={() => setPagina(p => Math.min(totalPag - 1, p + 1))} disabled={pagina >= totalPag - 1 || loading}
                     style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina >= totalPag - 1 ? 'not-allowed' : 'pointer', opacity: pagina >= totalPag - 1 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="ti ti-chevron-right" style={{ fontSize: '14px' }} />
