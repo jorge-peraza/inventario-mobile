@@ -155,9 +155,14 @@ export default function ReportesInmuebles({ user, onNavigate }) {
     const textos = [b.nombreinmueble, b.claveinmueble, b.clavecatastral, b.ubicacion,
       b.documentopropiedad, b.expediente, b.adquisicion, cat]
     if (textos.some(v => (v || '').toString().toLowerCase().includes(q))) return true
-    const num = Number(q.replace(/[$,\s]/g, ''))
-    if (Number.isFinite(num) && q.replace(/[$,\s]/g, '') !== '' &&
-        (Number(b.superficiem2) === num || Number(b.valorcatastral) === num)) return true
+    // Número por aproximación: "2000" también encuentra 2000.25
+    const limpio = q.replace(/[$,\s]/g, '')
+    const num = Number(limpio)
+    if (Number.isFinite(num) && limpio !== '') {
+      const paso = limpio.includes('.') ? 0.01 : 1
+      const enRango = v => v != null && Number(v) >= num && Number(v) < num + paso
+      if (enRango(b.superficiem2) || enRango(b.valorcatastral)) return true
+    }
     return (b.fecha_enajenacion || '').startsWith(q)
   }
   const filtrados = datos.filter(b =>

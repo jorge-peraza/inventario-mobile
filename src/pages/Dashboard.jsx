@@ -72,7 +72,6 @@ export default function Dashboard({ user, onNavigate }) {
 
   const [stats, setStats]   = useState(null)
   const [tipos, setTipos]   = useState([])
-  const [deps, setDeps]     = useState([])
   const [loading, setLoading] = useState(true)
   const [hoverTipo, setHoverTipo] = useState(null)
 
@@ -114,20 +113,6 @@ export default function Dashboard({ user, onNavigate }) {
         const maxTipo = Math.max(1, ...TIPOS.map(t => conteoTipo[t.id] || 0))
         setTipos(TIPOS.map(t => ({ ...t, total: conteoTipo[t.id] || 0, pct: Math.round((conteoTipo[t.id] || 0) / maxTipo * 100) })))
 
-        // Bienes por dependencia (desde areas_activas)
-        const { data: areas } = await supabase
-          .from('areas_activas')
-          .select('idarea, total_bienes, iddependencia, nombredependencia')
-        if (areas) {
-          const mapa = {}
-          for (const a of areas) {
-            const k = a.iddependencia
-            if (!mapa[k]) mapa[k] = { nombre: a.nombredependencia || '—', total: 0, areaIds: [] }
-            mapa[k].total += a.total_bienes || 0
-            mapa[k].areaIds.push(a.idarea)
-          }
-          setDeps(Object.values(mapa).filter(d => d.total > 0).sort((a, b) => b.total - a.total).slice(0, 6))
-        }
       } catch (e) {
         console.error(e)
       } finally {
@@ -221,7 +206,7 @@ export default function Dashboard({ user, onNavigate }) {
         </div>
 
         {/* Mid row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', minWidth: 0, alignItems: 'stretch' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '14px', minWidth: 0, alignItems: 'stretch' }}>
 
           {/* Bienes por tipo (dona) */}
           <div style={{ ...card, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -241,7 +226,7 @@ export default function Dashboard({ user, onNavigate }) {
               const GAP = 0.022   // separación entre segmentos (radianes)
               const totalTipos = tipos.reduce((s, x) => s + x.total, 0) || 1
               let ang = -Math.PI / 2
-              const cx = 105, cy = 105, rOut = 92, rIn = 56
+              const cx = 135, cy = 135, rOut = 120, rIn = 74
               const segs = tipos.map((b, i) => {
                 const frac = b.total / totalTipos
                 const a0 = ang
@@ -252,9 +237,9 @@ export default function Dashboard({ user, onNavigate }) {
               })
               const hov = hoverTipo != null ? segs[hoverTipo] : null
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', width: '100%' }}>
                   {/* Dona */}
-                  <svg width="210" height="210" viewBox="0 0 210 210" style={{ flexShrink: 0 }}>
+                  <svg width="270" height="270" viewBox="0 0 270 270" style={{ flexShrink: 0 }}>
                     {segs.map(s => {
                       const activo = hoverTipo === s.i
                       const off = activo ? 7 : 0
@@ -276,16 +261,16 @@ export default function Dashboard({ user, onNavigate }) {
                       )
                     })}
                     {/* Centro */}
-                    <text x={cx} y={cy - 6} textAnchor="middle" style={{ fontSize: '24px', fontWeight: 700, fill: t.text1 }}>
+                    <text x={cx} y={cy - 5} textAnchor="middle" style={{ fontSize: '32px', fontWeight: 700, fill: t.text1 }}>
                       {(hov ? hov.total : totalTipos).toLocaleString()}
                     </text>
-                    <text x={cx} y={cy + 15} textAnchor="middle" style={{ fontSize: '11px', fill: t.text4 }}>
+                    <text x={cx} y={cy + 19} textAnchor="middle" style={{ fontSize: '12px', fill: t.text4 }}>
                       {hov ? hov.label : 'Total'}
                     </text>
                   </svg>
 
                   {/* Leyenda */}
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))', gap: '4px 10px', alignContent: 'center' }}>
                     {segs.map(s => {
                       const activo = hoverTipo === s.i
                       return (
@@ -309,34 +294,6 @@ export default function Dashboard({ user, onNavigate }) {
                 </div>
               )
             })()}
-            </div>
-          </div>
-
-          {/* Bienes por dependencia */}
-          <div style={{ ...card, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.25rem' }}>
-              <i className="ti ti-building-community" style={{ fontSize: '18px', color: t.text1 }} />
-              <p style={{ fontSize: '14px', fontWeight: 500, color: t.text1 }}>Bienes por dependencia</p>
-            </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-              {loading
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} style={{ padding: '9px 0', borderBottom: i < 5 ? `1px solid ${t.rowDivider}` : 'none' }}>
-                      <div style={{ height: '14px', borderRadius: '6px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    </div>
-                  ))
-                : deps.map((p, i) => (
-                    <div key={i} onClick={() => onNavigate('bienes', { areaIds: p.areaIds })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: i < deps.length - 1 ? `1px solid ${t.rowDivider}` : 'none', cursor: 'pointer', gap: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: t.text4, flexShrink: 0 }} />
-                        <span style={{ fontSize: '13px', color: t.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nombre}</span>
-                      </div>
-                      <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '20px', background: t.badgeBg, color: t.badgeText, border: `1px solid ${t.badgeBorder}`, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                        {p.total.toLocaleString()} bienes
-                      </span>
-                    </div>
-                  ))
-              }
             </div>
           </div>
         </div>

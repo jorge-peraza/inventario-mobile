@@ -510,8 +510,24 @@ export default function Reportes({ user, onNavigate }) {
 
   const q = busqueda.toLowerCase(), qb = filtroBien.toLowerCase()
   const areasSet = new Set(areasSelec)
+
+  // La búsqueda cubre todas las columnas de la tabla, no solo nombre y clave.
+  // Con números se acepta aproximación: "2000" también encuentra 2000.25.
+  const qNum = Number(busqueda.replace(/[$,\s]/g, ''))
+  const qEsNum = busqueda.trim() !== '' && Number.isFinite(qNum)
+  function coincide(b) {
+    if (!q) return true
+    const campos = [b.nombrebien, b.claveinventario, b.marca, b.tipo, b.serie, b.area, b.numerofactura, b.observaciones, b.resguardante]
+    if (campos.some(v => String(v ?? '').toLowerCase().includes(q))) return true
+    if (qEsNum) {
+      const c = Number(b.costoinicial)
+      if (Number.isFinite(c) && c >= qNum && c < qNum + (busqueda.includes('.') ? 0.01 : 1)) return true
+    }
+    return false
+  }
+
   const filtrados = datos.filter(b =>
-    (!q  || (b.nombrebien || '').toLowerCase().includes(q) || (b.claveinventario || '').toLowerCase().includes(q)) &&
+    coincide(b) &&
     (!qb || (b.nombrebien || '').toLowerCase().includes(qb) || (b.tipo || '').toLowerCase().includes(qb) || (b.marca || '').toLowerCase().includes(qb)) &&
     (areasSelec.length === 0 || areasSet.has(b.idarea))
   )

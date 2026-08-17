@@ -79,9 +79,12 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
     ['Ubicación',             inmueble.ubicacion],
     ['Documento de Propiedad',inmueble.documentopropiedad],
     ['Expediente',            inmueble.expediente],
-    ['Comentarios',           getComentario(inmueble.idinmueble)],
     ...extra,
   ]
+
+  // El comentario va arriba y resaltado: al fondo de la lista quedaba fuera de
+  // la vista y parecía que no se guardaba.
+  const comentario = getComentario(inmueble.idinmueble)
 
   return (
     <>
@@ -97,6 +100,12 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
           </button>
         </div>
         <div style={{ flex:1, overflowY:'auto', padding:'0.5rem 1.5rem' }}>
+          <div style={{ margin:'0.75rem 0 0.35rem', padding:'11px 13px', borderRadius:'10px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)', border:`1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)'}` }}>
+            <p style={{ fontSize:'10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'4px' }}>Comentarios</p>
+            <p style={{ fontSize:'14px', color: comentario ? (dark ? '#f0f0f0' : '#111') : (dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)'), lineHeight:1.45, whiteSpace:'pre-wrap' }}>
+              {comentario || 'Sin comentarios'}
+            </p>
+          </div>
           {campos.map(([label, val], i) => (
             <div key={i} style={{ padding:'11px 0', borderBottom: i < campos.length - 1 ? `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` : '' }}>
               <p style={{ fontSize:'10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'4px' }}>{label}</p>
@@ -507,8 +516,15 @@ function alineacion(key) {
 const RGB_GRIS = [191, 191, 191]
 
 // Carga una imagen a máxima resolución (dataURL PNG) para los encabezados
+// Carga una imagen del sitio probando primero la ruta base (GitHub Pages sirve
+// bajo /inventario-nogales/) y, si falla, la raíz. Antes un solo fallo dejaba el
+// reporte sin ningún logo.
 function cargarImagen(src) {
-  if (src.startsWith('/')) src = import.meta.env.BASE_URL + src.slice(1)
+  if (!src.startsWith('/')) return cargarImagenDe(src)
+  const conBase = import.meta.env.BASE_URL + src.slice(1)
+  return cargarImagenDe(conBase).catch(() => cargarImagenDe(src))
+}
+function cargarImagenDe(src) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
@@ -583,14 +599,24 @@ export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []
       ? ({ content: '' })
       : ({ content: valorTexto(c, r, cats), styles: { halign: alineacion(c.key) } }))
 
+  // Anchos fijos por columna: al dibujar una tabla por categoría, si se dejan
+  // automáticos cada una se dimensiona según su contenido y salen distintas.
   const anchoImg = 110
+  const anchoUtilPDF = pageW - 48
+  const anchoImgTotal = colsImg.length * anchoImg
+  const sumaPesos = dataCols.filter(c => !c.key.startsWith('__')).reduce((s, c) => s + (c.ancho || 20), 0)
+  const colStylesPDF = {}
+  dataCols.forEach((c, i) => {
+    colStylesPDF[i] = c.key.startsWith('__')
+      ? { cellWidth: anchoImg }
+      : { cellWidth: (anchoUtilPDF - anchoImgTotal) * (c.ancho || 20) / sumaPesos, halign: alineacion(c.key) }
+  })
+
   const common = {
     startY,
     styles: { font: 'helvetica', fontSize: 7, cellPadding: 3, overflow: 'linebreak', valign: 'middle', halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.5, textColor: [0, 0, 0], fillColor: [255, 255, 255] },
     margin: { left: 24, right: 24 },
-    columnStyles: evid.size > 0
-      ? { [dataCols.length - 2]: { cellWidth: anchoImg }, [dataCols.length - 1]: { cellWidth: anchoImg } }
-      : undefined,
+    columnStyles: colStylesPDF,   // iguales en todas las categorías
     // Las filas con imagen necesitan alto suficiente para que se vea
     didParseCell: (d) => { if (d.section === 'body' && meta[d.row.index]) d.cell.styles.minCellHeight = 74 },
     didDrawCell: (d) => {
@@ -717,14 +743,17 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
 
   // Banda de logos: Ayuntamiento (izq), Escudo Nogales (centro), Escudo México (der)
   let logos = null
-  try {
-    const [ay, nog, mex] = await Promise.all([
+  // Se cargan por separado: si uno falla, los demás igual se dibujan
+  {
+    const r = await Promise.allSettled([
       cargarImagen('/logo-ayuntamiento.png'),
       cargarImagen('/escudo-nogales.png'),
       cargarImagen('/escudo-mexico.png'),
     ])
-    logos = { ay, nog, mex }
-  } catch { logos = null }
+    const [ay, nog, mex] = r.map(x => x.status === 'fulfilled' ? x.value : null)
+    r.filter(x => x.status === 'rejected').forEach(() => console.warn('No se pudo cargar un logo del reporte'))
+    logos = (ay || nog || mex) ? { ay, nog, mex } : null
+  }
 
   if (logos) {
     const colPx = dataCols.map(c => Math.round(c.ancho * 7 + 5))
@@ -758,9 +787,9 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
       const id  = wb.addImage({ base64: im.dataURL, extension: 'png' })
       ws.addImage(id, { tl: { nativeCol, nativeColOff, nativeRow, nativeRowOff }, ext: { width: w, height: h }, editAs: 'oneCell' })
     }
-    const wAy  = H    * logos.ay.w  / logos.ay.h;  place(logos.ay,  6,                                H)
-    const wNog = H    * logos.nog.w / logos.nog.h;  place(logos.nog, totalPx / 2 - wNog / 2,           H)
-    const wMex = Hmex * logos.mex.w / logos.mex.h;  place(logos.mex, totalPx - 6 - wMex,              Hmex)
+    if (logos.ay)  place(logos.ay, 6, H)
+    if (logos.nog) place(logos.nog, totalPx / 2 - (H * logos.nog.w / logos.nog.h) / 2, H)
+    if (logos.mex) place(logos.mex, totalPx - 6 - (Hmex * logos.mex.w / logos.mex.h), Hmex)
     // Filas de aire entre los logos y el título, para que nada se encime
     ws.getRow(3).height = 14; ws.getRow(4).height = 14
     fila = 5
@@ -1111,11 +1140,14 @@ function aplicarBusquedaInmuebles(query, busqueda, categorias) {
     .map(c => c.idcategoria)
   if (ids.length) cond.push(`idcategoria.in.(${ids.join(',')})`)
 
-  // Número: superficie o valor catastral exactos
-  const num = Number(txt.replace(/[$,\s]/g, ''))
-  if (Number.isFinite(num) && txt.replace(/[$,\s]/g, '') !== '') {
-    cond.push(`superficiem2.eq.${num}`)
-    cond.push(`valorcatastral.eq.${num}`)
+  // Número: se busca por aproximación, no exacto. Al teclear "2000" también
+  // deben salir 2000.25 o 2000.9, así que se toma el rango [n, n+1).
+  const limpio = txt.replace(/[$,\s]/g, '')
+  const num = Number(limpio)
+  if (Number.isFinite(num) && limpio !== '') {
+    const paso = limpio.includes('.') ? 0.01 : 1   // si ya trae decimales, margen fino
+    cond.push(`and(superficiem2.gte.${num},superficiem2.lt.${num + paso})`)
+    cond.push(`and(valorcatastral.gte.${num},valorcatastral.lt.${num + paso})`)
   }
   // Fecha completa (2024-05-01) o año (2024). El rango del año va dentro de un
   // and(...): como condiciones sueltas del or() el "lte" dejaría pasar todo.
