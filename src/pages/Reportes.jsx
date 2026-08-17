@@ -321,6 +321,18 @@ function rangoPeriodo(tipo) {
   return { desde: iso(desde), hasta: iso(hasta) }
 }
 
+// Deja seguidos los bienes que se compraron con la misma factura. Solo cambia el
+// orden de los renglones: no agrupa, no resume y no quita ninguno.
+function ordenarPorFactura(rows) {
+  const fecha = b => /^\d{4}-\d{2}-\d{2}$/.test(b.fechafactura || '') ? b.fechafactura : '9999'
+  return [...rows].sort((a, b) => {
+    if (fecha(a) !== fecha(b)) return fecha(a) < fecha(b) ? -1 : 1
+    const na = String(a.numerofactura || ''), nb = String(b.numerofactura || '')
+    if (na !== nb) return na.localeCompare(nb, 'es', { numeric: true })
+    return String(a.claveinventario || '').localeCompare(String(b.claveinventario || ''), 'es', { numeric: true })
+  })
+}
+
 function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   const r0 = rangoPeriodo(tipo)
   const [desde, setDesde] = useState(r0.desde)
@@ -334,7 +346,7 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   async function generar(formato) {
     setGenerando(formato); setErr(null)
     try {
-      const rows = await fetchPorFechaFactura({ desde, hasta, areaIds: areasSelec })
+      const rows = ordenarPorFactura(await fetchPorFechaFactura({ desde, hasta, areaIds: areasSelec }))
       if (!rows.length) { setErr('No hay registros en ese rango de fechas'); setGenerando(null); return }
       const cols = colsReporte('mobiliario')   // columnas genéricas (todas las categorías)
       if (formato === 'excel') await exportarExcelMuebles(rows, cols, titulo.trim())
