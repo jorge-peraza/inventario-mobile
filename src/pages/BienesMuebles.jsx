@@ -1965,7 +1965,10 @@ export async function exportarExcelMuebles(rows, cols, titulo = '') {
     setTotal(0, 'TOTAL', 'left')
     if (nombreIdx >= 0) setTotal(nombreIdx, `${rows.length} bienes`, 'left')
     const sumCell = ws.getCell(fila, impIdx + 1)
-    sumCell.value = { formula: `SUM(${letra}${filaInicioDatos}:${letra}${filaFinDatos})` }
+    // Se guarda tambien el resultado: una formula sin valor en cache se ve
+    // vacia hasta que Excel recalcula, y el total parecia no salir.
+    const sumaTotal = rows.reduce((s, b) => s + (Number(b.costoinicial) || 0), 0)
+    sumCell.value = { formula: `SUM(${letra}${filaInicioDatos}:${letra}${filaFinDatos})`, result: sumaTotal }
     sumCell.numFmt = FMT_MONEDA
     sumCell.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
     sumCell.alignment = { horizontal: 'right', vertical: 'middle' }
@@ -2250,7 +2253,8 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
         if (ci === 0) cell.value = 'TOTAL'
       })
       const sumCell = ws.getCell(fila, impIdx + 1)
-      sumCell.value = { formula: `SUM(${letra}${filaInicio}:${letra}${filaFin})` }
+      const sumaTotal = filas.reduce((s, g) => s + (Number(g.costoinicial) || 0), 0)
+      sumCell.value = { formula: `SUM(${letra}${filaInicio}:${letra}${filaFin})`, result: sumaTotal }
       sumCell.numFmt = FMT_MONEDA
       sumCell.font = { name: FUENTE, size: 8, bold: true }
       sumCell.alignment = { horizontal: 'right', vertical: 'middle' }
@@ -2342,7 +2346,8 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
   wsResumen.getCell(filaRes, 1).value = 'TOTAL'
   const letraSind = wsResumen.getColumn(3).letter
   const totCell = wsResumen.getCell(filaRes, 3)
-  totCell.value = { formula: `SUM(${letraSind}${filaResInicio}:${letraSind}${filaResFin})` }
+  const sumaPartidas = partidasSorted.reduce((s, [, t]) => s + (Number(t) || 0), 0)
+  totCell.value = { formula: `SUM(${letraSind}${filaResInicio}:${letraSind}${filaResFin})`, result: sumaPartidas }
   totCell.numFmt = FMT_MONEDA
   totCell.font = { name: FUENTE, size: 10, bold: true }
   totCell.alignment = { horizontal: 'right', vertical: 'middle' }
