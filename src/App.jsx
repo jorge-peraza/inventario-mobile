@@ -8,6 +8,7 @@ import DashboardInmuebles from './pages/DashboardInmuebles'
 import BienesInmuebles from './pages/BienesInmuebles'
 import Reportes from './pages/Reportes'
 import ReportesInmuebles from './pages/ReportesInmuebles'
+import Dependencias from './pages/Dependencias'
 import { PAGINAS_POR_ROL, paginaInicio, cerrarSesion, sesionActual } from './auth'
 
 function App() {
@@ -51,6 +52,7 @@ function App() {
   if (page === 'dashboard-inmuebles') return <ThemeProvider><DashboardInmuebles key={recarga} user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'inmuebles')           return <ThemeProvider><BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo} abrirReporte={!!navState.abrirReporte} /></ThemeProvider>
   if (page === 'reportes')            return <ThemeProvider>{user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />}</ThemeProvider>
+  if (page === 'dependencias')        return <ThemeProvider><Dependencias key={recarga}       user={user} onNavigate={navigate} /></ThemeProvider>
 
   return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>
 }

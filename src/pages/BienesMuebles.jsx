@@ -71,7 +71,7 @@ function unirObs(estado, resto) {
   return (r ? `${estado}. ${r}` : estado)
 }
 
-function iStyle(dark) {
+export function iStyle(dark) {
   return {
     padding: '9px 12px', borderRadius: '9px', outline: 'none',
     width: '100%', fontFamily: 'inherit', fontSize: '14px',
@@ -131,7 +131,7 @@ export function barraSticky(dark, t) {
   }
 }
 
-function panelStyle(dark) {
+export function panelStyle(dark) {
   return {
     padding: '0.8rem 0.9rem 0.85rem',
     borderRadius: '12px',
@@ -139,7 +139,7 @@ function panelStyle(dark) {
     border: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)',
   }
 }
-function tituloSec(t) {
+export function tituloSec(t) {
   return { fontSize: '12px', fontWeight: 600, color: t.text2, marginBottom: '0.7rem' }
 }
 
@@ -360,18 +360,39 @@ export function GroupedAreaSelector({ areas, selected, onChange, dark }) {
 }
 
 // ── ModalEditar ───────────────────────────────────────────────────────────────
-function ModalEditar({ bien, onClose, dark, t, onSaved }) {
+export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
   const esVehiculo = ['VEHICULAR','VEHICULAR-MAQUINARIA','VEHICULAR-REMOLQUES-CARROCERIAS'].includes(bien.categoriainventario)
   const { close, anim } = useClosing(onClose)
 
+  const sinRaya = v => (v && v !== '—' && v !== 'SIN FACTURA' ? String(v) : '')
+
   const [form, setForm] = useState({
-    nombrebien:    bien.nombrebien    || '',
-    marca:         bien.marca         || '',
-    tipo:          bien.tipo          || '',
-    serie:         bien.serie         || '',
-    anio:          bien.anio          || '',
-    observaciones: bien.observaciones || '',
+    nombrebien:      bien.nombrebien      || '',
+    marca:           bien.marca           || '',
+    tipo:            bien.tipo            || '',
+    serie:           bien.serie           || '',
+    anio:            bien.anio            || '',
+    observaciones:   bien.observaciones   || '',
+    claveinventario: bien.claveinventario || '',
+    partida:         bien.partida         || '',
+    idarea:          bien.idarea          ?? '',
   })
+
+  // Datos de la factura: viven en otra tabla, así que van aparte del formulario
+  // Sin factura la consulta devuelve costoinicial 0: se muestra vacío, no "0"
+  const datosFactura = () => ({
+    numerofactura: sinRaya(bien.numerofactura),
+    fechafactura:  sinRaya(bien.fechafactura),
+    costoinicial:  bien.costoinicial ? fmtMoneda(bien.costoinicial) : '',
+    proveedor:     sinRaya(bien.proveedor),
+  })
+  const [fact, setFact] = useState(datosFactura)
+  const factOriginal = useState(datosFactura)[0]
+  function setF(k, v) { setFact(f => ({ ...f, [k]: v })) }
+
+  // Catálogo de áreas para el combo de adscripción
+  const [areas, setAreas] = useState([])
+  useEffect(() => { fetchAreas().then(setAreas).catch(() => {}) }, [])
   // El titular no vive en la tabla de bienes sino en el catálogo de resguardos,
   // así que se maneja aparte del resto del formulario. El '—' que pone la
   // consulta cuando el bien no tiene titular se muestra como campo vacío.
@@ -388,6 +409,11 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
     setSaving(true); setSaveErr(null)
     try {
       const campos = { ...form }
+      // idarea es obligatorio en la base: si viniera vacío se deja el que tiene
+      if (campos.idarea === '' || campos.idarea == null) delete campos.idarea
+      else campos.idarea = Number(campos.idarea)
+      campos.partida = campos.partida === '' ? null : campos.partida
+      if (!campos.claveinventario.trim()) delete campos.claveinventario
       // Solo se toca el titular si se modificó, para no reescribirlo sin razón
       const cambioNombre = resgNombre.trim() !== sinGuion(bien.resguardatario)
       const cambioPuesto = resgPuesto.trim() !== sinGuion(bien.puesto)
@@ -395,6 +421,11 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
         campos.idresguardo = await resolverResguardo(resgNombre, resgPuesto)
       }
       await actualizarBien(bien.idbien, campos)
+
+      // La factura se guarda aparte y solo si cambió alguno de sus campos
+      const cambioFactura = ['numerofactura', 'fechafactura', 'costoinicial', 'proveedor']
+        .some(k => fact[k].trim() !== factOriginal[k].trim())
+      if (cambioFactura) await guardarFactura(bien, fact)
       setSaved(true)
       setTimeout(() => { onSaved?.(); close() }, 800)
     } catch(e) {
@@ -436,6 +467,7 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem 1.5rem' }}>
           {[
+            { label: 'Clave de Inventario',        key: 'claveinventario' },
             { label: 'Nombre del Bien',            key: 'nombrebien' },
             { label: 'Marca',                       key: 'marca' },
             { label: esVehiculo ? 'Modelo / Placa' : 'Tipo', key: 'tipo' },
@@ -452,6 +484,51 @@ function ModalEditar({ bien, onClose, dark, t, onSaved }) {
               />
             </div>
           ))}
+          {/* Partida y área de adscripción: listas cerradas */}
+          <div style={{ padding: '11px 0', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Partida</p>
+            <select value={form.partida ?? ''} onChange={e => set('partida', e.target.value)}
+              style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }}>
+              <option value="">— Sin partida —</option>
+              {PARTIDAS.map(p => <option key={p.cod} value={p.cod}>{p.cod} — {p.nombre}</option>)}
+              {form.partida && !PARTIDAS.some(p => p.cod === form.partida) && (
+                <option value={form.partida}>{form.partida}</option>
+              )}
+            </select>
+          </div>
+          <div style={{ padding: '11px 0', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+            <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Área de Adscripción</p>
+            <select value={form.idarea ?? ''} onChange={e => set('idarea', e.target.value)}
+              style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }}>
+              {/* Todo bien debe tener área, así que no hay opción vacía */}
+              {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
+              {/* Mientras carga el catálogo se conserva la que ya tiene */}
+              {areas.length === 0 && <option value={form.idarea}>{bien.area}</option>}
+            </select>
+          </div>
+
+          {/* Datos de la compra: viven en la tabla de facturas */}
+          {[
+            { label: 'Número de Factura', key: 'numerofactura' },
+            { label: 'Fecha de Factura',  key: 'fechafactura', type: 'date' },
+            { label: 'Importe',           key: 'costoinicial', moneda: true },
+            { label: 'Proveedor',         key: 'proveedor' },
+          ].map(({ label, key, type, moneda }) => (
+            <div key={key} style={{ padding: '11px 0', borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
+              <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>{label}</p>
+              <input
+                type={type || 'text'}
+                inputMode={moneda ? 'decimal' : undefined}
+                value={fact[key]}
+                // Mientras se escribe se respeta lo tecleado; el formato de
+                // moneda se aplica al salir, para no mover el cursor
+                onChange={e => setF(key, moneda ? e.target.value.replace(/[^\d.,$ ]/g, '') : e.target.value)}
+                onBlur={moneda ? () => setF(key, fact[key].trim() === '' ? '' : fmtMoneda(fact[key])) : undefined}
+                autoComplete="off" spellCheck={false}
+                style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }} />
+            </div>
+          ))}
+
           {/* Titular: vive en el catálogo de resguardos, no en el bien */}
           {[
             { label: 'Resguardo a cargo de', valor: resgNombre, set: setResgNombre },
@@ -1176,8 +1253,10 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
 
   let query = supabase
     .from('bienes')
+    // idarea e idfactura hacen falta para poder modificar el bien: sin ellos el
+    // formulario los recibía vacíos y al guardar mandaba idarea en null.
     .select(`
-      idbien, nombrebien, marca, tipo, serie, observaciones,
+      idbien, idarea, idfactura, nombrebien, marca, tipo, serie, observaciones,
       claveinventario, categoriainventario, estadobien, anio, partida,
       areas ( nombrearea ),
       resguardos ( nombre, puesto ),
@@ -1251,6 +1330,56 @@ async function resolverResguardo(nombre, puesto) {
   const { error: e2 } = await supabase.from('resguardos').insert({ idresguardo, nombre: nom, puesto: pue || null })
   if (e2) throw e2
   return idresguardo
+}
+
+// Importe con signo, separador de miles y dos decimales
+function fmtMoneda(v) {
+  const n = Number(String(v).replace(/[^\d.-]/g, ''))
+  if (!Number.isFinite(n)) return ''
+  return '$ ' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// Guarda los datos de compra del bien. La factura vive en su propia tabla, así
+// que si el bien todavía no tiene una se crea y se enlaza. El proveedor se
+// reutiliza por nombre para no llenar el catálogo de duplicados.
+async function guardarFactura(bien, fact) {
+  const num    = fact.numerofactura.trim()
+  const fecha  = fact.fechafactura.trim()
+  // El campo puede venir con "$" y comas si el usuario lo pegó formateado
+  const costo  = fact.costoinicial.replace(/[^\d.-]/g, '').trim()
+  const prov   = fact.proveedor.trim()
+
+  let idproveedor = null
+  if (prov) {
+    const { data } = await supabase.from('proveedores').select('idproveedor').ilike('nombreproveedor', prov).limit(1)
+    if (data && data[0]) idproveedor = data[0].idproveedor
+    else {
+      const { data: ult } = await supabase.from('proveedores').select('idproveedor').order('idproveedor', { ascending: false }).limit(1)
+      idproveedor = ((ult && ult[0]?.idproveedor) || 0) + 1
+      const { error } = await supabase.from('proveedores').insert({ idproveedor, nombreproveedor: prov })
+      if (error) throw error
+    }
+  }
+
+  const payload = {
+    numerofactura: num || null,
+    fechafactura:  /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : null,
+    costoinicial:  costo === '' ? null : Number(costo),
+    idproveedor,
+  }
+
+  if (bien.idfactura) {
+    const { error } = await supabase.from('facturas').update(payload).eq('idfactura', bien.idfactura)
+    if (error) throw error
+    return
+  }
+  // Sin factura previa: se crea una y se enlaza al bien
+  const { data: ult } = await supabase.from('facturas').select('idfactura').order('idfactura', { ascending: false }).limit(1)
+  const idfactura = ((ult && ult[0]?.idfactura) || 0) + 1
+  const { error: e1 } = await supabase.from('facturas').insert({ idfactura, ...payload })
+  if (e1) throw e1
+  const { error: e2 } = await supabase.from('bienes').update({ idfactura }).eq('idbien', bien.idbien)
+  if (e2) throw e2
 }
 
 async function actualizarBien(idbien, campos) {
@@ -1444,7 +1573,9 @@ const GRIS_HEADER = 'BFBFBF'
 const NEGRO       = '000000'
 const FRANJA      = 'F2F2F2'
 
-const SELECT_BIENES = `idbien, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+// idfactura hace falta para poder editar la factura del bien: sin él la
+// pantalla de modificar creaba una factura nueva en vez de actualizar la suya.
+const SELECT_BIENES = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
 
 function mapBien(b) {
   return {
@@ -1541,8 +1672,28 @@ export function colsReporte(modo) {
   ]
 }
 
+// Columnas del Reporte de Bienes: numeración corrida, partida, datos del bien,
+// fecha de la factura como fecha de alta, área, titular y estado.
+export const COLS_BIENES = [
+  { key: 'no',              label: 'NO.',           m: 'No.',           w: 6,  noWrap: true },
+  { key: 'claveinventario', label: 'INVENTARIO',    m: 'Inventario',    w: 24, noWrap: true },
+  // Este encabezado va como CONAC solo aquí, en la columna del reporte
+  { key: 'partida',         label: 'CONAC',         m: 'Partida',       w: 11, noWrap: true },
+  { key: 'nombrebien',      label: 'DESCRIPCIÓN',   m: 'Descripción',   w: 32, align: 'left' },
+  { key: 'marca',           label: 'MARCA',         w: 14, m: 'Marca' },
+  { key: 'tipo',            label: 'MODELO',        w: 14, m: 'Modelo' },
+  { key: 'serie',           label: 'SERIE',         w: 18, m: 'Serie' },
+  { key: 'fechafactura',    label: 'FECHA DE ALTA', w: 12, m: 'Fecha de alta', noWrap: true },
+  { key: 'area',            label: 'UBICACIÓN',     w: 26, m: 'Ubicación', align: 'left' },
+  { key: 'resguardatario',  label: 'RESGUARDANTE',  w: 26, m: 'Resguardante', align: 'left' },
+  { key: 'estado',          label: 'ESTADO',        w: 14, m: 'Estado' },
+]
+
 export function valorMueble(col, b) {
   switch (col.key) {
+    // Solo el estado, sin las notas libres que lleva observaciones
+    case 'estado':
+      return estadoInfo(b.observaciones, false).label
     case 'resguardo': {
       const n = b.resguardatario && b.resguardatario !== '—' ? b.resguardatario : ''
       const p = b.puesto && b.puesto !== '—' ? b.puesto : ''

@@ -10,7 +10,7 @@ const CUENTAS = {
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
-  admin:           ['dashboard', 'bienes', 'reportes'],
+  admin:           ['dashboard', 'bienes', 'reportes', 'dependencias'],
   admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'reportes'],
 }
 

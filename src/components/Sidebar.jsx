@@ -5,7 +5,9 @@ const NAV_MUEBLES = [
   { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
   { icon:'ti-refresh',          label:'Reconteo',       id:'reconteo',  page:'reconteo',  disabled:true },
   { icon:'ti-chart-bar',        label:'Reportes',       id:'reportes',  page:'reportes' },
-  { icon:'ti-clipboard-list',   label:'Auditoría',      id:'auditoria', page:'auditoria', disabled:true },
+  // Dependencias queda oculta por ahora; la página y su ruta siguen vivas y
+  // basta con descomentar esta línea para volver a mostrarla en el menú.
+  // { icon:'ti-building-bank',    label:'Dependencias',   id:'dependencias', page:'dependencias' },
   { icon:'ti-users',            label:'Usuarios',       id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 

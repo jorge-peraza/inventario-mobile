@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
-import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, COLS_BIENES, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { guardarPreferencia, metadataUsuario } from '../auth'
 
 // Los reportes personalizados se guardan en la CUENTA del usuario (user_metadata
@@ -317,6 +317,8 @@ function rangoPeriodo(tipo) {
   if (tipo === 'mensual')    desde.setMonth(desde.getMonth() - 1)
   if (tipo === 'trimestral') desde.setMonth(desde.getMonth() - 3)
   if (tipo === 'anual')      desde.setFullYear(desde.getFullYear() - 1)
+  // El reporte de bienes se entrega por ejercicio, arranca el 1 de enero
+  if (tipo === 'bienes')     desde.setMonth(0, 1)
   const iso = d => d.toISOString().slice(0, 10)
   return { desde: iso(desde), hasta: iso(hasta) }
 }
@@ -338,7 +340,7 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   const [desde, setDesde] = useState(r0.desde)
   const [hasta, setHasta] = useState(r0.hasta)
   const [areasSelec, setAreasSelec] = useState([])
-  const etiqueta = { mensual: 'MENSUAL', trimestral: 'TRIMESTRAL', anual: 'ANUAL' }[tipo]
+  const etiqueta = { mensual: 'MENSUAL', trimestral: 'TRIMESTRAL', anual: 'ANUAL', bienes: 'BIENES' }[tipo]
   const [titulo, setTitulo] = useState(`REPORTE ${etiqueta} BIENES MUEBLES ${mesAnioActual()}`)
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
@@ -346,9 +348,12 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   async function generar(formato) {
     setGenerando(formato); setErr(null)
     try {
-      const rows = ordenarPorFactura(await fetchPorFechaFactura({ desde, hasta, areaIds: areasSelec }))
+      let rows = ordenarPorFactura(await fetchPorFechaFactura({ desde, hasta, areaIds: areasSelec }))
       if (!rows.length) { setErr('No hay registros en ese rango de fechas'); setGenerando(null); return }
-      const cols = colsReporte('mobiliario')   // columnas genéricas (todas las categorías)
+      // El reporte de bienes lleva sus propias columnas y numeración corrida
+      const esBienes = tipo === 'bienes'
+      if (esBienes) rows = rows.map((b, i) => ({ ...b, no: i + 1 }))
+      const cols = esBienes ? COLS_BIENES : colsReporte('mobiliario')
       if (formato === 'excel') await exportarExcelMuebles(rows, cols, titulo.trim())
       else                     await exportarPDFMuebles(rows, cols, titulo.trim())
       onClose()
@@ -616,6 +621,7 @@ export default function Reportes({ user, onNavigate }) {
                   { id: 'trimestral', icon: 'ti-file-text',    label: 'Reporte Trimestral',    hint: 'Facturas de 3 meses',          value: conteoPeriodo.trimestral, color: t.text2 },
                   { id: 'anual',      icon: 'ti-file-text',    label: 'Reporte Anual',         hint: 'Facturas del último año',      value: conteoPeriodo.anual,      color: t.text2 },
                   { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Adquisiciones', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
+                  { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',        hint: 'Inventario detallado por fecha',  value: null,                  color: t.text2 },
                 ].map(p => (
                   <button key={p.id} onClick={() => { if (p.id === 'adquisiciones') setModalAdquisiciones(true); else setModalPeriodo(p.id) }}
                     style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
@@ -626,7 +632,11 @@ export default function Reportes({ user, onNavigate }) {
                       </div>
                       <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{p.label}</p>
                     </div>
-                    {p.value !== null && <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{p.value == null ? '…' : p.value.toLocaleString()}</p>}
+                    {/* Las tarjetas sin conteo reservan el mismo alto que las
+                        demás, para que la fila quede pareja */}
+                    <p style={{ fontSize: '30px', fontWeight: 600, lineHeight: 1, marginBottom: '6px', color: p.value !== null ? t.text1 : 'transparent' }}>
+                      {p.value !== null ? (p.value == null ? '…' : p.value.toLocaleString()) : ' '}
+                    </p>
                     <p style={{ fontSize: '12px', color: t.text4 }}>{p.hint}</p>
                   </button>
                 ))}
