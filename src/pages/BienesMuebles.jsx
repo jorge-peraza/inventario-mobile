@@ -1343,15 +1343,23 @@ function vaPorClave(filtroAreaIds) {
   return Array.isArray(filtroAreaIds) && filtroAreaIds.length > 0
 }
 function ordenDeLista(query, filtroAreaIds) {
+  // Se ordena por la columna consecutivo, no por la clave: la clave lleva el año
+  // antes del número (DBS12-…-081, DBS13-…-067) y ordenarla como texto agrupa
+  // por año y deja los consecutivos salteados.
+  // Cada área lleva su propia serie, así que primero se agrupa por área y
+  // dentro de ella se numera: si no, con varias áreas salen intercalados
+  // todos los 001, luego todos los 002.
   return vaPorClave(filtroAreaIds)
-    ? query.order('claveinventario', { ascending: true }).order('idbien', { ascending: true })
+    ? query.order('idarea', { ascending: true })
+           .order('consecutivo', { ascending: true, nullsFirst: false })
+           .order('idbien', { ascending: true })
     : query.order('idbien', { ascending: false })
 }
 
 async function paginaDeBien(bien, filtros) {
   const { porPagina } = filtros
   const { data: fila, error: e0 } = await supabase
-    .from('bienes').select('idbien, claveinventario').eq('idbien', bien.idbien).maybeSingle()
+    .from('bienes').select('idbien, idarea, consecutivo').eq('idbien', bien.idbien).maybeSingle()
   if (e0) throw e0
   if (!fila) throw new Error('El bien ya no está en la base')
 
@@ -1359,11 +1367,12 @@ async function paginaDeBien(bien, filtros) {
   // el salto cae en otra página.
   let q = filtrosDeLista(supabase.from('bienes').select('idbien', { count: 'exact', head: true }), filtros)
   if (vaPorClave(filtros.filtroAreaIds)) {
-    const clave = String(fila.claveinventario ?? '').replace(/"/g, '')
-    q = fila.claveinventario == null
-      // Las claves vacías se van al final del orden ascendente
-      ? q.or(`claveinventario.not.is.null,and(claveinventario.is.null,idbien.lt.${fila.idbien})`)
-      : q.or(`claveinventario.lt."${clave}",and(claveinventario.eq."${clave}",idbien.lt.${fila.idbien})`)
+    // Delante van las áreas anteriores completas, y dentro de la suya los de
+    // consecutivo menor. Debe reflejar el mismo orden que ordenDeLista.
+    const dentro = fila.consecutivo == null
+      ? `and(idarea.eq.${fila.idarea},consecutivo.is.null,idbien.lt.${fila.idbien})`
+      : `and(idarea.eq.${fila.idarea},consecutivo.lt.${fila.consecutivo}),and(idarea.eq.${fila.idarea},consecutivo.eq.${fila.consecutivo},idbien.lt.${fila.idbien})`
+    q = q.or(`idarea.lt.${fila.idarea},${dentro}`)
   } else {
     q = q.gt('idbien', fila.idbien)
   }
