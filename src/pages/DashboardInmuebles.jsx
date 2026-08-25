@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import { useState, useEffect } from 'react'
 import { supabaseInmuebles } from '../supabaseInmuebles'
-import { ID_PROCESO, ID_DESINC, ID_COMODATO, CATS_FUERA, CATS_SALIDA } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, CATS_FUERA, CATS_SALIDA } from '../desincorporaciones'
 
 function useFecha() {
   const [fecha, setFecha] = useState('')
@@ -85,10 +85,10 @@ export default function DashboardInmuebles({ user, onNavigate }) {
             .order('nombrecategoria', { ascending: true })
 
           if (cats) {
-            // Comodato y desincorporado no forman parte del patrimonio; "en proceso"
-            // sí se muestra porque son inmuebles que todavía pertenecen al HAN.
+            // Se listan TODAS las categorías, incluidas comodato y desincorporado.
+            // Ojo: esas dos no son patrimonio del HAN, así que los conteos de las
+            // tarjetas no suman el total de arriba.
             const lista = cats
-              .filter(c => c.idcategoria !== ID_COMODATO && c.idcategoria !== ID_DESINC)
               .map(c => ({
                 ...c,
                 total:      mapaConteo[c.idcategoria] || 0,
@@ -236,7 +236,9 @@ export default function DashboardInmuebles({ user, onNavigate }) {
                       <p style={{ fontSize:'12px', color:t.text4, marginBottom:'2px' }}>
                         {c.total.toLocaleString('es-MX')} inmuebles
                       </p>
-                      {c.valorTotal > 0 && (
+                      {/* Lo desincorporado ya salió del patrimonio: se cuenta,
+                          pero no se le pone valor para no sumarlo por error */}
+                      {c.valorTotal > 0 && c.idcategoria !== ID_DESINC && (
                         <p style={{ fontSize:'11px', fontWeight:600, color: dark ? '#6ee7b7' : '#1e7e4a' }}>
                           {fmt(c.valorTotal)}
                         </p>

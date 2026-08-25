@@ -8,6 +8,7 @@ const NAV_MUEBLES = [
   // Dependencias queda oculta por ahora; la página y su ruta siguen vivas y
   // basta con descomentar esta línea para volver a mostrarla en el menú.
   // { icon:'ti-building-bank',    label:'Dependencias',   id:'dependencias', page:'dependencias' },
+  { icon:'ti-trash',            label:'Papelera',       id:'papelera',  page:'papelera' },
   { icon:'ti-users',            label:'Usuarios',       id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 

@@ -8,7 +8,7 @@ import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
  import { getComentario, setComentario } from '../comentarios'
-import { barraSticky, btnBarra } from './BienesMuebles'
+import { barraSticky, btnBarra, MenuFila } from './BienesMuebles'
 import { PaginaEvidencias } from './ArmarReporteInmuebles'
 import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
@@ -86,7 +86,7 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
   // la vista y parecía que no se guardaba.
   const comentario = getComentario(inmueble.idinmueble)
 
-  return (
+  return createPortal(
     <>
       <div onClick={close} style={{ position:'fixed', inset:0, zIndex:150, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div style={{ position:'fixed', top:0, right:0, bottom:0, zIndex:200, width:'380px', background: dark ? '#1e1e20' : '#ffffff', borderLeft:`1px solid ${t.cardBorder}`, display:'flex', flexDirection:'column', boxShadow:'-8px 0 40px rgba(0,0,0,0.3)', animation: anim }}>
@@ -120,7 +120,8 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
         </div>
       </div>
       <style>{`@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
-    </>
+    </>,
+    document.body,
   )
 }
 
@@ -171,7 +172,7 @@ function ModalCategorias({ categorias, selected, onChange, dark, t }) {
           <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'420px', maxWidth:'90vw', maxHeight:'80vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
             <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
                 <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <i className="ti ti-category" style={{ fontSize:'18px', color: dark ? '#a8c5f8' : '#2563eb' }} />
                 </div>
@@ -230,27 +231,23 @@ function ModalCategorias({ categorias, selected, onChange, dark, t }) {
 async function fetchCategorias() {
   const { data: cats, error } = await supabase
     .from('categoriasinmuebles')
-    .select('idcategoria, nombrecategoria')
+    // clavecategoria hace falta para armar la clave del inmueble nuevo
+    .select('idcategoria, nombrecategoria, clavecategoria')
     .order('nombrecategoria', { ascending: true })
   if (error) throw error
 
-  // Paginar para superar el límite de 1000 de PostgREST
-  const BATCH = 1000
-  let todos = [], desde = 0
-  while (true) {
-    const { data: batch, error: err } = await supabase
-      .from('bienesinmuebles')
-      .select('idcategoria')
-      .range(desde, desde + BATCH - 1)
-    if (err || !batch || batch.length === 0) break
-    todos = [...todos, ...batch]
-    if (batch.length < BATCH) break
-    desde += BATCH
-  }
-
-  const mapa = {}
-  for (const r of todos) mapa[r.idcategoria] = (mapa[r.idcategoria] || 0) + 1
-  return (cats || []).map(c => ({ ...c, total: mapa[c.idcategoria] || 0 }))
+  // Un conteo por categoría, todos a la vez. Antes se descargaban los ~1,400
+  // inmuebles completos solo para contarlos y la pantalla tardaba el doble.
+  const totales = await Promise.all(
+    (cats || []).map(c =>
+      supabase.from('bienesinmuebles')
+        .select('*', { count: 'exact', head: true })
+        .eq('idcategoria', c.idcategoria)
+        .then(({ count }) => count || 0)
+        .catch(() => 0)
+    )
+  )
+  return (cats || []).map((c, i) => ({ ...c, total: totales[i] }))
 }
 
 // ── Actualizar inmueble ───────────────────────────────────────────────────────
@@ -316,7 +313,7 @@ function ComboCategoria({ value, onChange, categorias, dark }) {
 }
 
 // ── ModalEditar Inmueble ──────────────────────────────────────────────────────
-function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
+export function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
   const { close, anim } = useClosing(onClose)
 
   const [form, setForm] = useState({
@@ -367,7 +364,7 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
     { label: 'Fecha Enajenación',     key: 'fecha_enajenacion', type: 'date' },
   ]
 
-  return (
+  return createPortal(
     <>
       <div onClick={close} style={{ position:'fixed', inset:0, zIndex:150, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div style={{ position:'fixed', top:0, right:0, bottom:0, zIndex:200, width:'400px',
@@ -375,7 +372,7 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
         display:'flex', flexDirection:'column', boxShadow:'-8px 0 40px rgba(0,0,0,0.3)', animation:anim }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px',
               background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)',
               border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)',
@@ -454,7 +451,8 @@ function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = [] }) {
         </div>
       </div>
       <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
-    </>
+    </>,
+    document.body,
   )
 }
 
@@ -988,7 +986,7 @@ export function ModalReporte({ onClose, dark, t, categorias, seleccionados, filt
 
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               <i className="ti ti-file-export" style={{ fontSize:'18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
             </div>
@@ -1158,18 +1156,9 @@ function aplicarBusquedaInmuebles(query, busqueda, categorias) {
 }
 
 // ── Query Supabase ────────────────────────────────────────────────────────────
-async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categoriaIds, categorias }) {
-  const desde = pagina * porPagina
-  const hasta  = desde + porPagina - 1
-
-  let query = supabase
-    .from('bienesinmuebles')
-    .select('*', { count:'exact' })
-    .order('consecutivo', { ascending:true })
-    .range(desde, hasta)
-
-  query = aplicarBusquedaInmuebles(query, busqueda, categorias)
-
+// Los mismos filtros de la tabla menos el texto buscado. Se comparte con
+// paginaDeInmueble para que el conteo salga sobre exactamente la misma lista.
+function filtrosDeListaInmuebles(query, { m2Min, m2Max, categoriaIds }) {
   if (m2Min !== '' && m2Min != null)
     query = query.gte('superficiem2', Number(m2Min))
 
@@ -1180,6 +1169,45 @@ async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categ
     query = query.in('idcategoria', categoriaIds)
   else
     query = query.not('idcategoria', 'in', `(${CATS_FUERA.join(',')})`)
+
+  return query
+}
+
+// En qué página cae un inmueble: cuántos van antes que él con los filtros
+// puestos pero sin el texto buscado, en el mismo orden que usa la tabla.
+async function paginaDeInmueble(inm, filtros) {
+  const { porPagina } = filtros
+  const { data: fila, error: e0 } = await supabase
+    .from('bienesinmuebles').select('idinmueble, consecutivo').eq('idinmueble', inm.idinmueble).maybeSingle()
+  if (e0) throw e0
+  if (!fila) throw new Error('El inmueble ya no está en la base')
+
+  let q = filtrosDeListaInmuebles(
+    supabase.from('bienesinmuebles').select('idinmueble', { count:'exact', head:true }), filtros)
+  q = fila.consecutivo == null
+    ? q.or(`consecutivo.not.is.null,and(consecutivo.is.null,idinmueble.lt.${fila.idinmueble})`)
+    : q.or(`consecutivo.lt.${fila.consecutivo},and(consecutivo.eq.${fila.consecutivo},idinmueble.lt.${fila.idinmueble})`)
+
+  const { count, error } = await q
+  if (error) throw error
+  return Math.floor((count || 0) / porPagina)
+}
+
+async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categoriaIds, categorias }) {
+  const desde = pagina * porPagina
+  const hasta  = desde + porPagina - 1
+
+  let query = supabase
+    .from('bienesinmuebles')
+    .select('*', { count:'exact' })
+    .order('consecutivo', { ascending:true })
+    // Hay muchos consecutivos repetidos: sin este desempate el orden dentro de
+    // un empate no es fijo y la misma página podía traer renglones distintos.
+    .order('idinmueble', { ascending:true })
+    .range(desde, hasta)
+
+  query = aplicarBusquedaInmuebles(query, busqueda, categorias)
+  query = filtrosDeListaInmuebles(query, { m2Min, m2Max, categoriaIds })
 
   const { data, error, count } = await query
   if (error) throw error
@@ -1405,7 +1433,7 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'460px', maxWidth:'92vw', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               <i className="ti ti-archive-off" style={{ fontSize:'18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
             </div>
@@ -1443,8 +1471,52 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
   )
 }
 
+// Siguiente clave de un inmueble dentro de su categoría.
+// El formato que ya usa la base es {consecutivo}-{clave de categoría}: 37-E,
+// 14-PL, 898-BOL. Se lee de la base, no se inventa.
+export async function siguienteClaveInmueble(idcategoria, categorias) {
+  // La clave de la categoría se toma de la base; la lista que llega solo se usa
+  // como atajo. Así no depende de qué columnas haya pedido quien la llame.
+  let cat = (categorias || []).find(c => Number(c.idcategoria) === Number(idcategoria))
+  if (!cat?.clavecategoria) {
+    const { data, error } = await supabase
+      .from('categoriasinmuebles')
+      .select('idcategoria, nombrecategoria, clavecategoria')
+      .eq('idcategoria', idcategoria)
+      .maybeSingle()
+    if (error) throw error
+    cat = data
+  }
+  if (!cat?.clavecategoria) return null
+
+  const { data, error } = await supabase
+    .from('bienesinmuebles')
+    .select('claveinmueble')
+    .eq('idcategoria', idcategoria)
+  if (error) throw error
+
+  let max = 0
+  for (const r of data || []) {
+    const m = String(r.claveinmueble || '').match(/^(\d+)\s*-/)
+    if (!m) continue
+    const n = parseInt(m[1], 10)
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  const n = max + 1
+  return { clave: `${String(n).padStart(2, '0')}-${cat.clavecategoria}`, numero: n }
+}
+
+// El consecutivo es el orden global del listado, no el de la categoría
+async function siguienteConsecutivoInmueble() {
+  const { data, error } = await supabase
+    .from('bienesinmuebles').select('consecutivo')
+    .order('consecutivo', { ascending: false }).limit(1)
+  if (error) throw error
+  return ((data && data[0]?.consecutivo) || 0) + 1
+}
+
 // ── Modal Nuevo Inmueble ──────────────────────────────────────────────────────
-function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
+export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
   const [clave, setClave]         = useState('')
   const [nombre, setNombre]       = useState('')
   const [idcategoria, setIdcat]   = useState('')
@@ -1455,18 +1527,68 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
   const [documento, setDocumento] = useState('')
   const [expediente, setExpediente] = useState('')
   const [adquisicion, setAdquisicion] = useState('')
+  const [afavorde, setAfavorde] = useState('H. AYUNTAMIENTO DE NOGALES')
+  const [fechaEnaj, setFechaEnaj] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
+  const [claveAuto, setClaveAuto] = useState(false)   // true mientras no se toque a mano
+  const cacheClaves = useRef({})                      // idcategoria -> clave ya calculada
 
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  // Al abrir se calculan de una vez las claves de todas las categorías, en
+  // paralelo. Así elegir una es instantáneo en lugar de esperar una consulta.
+  useEffect(() => {
+    let vivo = true
+    Promise.all((categorias || []).map(c =>
+      siguienteClaveInmueble(c.idcategoria, categorias)
+        .then(g => [c.idcategoria, g?.clave])
+        .catch(() => [c.idcategoria, null])
+    )).then(pares => {
+      if (!vivo) return
+      for (const [id, cl] of pares) if (cl) cacheClaves.current[id] = cl
+      // Si ya se eligió categoría mientras cargaba, se completa su clave
+      setIdcat(actual => {
+        if (actual && cacheClaves.current[actual]) { setClave(cacheClaves.current[actual]); setClaveAuto(true) }
+        return actual
+      })
+    })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Al elegir la categoría se consulta a la base el último consecutivo de esa
+  // categoría y se propone la clave. Si el usuario la escribe a mano, se respeta.
+  useEffect(() => {
+    if (!idcategoria) { if (claveAuto || clave === '') { setClave(''); setClaveAuto(false) } return }
+    // Si ya se calculó para esa categoría se reusa: cambiar de categoría y
+    // volver no dispara otra consulta.
+    const enCache = cacheClaves.current[idcategoria]
+    if (enCache) { setClave(enCache); setClaveAuto(true); return }
+
+    let vivo = true
+    setClave('Generando…'); setClaveAuto(true)
+    siguienteClaveInmueble(idcategoria, categorias)
+      .then(g => {
+        if (!vivo) return
+        if (g) cacheClaves.current[idcategoria] = g.clave
+        setClave(g ? g.clave : ''); setClaveAuto(!!g)
+      })
+      .catch(() => { if (vivo) { setClave(''); setClaveAuto(false) } })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idcategoria])
 
   async function guardar() {
     if (!nombre.trim())  { setErr('El nombre del inmueble es obligatorio'); return }
     if (!idcategoria)    { setErr('Selecciona la categoría'); return }
+    // No guardar el texto de espera si se envía antes de que llegue la clave
+    if (clave === 'Generando…') { setErr('Espera a que se genere la clave'); return }
     setGuardando(true); setErr(null)
     try {
       const { error } = await supabase.from('bienesinmuebles').insert({
         claveinmueble: clave.trim() || null,
+        consecutivo: await siguienteConsecutivoInmueble(),
         nombreinmueble: nombre.trim().toUpperCase(),
         idcategoria: Number(idcategoria),
         clavecatastral: catastral.trim() || null,
@@ -1476,6 +1598,8 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
         documentopropiedad: documento.trim() || null,
         expediente: expediente.trim() || null,
         adquisicion: adquisicion.trim() || null,
+        afavorde: afavorde.trim() || null,
+        fecha_enajenacion: fechaEnaj || null,
       })
       if (error) throw error
       onCreated()
@@ -1492,7 +1616,7 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
 
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
               <i className="ti ti-building-plus" style={{ fontSize:'18px', color: t.text2 }} />
             </div>
@@ -1508,26 +1632,33 @@ function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
 
         {/* Cuerpo */}
         <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:'10px' }}>
-            <div>{lbl('Clave')}<input value={clave} onChange={e => setClave(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Categoría *')}
-              <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={sStyle(dark)}>
-                <option value="">Selecciona una categoría…</option>
-                {categorias.map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
-              </select>
-            </div>
+          {/* La categoría va primero: de ella sale el consecutivo de la clave */}
+          <div>{lbl('Categoría *')}
+            <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={sStyle(dark)}>
+              <option value="">Selecciona una categoría…</option>
+              {categorias.map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
+            </select>
+          </div>
+          <div>{lbl('Clave')}
+            <input value={clave} onChange={e => { setClave(e.target.value); setClaveAuto(false) }}
+              placeholder={idcategoria ? '' : 'Se genera al elegir la categoría'}
+              style={iStyle(dark)} />
           </div>
           <div>{lbl('Nombre del inmueble *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
           <div>{lbl('Ubicación')}<input value={ubicacion} onChange={e => setUbicacion(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px', flexWrap:'wrap' }}>
             <div>{lbl('Clave catastral')}<input value={catastral} onChange={e => setCatastral(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Superficie (m²)')}<input type="number" value={superficie} onChange={e => setSuperficie(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Valor catastral ($)')}<input type="number" value={valor} onChange={e => setValor(e.target.value)} style={iStyle(dark)} /></div>
           </div>
           <div>{lbl('Documento de propiedad')}<input value={documento} onChange={e => setDocumento(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', flexWrap:'wrap' }}>
             <div>{lbl('Expediente')}<input value={expediente} onChange={e => setExpediente(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Adquisición')}<input value={adquisicion} onChange={e => setAdquisicion(e.target.value)} style={iStyle(dark)} /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'10px', flexWrap:'wrap' }}>
+            <div>{lbl('A favor de')}<input value={afavorde} onChange={e => setAfavorde(e.target.value)} style={iStyle(dark)} /></div>
+            <div>{lbl('Fecha enajenación')}<input type="date" value={fechaEnaj} onChange={e => setFechaEnaj(e.target.value)} style={iStyle(dark)} /></div>
           </div>
         </div>
 
@@ -1558,6 +1689,13 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
   const [pagina, setPagina]                 = useState(0)
   const [totalRegistros, setTotalRegistros] = useState(0)
   const [busqueda, setBusqueda]             = useState('')
+  // Al usar "Ir a su página" se quita la búsqueda y se marca el inmueble un
+  // momento para no perderlo de vista entre los demás renglones.
+  const [resaltado, setResaltado]           = useState(null)
+  const [ubicando, setUbicando]             = useState(false)
+  const [menuFila, setMenuFila]             = useState(null)
+  const refTabla = useRef(null)
+  const filaResaltada = useRef(null)
   const [porPagina, setPorPagina]           = useState(20)
   // Lo que se ve escrito en la caja de página, aparte de la página real: así se
   // puede borrar y teclear otro número sin que la tabla salte en cada tecla.
@@ -1608,6 +1746,55 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
     setPaginaTexto(String(n))
     if (n - 1 !== pagina) cargar(n - 1)
   }
+
+  // Quita la búsqueda y carga la página donde ese inmueble vive en la lista
+  // Clic derecho sobre un renglón. Listener nativo en fase de captura sobre la
+  // tabla: se atiende antes que cualquier otro manejador.
+  useEffect(() => {
+    const tabla = refTabla.current
+    if (!tabla) return
+    const abrir = (e) => {
+      const fila = e.target.closest?.('tr[data-idinmueble]')
+      if (!fila || !tabla.contains(fila)) return
+      const inm = datos.find(d => String(d.idinmueble) === fila.dataset.idinmueble)
+      if (!inm) return
+      e.preventDefault()
+      setMenuFila({ x: e.clientX, y: e.clientY, bien: { ...inm, claveinventario: inm.claveinmueble } })
+    }
+    tabla.addEventListener('contextmenu', abrir, true)
+    return () => tabla.removeEventListener('contextmenu', abrir, true)
+  }, [datos])
+
+  async function irAlInmueble(inm) {
+    if (!inm) return
+    setUbicando(true); setError(null)
+    try {
+      // Se deja puesto el filtro de SU categoría, igual que en Bienes Muebles
+      // se deja el del área: así la lista queda acotada y el consecutivo que se
+      // ve es el que le corresponde ahí, no el de todo el inventario.
+      const suCat = inm.idcategoria != null ? [inm.idcategoria] : catSelec
+
+      const pag = await paginaDeInmueble(inm, { m2Min, m2Max, categoriaIds: suCat, porPagina })
+      // Cambiar búsqueda y filtro dispararía otra carga en página 0; se salta
+      skipDebounce.current = true
+      setBusqueda('')
+      setCatSelec(suCat)
+      setResaltado(inm.idinmueble)
+      cargar(pag, { busqueda: '', categoriaIds: suCat })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setUbicando(false)
+    }
+  }
+
+  // Lleva el renglón a la vista y quita la marca sola a los pocos segundos
+  useEffect(() => {
+    if (!resaltado) return
+    filaResaltada.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const tm = setTimeout(() => setResaltado(null), 6000)
+    return () => clearTimeout(tm)
+  }, [resaltado, datos])
 
   useEffect(() => {
     if (skipDebounce.current) { skipDebounce.current = false; return }
@@ -1685,9 +1872,8 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
               Inventario Municipal · {loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
             </p>
           </div>
-          <button onClick={() => setModalNuevo(true)} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 18px', borderRadius:'10px', background:t.cardBg, border:`1px solid ${t.cardBorder}`, backdropFilter:'blur(10px)', fontSize:'14px', fontWeight:500, color:t.text1, fontFamily:'inherit', cursor:'pointer' }}>
-            <i className="ti ti-building-plus" style={{ fontSize:'18px' }} />Nuevo inmueble
-          </button>
+          {/* El botón de alta vive en la barra de acciones, junto a
+              Desincorporación y Generar Reporte */}
         </div>
 
         {/* Filtros */}
@@ -1697,6 +1883,14 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             <i className="ti ti-search" style={{ fontSize:'16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink:0 }} />
             <input type="text" placeholder="Buscar por nombre, clave, catastral o ubicación..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
               style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:'14px', color: dark ? '#f0f0f0' : '#111', fontFamily:'inherit' }} />
+            {/* Para ir a la página de un inmueble se usa el clic derecho sobre
+                su renglón, igual que en Bienes Muebles. */}
+            {ubicando && (
+              <span style={{ display:'flex', alignItems:'center', gap:'5px', flexShrink:0, fontSize:'12.5px',
+                color: dark ? '#a8c5f8' : '#2563eb', whiteSpace:'nowrap' }}>
+                <i className="ti ti-loader-2" style={{ fontSize:'14px', animation:'spin 1s linear infinite' }} />Buscando…
+              </span>
+            )}
             {busqueda && <button onClick={() => setBusqueda('')} style={{ background:'none', border:'none', cursor:'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding:0, display:'flex' }}><i className="ti ti-x" style={{ fontSize:'14px' }} /></button>}
           </div>
 
@@ -1751,15 +1945,20 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             </button>
           )}
 
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             {/* Siempre visible; atenuado mientras no haya registros marcados */}
             <button onClick={() => seleccionados.size > 0 && setModalDesinc([...seleccionados])} disabled={seleccionados.size === 0}
               style={btnBarra(dark, t, seleccionados.size > 0)}>
               <i className="ti ti-archive-off" style={{ fontSize:'17px' }} />Desincorporación
             </button>
+            <button onClick={() => setModalNuevo(true)}
+              style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
+                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
+              <i className="ti ti-building-plus" style={{ fontSize:'17px' }} />Nuevo inmueble
+            </button>
             <button onClick={() => setModalReporte(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)' }}>
+                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
               <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
             </button>
           </div>
@@ -1775,7 +1974,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         {/* Tabla */}
         <div style={{ ...card, overflow:'hidden' }}>
           <div style={{ overflowX:'auto' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+            <table ref={refTabla} style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
               <thead>
                 <tr style={{ borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}` }}>
                   {modoSeleccion && (
@@ -1818,14 +2017,21 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                       </td></tr>
                     : datos.map((b, i) => {
                         const sel = seleccionados.has(b.idinmueble)
-                        const bgFila = sel
+                        // El que se acaba de ubicar va marcado en azul unos segundos
+                        const marcado = b.idinmueble === resaltado
+                        const bgFila = marcado
+                          ? (dark ? 'rgba(168,197,248,0.18)' : 'rgba(37,99,235,0.10)')
+                          : sel
                           ? (dark ? 'rgba(168,197,248,0.10)' : 'rgba(37,99,235,0.06)')
                           : (i % 2 !== 0 ? (dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)') : 'transparent')
                         return (
                         <tr key={b.idinmueble}
+                          data-idinmueble={b.idinmueble}
+                          ref={marcado ? filaResaltada : null}
                           onClick={() => modoSeleccion && toggleSeleccion(b.idinmueble)}
-                          style={{ borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, transition:'background 0.12s', cursor: modoSeleccion ? 'pointer' : 'default' }}
-                          onMouseEnter={e => e.currentTarget.style.background = sel ? (dark ? 'rgba(168,197,248,0.16)' : 'rgba(37,99,235,0.1)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')}
+                          style={{ borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, transition:'background 0.35s', cursor: modoSeleccion ? 'pointer' : 'default',
+                            boxShadow: marcado ? `inset 3px 0 0 ${dark ? '#a8c5f8' : '#2563eb'}` : 'none' }}
+                          onMouseEnter={e => e.currentTarget.style.background = marcado ? bgFila : sel ? (dark ? 'rgba(168,197,248,0.16)' : 'rgba(37,99,235,0.1)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')}
                           onMouseLeave={e => e.currentTarget.style.background = bgFila}
                         >
                           {modoSeleccion && (
@@ -1880,7 +2086,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
           {/* Footer paginación */}
           <div style={{ padding:'10px 14px', borderTop:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
               <p style={{ fontSize:'12px', color:t.text4 }}>
                 {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()} registros`}
               </p>
@@ -1918,6 +2124,10 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
       </main>
 
+      {menuFila && (
+        <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
+          onIrAPagina={b => irAlInmueble(b)} onConsultar={b => setPanelInmueble(b)} />
+      )}
       {panelInmueble && (
         <PanelConsulta inmueble={panelInmueble} onClose={() => setPanelInmueble(null)} t={t} dark={dark} categorias={categorias} />
       )}

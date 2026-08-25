@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
-import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, COLS_BIENES, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { guardarPreferencia, metadataUsuario } from '../auth'
 
 // Los reportes personalizados se guardan en la CUENTA del usuario (user_metadata
@@ -335,6 +335,114 @@ function ordenarPorFactura(rows) {
   })
 }
 
+// ── Reporte mensual de ALTAS ──────────────────────────────────────────────────
+// Va por fecha de alta, no por fecha de factura. Esa fecha no vive en una
+// columna: se lee del texto de observaciones, que es donde Oficialía la escribe
+// ("ALTA POR OFICIO OM/436/2025 10-JUNIO-2025"). Por eso el modal avisa cuántos
+// bienes del mes no traen esa fecha y quedarían fuera.
+function ModalReporteAltas({ allAreas, onClose, dark, t }) {
+  const hoy = new Date()
+  const [mes, setMes] = useState(`${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`)
+  const [areasSelec, setAreasSelec] = useState([])
+  const [titulo, setTitulo] = useState('')
+  const [generando, setGenerando] = useState(null)
+  const [err, setErr] = useState(null)
+  const [cargando, setCargando] = useState(true)
+  const [todas, setTodas] = useState([])
+
+  useEffect(() => {
+    let vivo = true
+    setCargando(true)
+    fetchBienesConAlta({})
+      .then(d => { if (vivo) setTodas(d) })
+      .catch(e => { if (vivo) setErr(e.message) })
+      .finally(() => { if (vivo) setCargando(false) })
+    return () => { vivo = false }
+  }, [])
+
+  const delMes = useMemo(() => {
+    const enArea = areasSelec.length ? todas.filter(b => areasSelec.includes(b.idarea)) : todas
+    return enArea.filter(b => b.fechaalta && b.fechaalta.slice(0, 7) === mes)
+      .sort((a, b) => (a.fechaalta || '').localeCompare(b.fechaalta || '') ||
+        String(a.claveinventario || '').localeCompare(String(b.claveinventario || ''), 'es', { numeric: true }))
+  }, [todas, mes, areasSelec])
+
+  const importeMes = delMes.reduce((s, b) => s + (Number(b.costoinicial) || 0), 0)
+  const nombreMes = (() => {
+    const [a, m] = mes.split('-')
+    return `${MESES[Number(m) - 1] || ''} ${a}`.toUpperCase()
+  })()
+
+  useEffect(() => { setTitulo(`REPORTE MENSUAL DE ALTAS BIENES MUEBLES ${nombreMes}`) }, [nombreMes])
+
+  async function generar(formato) {
+    setGenerando(formato); setErr(null)
+    try {
+      if (!delMes.length) { setErr('No hay altas registradas en ese mes'); setGenerando(null); return }
+      const rows = delMes.map((b, i) => ({ ...b, no: i + 1 }))
+      if (formato === 'excel') await exportarExcelMuebles(rows, COLS_ALTAS, titulo.trim())
+      else                     await exportarPDFMuebles(rows, COLS_ALTAS, titulo.trim())
+      onClose()
+    } catch (e) { setErr(e.message) } finally { setGenerando(null) }
+  }
+
+  const inputStyle = { width:'100%', padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'14px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', colorScheme: dark ? 'dark' : 'light', boxSizing:'border-box' }
+  const lbl = { fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'540px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'visible' }}>
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-calendar-plus" style={{ fontSize:'18px', color: t.text1 }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte mensual de altas</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Por fecha de alta, no por fecha de factura</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          <div><p style={lbl}>Mes</p><input type="month" value={mes} onChange={e => setMes(e.target.value)} style={inputStyle} /></div>
+          <div><p style={lbl}>Dependencias</p><GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} /></div>
+          <div><p style={lbl}>Título del documento</p><input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} style={inputStyle} /></div>
+
+          {/* El recuadro aparece hasta que hay algo que decir; mientras carga no
+              se muestra nada. Los botones ya quedan deshabilitados en ese rato. */}
+          {!cargando && (
+            <div style={{ padding:'11px 13px', borderRadius:'10px', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}` }}>
+              <p style={{ fontSize:'13px', color:t.text1, fontWeight:600 }}>
+                {delMes.length} {delMes.length === 1 ? 'alta' : 'altas'} en {nombreMes}
+              </p>
+              {delMes.length > 0 && <p style={{ fontSize:'12px', color:t.text3, marginTop:'3px' }}>
+                Importe: {fmt(importeMes)}
+              </p>}
+            </div>
+          )}
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+        </div>
+        <div style={{ padding:'0 1.5rem 1.25rem', display:'flex', gap:'8px' }}>
+          <button onClick={() => generar('excel')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: (generando || cargando) ? 'not-allowed' : 'pointer', opacity: cargando ? 0.5 : 1, background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+            {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize:'16px' }} />Excel</>}
+          </button>
+          <button onClick={() => generar('pdf')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: (generando || cargando) ? 'not-allowed' : 'pointer', opacity: cargando ? 0.5 : 1, background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+            {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize:'16px' }} />PDF</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
 function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   const r0 = rangoPeriodo(tipo)
   const [desde, setDesde] = useState(r0.desde)
@@ -428,6 +536,7 @@ export default function Reportes({ user, onNavigate }) {
   const [seleccionados, setSeleccionados] = useState(() => new Set())
   const [modalReporte, setModalReporte]           = useState(false)
   const [modalAdquisiciones, setModalAdquisiciones] = useState(false)
+  const [modalAltas, setModalAltas] = useState(false)
   const [modalPeriodo, setModalPeriodo]             = useState(null)   // 'mensual'|'trimestral'|'anual'|null
   const [conteoPeriodo, setConteoPeriodo] = useState({ mensual: null, trimestral: null, anual: null })
   const [reportes, setReportes] = useState(() => getReportes())
@@ -622,8 +731,14 @@ export default function Reportes({ user, onNavigate }) {
                   { id: 'anual',      icon: 'ti-file-text',    label: 'Reporte Anual',         hint: 'Facturas del último año',      value: conteoPeriodo.anual,      color: t.text2 },
                   { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Adquisiciones', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
                   { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',        hint: 'Inventario detallado por fecha',  value: null,                  color: t.text2 },
+                  // Va por fecha de alta, no por fecha de factura
+                  { id: 'altas',      icon: 'ti-calendar-plus', label: 'Altas del Mes',         hint: 'Por fecha de alta, no de factura', value: null,                 color: t.text2 },
                 ].map(p => (
-                  <button key={p.id} onClick={() => { if (p.id === 'adquisiciones') setModalAdquisiciones(true); else setModalPeriodo(p.id) }}
+                  <button key={p.id} onClick={() => {
+                    if (p.id === 'adquisiciones') setModalAdquisiciones(true)
+                    else if (p.id === 'altas')    setModalAltas(true)
+                    else                          setModalPeriodo(p.id)
+                  }}
                     style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
                     onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
@@ -863,6 +978,7 @@ export default function Reportes({ user, onNavigate }) {
           }} />
       )}
       {modalAdquisiciones && <ModalAdquisicionesMuebles onClose={() => setModalAdquisiciones(false)} dark={dark} t={t} filtros={{ filtroAreaIds: [] }} />}
+      {modalAltas && <ModalReporteAltas allAreas={allAreas} onClose={() => setModalAltas(false)} dark={dark} t={t} />}
       {modalPeriodo && <ModalReportePeriodo tipo={modalPeriodo} allAreas={allAreas} onClose={() => setModalPeriodo(null)} dark={dark} t={t} />}
       {modalConfig && <ModalConfigReporte config={modalConfig === 'nuevo' ? null : modalConfig} allAreas={allAreas} onClose={() => setModalConfig(null)} onGuardar={guardarReporte} dark={dark} t={t} />}
       {modalPreview && <ModalPreviewReporte config={modalPreview} onClose={() => setModalPreview(null)} dark={dark} t={t} />}

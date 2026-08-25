@@ -52,6 +52,9 @@ function App() {
   if (page === 'dashboard-inmuebles') return <ThemeProvider><DashboardInmuebles key={recarga} user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'inmuebles')           return <ThemeProvider><BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo} abrirReporte={!!navState.abrirReporte} /></ThemeProvider>
   if (page === 'reportes')            return <ThemeProvider>{user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />}</ThemeProvider>
+  // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
+  // misma key React reutilizaba la instancia y mostraba los datos del otro
+  if (page === 'papelera')            return <ThemeProvider><BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera /></ThemeProvider>
   if (page === 'dependencias')        return <ThemeProvider><Dependencias key={recarga}       user={user} onNavigate={navigate} /></ThemeProvider>
 
   return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>

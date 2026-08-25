@@ -1,5 +1,9 @@
 import { supabase } from './supabase'
 
+// Estado de los bienes capturados por error. Vive aquí porque el generador de
+// claves necesita ignorarlos y así se evita depender de la página.
+export const ESTADO_PAPELERA = 'PAPELERA'
+
 // ── Claves de inventario ──────────────────────────────────────────────────────
 // Formato: {PREFIJO}{AA}-{CLAVE TESORERIA}-{TIPO}-{CONSECUTIVO}
 // Ejemplo: I25-3401-2-794  →  Innovación, 2025, clave 3401, cómputo, consecutivo 794
@@ -121,26 +125,48 @@ export async function siguienteClave({ idarea, tipo, anio }) {
   const [prefijo, tesoreria] = par
   const aa = String(anio ?? new Date().getFullYear()).slice(-2)
 
+  // Hay 4 grupos de áreas que comparten el mismo prefijo + clave de Tesorería
+  // (p. ej. Centro de Protección Animal y Salud, ambas DS-3101). En los Excel
+  // cada una lleva su propia numeración, así que sus series se traslapan.
+  const hermanas = Object.entries(CLAVE_POR_AREA)
+    .filter(([id, [p, t]]) => p === prefijo && t === tesoreria && Number(id) !== Number(idarea))
+    .map(([id]) => Number(id))
+
+  // Lo que está en la papelera se captura por error, así que no aparta número:
+  // su clave vuelve a quedar libre para el siguiente bien de esa área.
   const { data, error } = await supabase
     .from('bienes')
-    .select('claveinventario')
+    .select('claveinventario, idarea')
     .like('claveinventario', `${prefijo}__-${tesoreria}-${tipo}-%`)
+    .neq('estadobien', ESTADO_PAPELERA)
   if (error) throw error
 
   // Solo cuentan las claves con el prefijo exacto (LIKE no distingue, p. ej.,
   // DS de DSP), y el consecutivo es lo que va después del último guion.
   const re = new RegExp(`^${prefijo}\\d{2}-${tesoreria}-${tipo}-(\\d+)$`, 'i')
-  let max = 0
+  let maxPropio = 0, maxFamilia = 0
+  const usadas = new Set()
   for (const r of (data || [])) {
-    const m = String(r.claveinventario || '').match(re)
+    const clave = String(r.claveinventario || '').trim()
+    usadas.add(clave.toUpperCase())
+    const m = clave.match(re)
     if (!m) continue
     const n = parseInt(m[1], 10)
-    if (Number.isFinite(n) && n > max) max = n
+    if (!Number.isFinite(n)) continue
+    if (n > maxFamilia) maxFamilia = n
+    if (Number(r.idarea) === Number(idarea) && n > maxPropio) maxPropio = n
   }
-  const consecutivo = max + 1
+
+  // Con prefijo compartido se cuenta solo lo del área, salvo que ésta aún no
+  // tenga bienes propios: entonces se usa el máximo de la familia para no
+  // reiniciar en 1 y pisar los consecutivos de la otra área.
+  const base = (hermanas.length && maxPropio > 0) ? maxPropio : maxFamilia
+  let consecutivo = base + 1
+  while (usadas.has(armarClave({ prefijo, tesoreria, tipo, anio: aa, consecutivo }).toUpperCase())) consecutivo++
+
   return {
     clave: armarClave({ prefijo, tesoreria, tipo, anio: aa, consecutivo }),
-    prefijo, tesoreria, tipo, consecutivo,
+    prefijo, tesoreria, tipo, consecutivo, usadas,
   }
 }
 
@@ -156,8 +182,16 @@ export async function siguienteClaveLote({ idarea, tipo, anio, cantidad }) {
   const g = await siguienteClave({ idarea, tipo, anio })
   if (!g) return null
   const n = Math.max(1, Number(cantidad) || 1)
-  return Array.from({ length: n }, (_, i) => ({
-    consecutivo: g.consecutivo + i,
-    clave: armarClave({ ...g, anio, consecutivo: g.consecutivo + i }),
-  }))
+  const usadas = g.usadas || new Set()
+  const out = []
+  let consecutivo = g.consecutivo
+  for (let i = 0; i < n; i++) {
+    // Se salta cualquier consecutivo ya ocupado, no solo el primero
+    let clave = armarClave({ ...g, anio, consecutivo })
+    while (usadas.has(clave.toUpperCase())) { consecutivo++; clave = armarClave({ ...g, anio, consecutivo }) }
+    out.push({ consecutivo, clave })
+    usadas.add(clave.toUpperCase())
+    consecutivo++
+  }
+  return out
 }

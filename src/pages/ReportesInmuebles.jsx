@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
-import { PanelConsulta, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
+import { PanelConsulta, ModalEditar, ModalNuevoInmueble, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
 import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
 import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, getDesinc, setDesinc, quitarDesinc, hoyISO } from '../desincorporaciones'
 
@@ -36,7 +36,7 @@ function ModalRepDesinc({ onClose, dark, t, rows, tituloInicial }) {
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'460px', maxWidth:'92vw', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               <i className="ti ti-file-export" style={{ fontSize:'18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
             </div>
@@ -77,6 +77,8 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [datos, setDatos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [panel, setPanel]   = useState(null)
+  const [modalEditar, setModalEditar] = useState(null)
+  const [modalNuevo, setModalNuevo]   = useState(false)
   const [modalDesinc, setModalDesinc] = useState(null)
   const [modalReporte, setModalReporte] = useState(false)
   const [modalEnaj, setModalEnaj] = useState(false)
@@ -264,8 +266,12 @@ export default function ReportesInmuebles({ user, onNavigate }) {
               {modoSeleccion && seleccionados.size > 0 && (
                 <span style={{ fontSize: '13px', color: t.text3 }}>{seleccionados.size} seleccionado{seleccionados.size !== 1 ? 's' : ''}</span>
               )}
+              <button onClick={() => setModalNuevo(true)}
+                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                <i className="ti ti-building-plus" style={{ fontSize: '17px' }} />Nuevo Inmueble
+              </button>
               <button onClick={() => setModalReporte(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', whiteSpace: 'nowrap', flexShrink: 0 }}>
                 <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Generar Reporte
               </button>
             </div>
@@ -327,6 +333,12 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                                     onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                     <i className="ti ti-eye" style={{ fontSize: '14px' }} />
                                   </button>
+                                  {/* Mismos campos editables que en el inventario principal */}
+                                  <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }} title="Editar"
+                                    style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)', border: dark ? '1px solid rgba(168,230,207,0.25)' : '1px solid rgba(30,126,74,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#a8e6cf' : '#1e7e4a' }}
+                                    onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                    <i className="ti ti-pencil" style={{ fontSize: '14px' }} />
+                                  </button>
                                   {!esDesinc && (
                                     <button onClick={(e) => { e.stopPropagation(); setModalDesinc(b) }} title="Desincorporar"
                                       style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#f4a1a1' : '#c0392b' }}
@@ -351,7 +363,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                 </table>
               </div>
               <div style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <p style={{ fontSize: '12px', color: t.text4 }}>{loading ? 'Cargando…' : `Mostrando ${filtrados.length === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, filtrados.length)} de ${filtrados.length.toLocaleString()} registros`}</p>
                   <div style={{ display: 'flex', gap: '3px' }}>
                     {OPCIONES.map(n => (
@@ -396,6 +408,14 @@ export default function ReportesInmuebles({ user, onNavigate }) {
           filtros={{ busqueda, m2Min, m2Max, categoriaIds: [idCatActual], categorias }}
           totalFiltrados={filtrados.length}
           tituloInicial={`${esDesinc ? 'DESINCORPORACIONES' : 'EN PROCESO DE DESINCORPORACIÓN'} HAN ${mesAnioActual()}`} />
+      )}
+      {modalEditar && (
+        <ModalEditar inmueble={modalEditar} onClose={() => setModalEditar(null)} dark={dark} t={t}
+          categorias={categorias} onSaved={() => cargar(vista === 'desinc' ? ID_DESINC : ID_PROCESO)} />
+      )}
+      {modalNuevo && (
+        <ModalNuevoInmueble onClose={() => setModalNuevo(false)} dark={dark} t={t}
+          categorias={categorias} onCreated={() => cargar(vista === 'desinc' ? ID_DESINC : ID_PROCESO)} />
       )}
       {modalEnaj && <ModalEnajenaciones onClose={() => setModalEnaj(false)} dark={dark} t={t} />}
     </div>
@@ -461,7 +481,7 @@ function ModalEnajenaciones({ onClose, dark, t }) {
     <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '480px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <i className="ti ti-transfer" style={{ fontSize: '18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
           </div>
@@ -492,7 +512,7 @@ function ModalEnajenaciones({ onClose, dark, t }) {
 
         {/* Controles según modo */}
         {modo !== 'fechas' && (
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>
               {lbl('Año')}
               <input type="number" value={anio} onChange={e => setAnio(e.target.value)} style={iStyle} min="2020" max="2030" />
@@ -520,7 +540,7 @@ function ModalEnajenaciones({ onClose, dark, t }) {
           </div>
         )}
         {modo === 'fechas' && (
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>{lbl('Desde')}<input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={iStyle} /></div>
             <div style={{ flex: 1 }}>{lbl('Hasta')}<input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={iStyle} /></div>
           </div>

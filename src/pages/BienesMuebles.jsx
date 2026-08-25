@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from "../supabase";
-import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria } from '../claves'
+import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria, ESTADO_PAPELERA } from '../claves'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function estadoInfo(obs, dark) {
@@ -117,6 +117,8 @@ export function btnBarra(dark, t, activo = true) {
     cursor: activo ? 'pointer' : 'not-allowed', opacity: activo ? 1 : 0.45,
     background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1,
     backdropFilter: 'blur(10px)', transition: 'opacity 0.15s',
+    // En ventana angosta la barra envuelve, pero la etiqueta no debe partirse
+    whiteSpace: 'nowrap', flexShrink: 0,
   }
 }
 
@@ -402,8 +404,26 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
   const [saving, setSaving]     = useState(false)
   const [saveErr, setSaveErr]   = useState(null)
   const [saved, setSaved]       = useState(false)
+  // Borrado permanente: pide confirmación aparte porque no se puede deshacer
+  const [confirmaBorrar, setConfirmaBorrar] = useState(false)
+  const [borrando, setBorrando] = useState(false)
+  const [borrado, setBorrado]   = useState(null)
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  // El error se relanza para que el modal de confirmación lo muestre y no se
+  // cierre haciendo creer que se guardó
+  async function eliminar() {
+    setBorrando(true); setSaveErr(null)
+    try {
+      await enviarAPapelera(bien)
+      setBorrado(true)
+      setTimeout(() => { onSaved?.(); close() }, 1600)
+    } catch (e) {
+      setBorrando(false)
+      throw e
+    }
+  }
 
   async function guardar() {
     setSaving(true); setSaveErr(null)
@@ -575,12 +595,40 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
               <i className="ti ti-alert-circle" style={{ marginRight: '6px' }} />{saveErr}
             </div>
           )}
+
+          {borrado && (
+            <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
+              <div style={{ padding: '12px', borderRadius: '9px', fontSize: '12.5px', lineHeight: 1.6,
+                background: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)',
+                border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)',
+                color: dark ? '#a8e6cf' : '#15803d' }}>
+                <p style={{ fontWeight: 600 }}><i className="ti ti-check" style={{ marginRight: '6px' }} />Enviado a la papelera</p>
+                <p>{bien.claveinventario} salió del inventario y se puede consultar en Papelera.</p>
+              </div>
+            </div>
+          )}
         </div>
 
+        {/* La confirmación va en su propio modal, con los datos del bien */}
+        {confirmaBorrar && (
+          <ModalConfirmaBien bien={bien} accion="papelera" dark={dark} t={t}
+            onClose={() => setConfirmaBorrar(false)} onConfirm={eliminar} />
+        )}
+
         <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display: 'flex', gap: '8px' }}>
-          <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={guardar} disabled={saving || saved}
-            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: saving || saved ? 'not-allowed' : 'pointer',
+          {/* Va donde antes estaba Cancelar: para salir ya está la X de arriba */}
+          <button onClick={() => { setConfirmaBorrar(true); setSaveErr(null) }} disabled={saving || saved || borrando || !!borrado}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
+              cursor: saving || saved || borrando || borrado ? 'not-allowed' : 'pointer',
+              background: dark ? 'rgba(244,161,161,0.1)' : 'rgba(192,57,43,0.05)',
+              border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.25)',
+              color: dark ? '#f4a1a1' : '#c0392b',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            <i className="ti ti-trash" style={{ fontSize: '15px' }} />Eliminar Bien
+          </button>
+          {/* Si el bien ya se está borrando no tiene caso guardarlo */}
+          <button onClick={guardar} disabled={saving || saved || borrando || !!borrado}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: saving || saved || borrando || borrado ? 'not-allowed' : 'pointer',
               background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)',
               border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)',
               color: dark ? '#a8e6cf' : '#15803d',
@@ -1230,14 +1278,23 @@ const PARTIDAS = [
   { cod: '52101', nombre: 'Equipos audiovisuales' },
   { cod: '52301', nombre: 'Cámaras fotográficas y de video' },
   { cod: '52901', nombre: 'Equipo educacional y recreativo' },
+  { cod: '53101', nombre: 'Equipo médico y de laboratorio' },
   { cod: '54101', nombre: 'Vehículos y equipo terrestre' },
+  { cod: '54102', nombre: 'Vehículos y equipo terrestre para seguridad pública' },
+  { cod: '54103', nombre: 'Vehículos y equipo terrestre para servicios públicos' },
+  { cod: '54201', nombre: 'Carrocerías y remolques' },
   { cod: '54901', nombre: 'Otros equipos de transporte' },
   { cod: '55101', nombre: 'Equipo de defensa y seguridad' },
   { cod: '56201', nombre: 'Maquinaria y equipo industrial' },
+  { cod: '56301', nombre: 'Maquinaria y equipo de construcción' },
   { cod: '56401', nombre: 'Aire acondicionado y refrigeración' },
   { cod: '56501', nombre: 'Equipo de comunicación' },
+  { cod: '56601', nombre: 'Equipos de generación eléctrica y accesorios eléctricos' },
   { cod: '56701', nombre: 'Herramientas y máquinas-herramienta' },
+  { cod: '56903', nombre: 'Otros equipos' },
   { cod: '57801', nombre: 'Árboles y plantas' },
+  { cod: '59101', nombre: 'Software' },
+  { cod: '59701', nombre: 'Licencias informáticas e intelectuales' },
 ]
 // Partida que se propone según la categoría elegida
 const PARTIDA_POR_MODO = {
@@ -1247,7 +1304,76 @@ const PARTIDA_POR_MODO = {
 }
 
 // ── QUERY SUPABASE ────────────────────────────────────────────────────────────
-async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina }) {
+// Los mismos filtros que usa la tabla, menos el texto buscado. Se comparte con
+// paginaDeBien para que el conteo salga sobre exactamente la misma lista.
+function filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera }) {
+  query = query
+    // La papelera es la misma lista, solo cambia el estado que se pide
+    .in('estadobien', papelera ? [ESTADO_PAPELERA] : ['ACTIVO', 'SOLICITUD BAJA'])
+    .in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+
+  if (filtroAreaIds && filtroAreaIds.length > 0)
+    query = query.in('idarea', filtroAreaIds)
+
+  if (filtroBien)
+    query = query.or(`nombrebien.ilike.%${filtroBien}%,tipo.ilike.%${filtroBien}%,marca.ilike.%${filtroBien}%`)
+
+  if (filtroEstado === 'Deteriorado')
+    query = query.or('observaciones.ilike.%deteriorado%,observaciones.ilike.%quebrado%')
+  else if (filtroEstado === 'No verificado')
+    query = query.ilike('observaciones', '%no verificado%')
+  else if (filtroEstado === 'Buen estado')
+    query = query.not('observaciones', 'ilike', '%deteriorado%')
+                 .not('observaciones', 'ilike', '%quebrado%')
+                 .not('observaciones', 'ilike', '%no verificado%')
+
+  return query
+}
+
+// En qué página de la lista completa cae un bien. Se cuenta cuántos van antes
+// que él con los filtros puestos pero SIN el texto buscado, en el mismo orden
+// que usa la tabla: consecutivo y luego idbien. Los consecutivos vacíos quedan
+// al final, que es como los acomoda la base.
+// Orden de la lista de bienes:
+//  · sin filtro de dependencia o área, lo más reciente arriba. El alta nueva
+//    toma el idbien más alto, así que un bien recién capturado sale primero.
+//  · con filtro puesto, por clave de inventario, que ya lleva el consecutivo
+//    dentro y es como se revisa el listado de un área.
+function vaPorClave(filtroAreaIds) {
+  return Array.isArray(filtroAreaIds) && filtroAreaIds.length > 0
+}
+function ordenDeLista(query, filtroAreaIds) {
+  return vaPorClave(filtroAreaIds)
+    ? query.order('claveinventario', { ascending: true }).order('idbien', { ascending: true })
+    : query.order('idbien', { ascending: false })
+}
+
+async function paginaDeBien(bien, filtros) {
+  const { porPagina } = filtros
+  const { data: fila, error: e0 } = await supabase
+    .from('bienes').select('idbien, claveinventario').eq('idbien', bien.idbien).maybeSingle()
+  if (e0) throw e0
+  if (!fila) throw new Error('El bien ya no está en la base')
+
+  // Cuenta cuántos van delante de él CON EL MISMO ORDEN que usa la lista, si no
+  // el salto cae en otra página.
+  let q = filtrosDeLista(supabase.from('bienes').select('idbien', { count: 'exact', head: true }), filtros)
+  if (vaPorClave(filtros.filtroAreaIds)) {
+    const clave = String(fila.claveinventario ?? '').replace(/"/g, '')
+    q = fila.claveinventario == null
+      // Las claves vacías se van al final del orden ascendente
+      ? q.or(`claveinventario.not.is.null,and(claveinventario.is.null,idbien.lt.${fila.idbien})`)
+      : q.or(`claveinventario.lt."${clave}",and(claveinventario.eq."${clave}",idbien.lt.${fila.idbien})`)
+  } else {
+    q = q.gt('idbien', fila.idbien)
+  }
+
+  const { count, error } = await q
+  if (error) throw error
+  return Math.floor((count || 0) / porPagina)
+}
+
+async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
 
@@ -1262,31 +1388,18 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
       resguardos ( nombre, puesto ),
       facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )
     `, { count: 'exact' })
-    .order('consecutivo', { ascending: true })
-    .order('idbien', { ascending: true })
     .range(desde, hasta)
 
-  query = query
-    .in('estadobien', ['ACTIVO', 'SOLICITUD BAJA'])
-    .in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+  // Sin filtro de dependencia manda lo más reciente: el alta más nueva toma el
+  // idbien más alto, así que un bien recién capturado sale hasta arriba. Al
+  // filtrar por dependencia se ordena por número de inventario, que es como se
+  // revisa el listado de un área.
+  query = ordenDeLista(query, filtroAreaIds)
 
-  if (filtroAreaIds && filtroAreaIds.length > 0)
-    query = query.in('idarea', filtroAreaIds)
+  query = filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera })
 
   if (busqueda)
     query = query.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
-
-  if (filtroBien)
-    query = query.or(`nombrebien.ilike.%${filtroBien}%,tipo.ilike.%${filtroBien}%,marca.ilike.%${filtroBien}%`)
-
-  if (filtroEstado === 'Deteriorado')
-    query = query.or('observaciones.ilike.%deteriorado%,observaciones.ilike.%quebrado%')
-  else if (filtroEstado === 'No verificado')
-    query = query.ilike('observaciones', '%no verificado%')
-  else if (filtroEstado === 'Buen estado')
-    query = query.not('observaciones', 'ilike', '%deteriorado%')
-                 .not('observaciones', 'ilike', '%quebrado%')
-                 .not('observaciones', 'ilike', '%no verificado%')
 
   const { data, error, count } = await query
   if (error) throw error
@@ -1332,10 +1445,45 @@ async function resolverResguardo(nombre, puesto) {
   return idresguardo
 }
 
-// Importe con signo, separador de miles y dos decimales
+// Lee un importe escrito a mano. Acepta punto o coma como decimal ("733.22" y
+// "733,22" valen lo mismo) y tolera separadores de miles ("1,234.56", "1.234,56").
+// Antes se borraba todo lo que no fuera dígito o punto, así que "733,22" se
+// guardaba como 73,322.
+function leerImporte(v) {
+  let s = String(v == null ? '' : v).replace(/[^\d.,-]/g, '').trim()
+  if (!s) return null
+  const neg = s.startsWith('-')
+  s = s.replace(/-/g, '')
+  const ptos = (s.match(/\./g) || []).length
+  const comas = (s.match(/,/g) || []).length
+
+  let dec = ''   // qué carácter separa los decimales
+  if (ptos && comas) {
+    // Con los dos, el decimal es el que aparece de último: "1.234,56" / "1,234.56"
+    dec = s.lastIndexOf('.') > s.lastIndexOf(',') ? '.' : ','
+  } else if (ptos + comas === 1) {
+    // Uno solo: es de miles si separa exactamente 3 dígitos ("1,500" = mil quinientos),
+    // en cualquier otro caso es decimal ("733,22", "733.2", "733.225")
+    const sep = ptos ? '.' : ','
+    dec = /^\d{1,3}$/.test(s.slice(s.indexOf(sep) + 1)) && s.length - s.indexOf(sep) - 1 === 3 ? '' : sep
+  } else if (ptos + comas > 1) {
+    // Repetido: son separadores de miles ("1.234.567")
+    dec = ''
+  }
+
+  const entero = (dec ? s.slice(0, s.lastIndexOf(dec)) : s).replace(/[.,]/g, '')
+  const frac = dec ? s.slice(s.lastIndexOf(dec) + 1).replace(/[.,]/g, '') : ''
+  const n = Number((entero || '0') + (frac ? '.' + frac : ''))
+  if (!Number.isFinite(n)) return null
+  return neg ? -n : n
+}
+
+// Importe con signo, separador de miles y dos decimales. Si viene un número de
+// la base se usa tal cual; si viene texto escrito a mano se interpreta con
+// leerImporte, que sí respeta la coma decimal.
 function fmtMoneda(v) {
-  const n = Number(String(v).replace(/[^\d.-]/g, ''))
-  if (!Number.isFinite(n)) return ''
+  const n = typeof v === 'number' ? v : leerImporte(v)
+  if (n == null || !Number.isFinite(n)) return ''
   return '$ ' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
@@ -1345,8 +1493,8 @@ function fmtMoneda(v) {
 async function guardarFactura(bien, fact) {
   const num    = fact.numerofactura.trim()
   const fecha  = fact.fechafactura.trim()
-  // El campo puede venir con "$" y comas si el usuario lo pegó formateado
-  const costo  = fact.costoinicial.replace(/[^\d.-]/g, '').trim()
+  // El campo puede venir con "$", separadores de miles o coma decimal
+  const costo  = leerImporte(fact.costoinicial)
   const prov   = fact.proveedor.trim()
 
   let idproveedor = null
@@ -1364,7 +1512,7 @@ async function guardarFactura(bien, fact) {
   const payload = {
     numerofactura: num || null,
     fechafactura:  /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : null,
-    costoinicial:  costo === '' ? null : Number(costo),
+    costoinicial:  costo == null ? null : Math.round(costo * 100) / 100,
     idproveedor,
   }
 
@@ -1380,6 +1528,33 @@ async function guardarFactura(bien, fact) {
   if (e1) throw e1
   const { error: e2 } = await supabase.from('bienes').update({ idfactura }).eq('idbien', bien.idbien)
   if (e2) throw e2
+}
+
+// Borra el bien de forma permanente y arrastra lo que quede sin dueño: la
+// factura si ningún otro bien la usa, el proveedor si ninguna otra factura lo
+// usa y el titular si ningún otro bien lo tiene. Lo que siga en uso no se toca.
+// Esto NO es una baja: el registro desaparece y no se puede recuperar.
+async function enviarAPapelera(bien) {
+  const { error } = await supabase
+    .from('bienes')
+    .update({ estadobien: ESTADO_PAPELERA })
+    .eq('idbien', bien.idbien)
+  if (error) throw error
+}
+
+// Regresa el bien al inventario en el área que se elija, con una clave nueva:
+// mientras estuvo en la papelera su número quedó libre y pudo tomarlo otro bien,
+// así que se le da el último consecutivo de esa área.
+async function restaurarDePapelera(bien, idarea) {
+  const area = idarea ?? bien.idarea
+  const cambios = { estadobien: 'ACTIVO', idarea: area }
+
+  const g = await siguienteClave({ idarea: area, tipo: tipoDeCategoria(bien.categoriainventario) })
+  if (g) cambios.claveinventario = g.clave
+
+  const { error } = await supabase.from('bienes').update(cambios).eq('idbien', bien.idbien)
+  if (error) throw error
+  return g?.clave || null
 }
 
 async function actualizarBien(idbien, campos) {
@@ -1716,6 +1891,107 @@ export function valorMueble(col, b) {
   }
 }
 
+// ── FECHA DE ALTA ─────────────────────────────────────────────────────────────
+// La base no guarda cuándo se dio de alta un bien: no hay columna para eso. El
+// dato se escribe dentro de observaciones, con la forma que usa Oficialía:
+// "ADQUISICION 2025. ALTA POR OFICIO OM/436/2025 10-JUNIO-2025 DE OFICIALIA".
+// De ahí se lee. Se busca a partir de la palabra ALTA para no confundirse con
+// otras fechas del mismo texto, como la de una revisión física.
+const MESES_ALTA = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
+
+export function fechaDeAlta(observaciones) {
+  const s = String(observaciones || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const i = s.search(/\bALTA\b/)
+  if (i < 0) return null
+  const resto = s.slice(i)
+  const m = resto.match(/(\d{1,2})\s*[-/ ]\s*([A-Z]{3,12})\s*[-/ ]\s*(\d{4})/)
+  if (m) {
+    const mes = MESES_ALTA.findIndex(x => x.startsWith(m[2].slice(0, 3)))
+    if (mes >= 0) {
+      const dia = Number(m[1])
+      if (dia >= 1 && dia <= 31) return `${m[3]}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+    }
+  }
+  const d = resto.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/)
+  if (d && Number(d[1]) <= 31 && Number(d[2]) >= 1 && Number(d[2]) <= 12)
+    return `${d[3]}-${String(d[2]).padStart(2, '0')}-${String(d[1]).padStart(2, '0')}`
+  return null
+}
+
+// El número de oficio con el que se dio de alta, para que salga en el reporte
+export function oficioDeAlta(observaciones) {
+  const s = String(observaciones || '').toUpperCase()
+  const i = s.search(/\bALTA\b/)
+  if (i < 0) return ''
+  const m = s.slice(i).match(/OFICIO\s+([A-Z0-9/.\-]+)/)
+  return m ? m[1].replace(/[.,]$/, '') : ''
+}
+
+// Trae lo necesario para el reporte de altas.
+//
+// La fecha de alta puede venir de dos lados:
+//   1. la columna `fechaalta`, que la base llena sola al registrar un bien;
+//   2. el texto de observaciones, que es donde Oficialía la anotó siempre.
+// Los bienes viejos solo tienen (2) y los nuevos solo (1), así que se usan las
+// dos: manda la columna y el texto queda de respaldo.
+//
+// La columna puede no existir todavía (hay que crearla en la base). Si no está,
+// la consulta se repite sin ella en vez de dejar el reporte tirado.
+export async function fetchBienesConAlta({ areaIds } = {}) {
+  const BATCH = 1000
+  let conColumna = true
+
+  const traer = (desde, usarColumna) => {
+    let q = supabase.from('bienes')
+      .select(usarColumna ? `${SELECT_BIENES}, fechaalta` : SELECT_BIENES)
+      // Basta con que tenga fecha propia O que su texto mencione un alta
+      .or(usarColumna ? 'fechaalta.not.is.null,observaciones.ilike.%ALTA%' : 'observaciones.ilike.%ALTA%')
+      .order('consecutivo', { ascending: true }).order('idbien', { ascending: true })
+      .range(desde, desde + BATCH - 1)
+    if (areaIds && areaIds.length) q = q.in('idarea', areaIds)
+    return q
+  }
+
+  let todos = [], desde = 0
+  while (true) {
+    let { data, error } = await traer(desde, conColumna)
+    // 42703 = la columna no existe: se reintenta leyendo solo del texto
+    if (error && conColumna && /fechaalta/i.test(error.message || '')) {
+      conColumna = false
+      ;({ data, error } = await traer(desde, false))
+    }
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(b => ({ ...mapBien(b), fechaalta: b.fechaalta || null }))]
+    if (data.length < BATCH) break
+    desde += BATCH
+  }
+
+  return todos.map(b => ({
+    ...b,
+    fechaalta: b.fechaalta || fechaDeAlta(b.observaciones),
+    oficioalta: oficioDeAlta(b.observaciones),
+  }))
+}
+
+// Columnas del reporte de altas: como las del reporte de bienes, pero la fecha
+// que manda es la del alta, no la de la factura, y se agrega el oficio.
+export const COLS_ALTAS = [
+  { key: 'no',              label: 'NO.',                 m: 'No.',                 w: 6,  noWrap: true },
+  { key: 'claveinventario', label: 'INVENTARIO',          m: 'Inventario',          w: 22, noWrap: true },
+  { key: 'partida',         label: 'CONAC',               m: 'Partida',             w: 10, noWrap: true },
+  { key: 'nombrebien',      label: 'DESCRIPCIÓN',         m: 'Descripción',         w: 30, align: 'left' },
+  { key: 'marca',           label: 'MARCA',               m: 'Marca',               w: 13 },
+  { key: 'tipo',            label: 'MODELO',              m: 'Modelo',              w: 13 },
+  { key: 'serie',           label: 'SERIE',               m: 'Serie',               w: 16 },
+  { key: 'fechaalta',       label: 'FECHA DE ALTA',       m: 'Fecha de alta',       w: 12, noWrap: true },
+  { key: 'oficioalta',      label: 'OFICIO DE ALTA',      m: 'Oficio de alta',      w: 15, noWrap: true },
+  { key: 'numerofactura',   label: 'FACTURA',             m: 'Factura',             w: 14 },
+  { key: 'importe',         label: 'IMPORTE',             m: 'Importe',             w: 14 },
+  { key: 'area',            label: 'UBICACIÓN',           m: 'Ubicación',           w: 24, align: 'left' },
+  { key: 'resguardatario',  label: 'RESGUARDANTE',        m: 'Resguardante',        w: 24, align: 'left' },
+]
+
 export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds }) {
   const BATCH = 1000
   let todos = [], desde = 0
@@ -1826,6 +2102,101 @@ export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
         </div>
       </div>
       <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// Confirmación de papelera y de restauración. Muestra los datos del bien, con
+// la misma forma que el modal de Solicitar Baja.
+export function ModalConfirmaBien({ bien, accion, onClose, onConfirm, dark, t, areas = [] }) {
+  const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState(null)
+  // Al restaurar se elige el área: de ahí sale el consecutivo de la clave nueva
+  const [idarea, setIdarea] = useState(bien.idarea ?? '')
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  const esRestaurar = accion === 'restaurar'
+  const col = esRestaurar
+    ? { txt: dark ? '#a8e6cf' : '#15803d', bg: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', bd: dark ? 'rgba(168,230,207,0.3)' : 'rgba(30,126,74,0.2)' }
+    : { txt: dark ? '#f4a1a1' : '#c0392b', bg: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', bd: dark ? 'rgba(244,161,161,0.3)' : 'rgba(192,57,43,0.2)' }
+
+  async function confirmar() {
+    if (esRestaurar && !idarea) { setErr('Elige el área a la que regresa el bien'); return }
+    setGuardando(true); setErr(null)
+    try { await onConfirm(esRestaurar ? Number(idarea) : undefined); onClose() }
+    catch (e) { setErr(e.message); setGuardando(false) }
+  }
+
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const dato = (etq, val) => (
+    <div style={{ padding: '10px 1.5rem', borderBottom: sep }}>
+      <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '3px' }}>{etq}</p>
+      <p style={{ fontSize: '13px', color: dark ? '#f0f0f0' : '#111', lineHeight: 1.35 }}>{val || '—'}</p>
+    </div>
+  )
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:400, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:401, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: col.bg, border:`1px solid ${col.bd}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className={`ti ${esRestaurar ? 'ti-arrow-back-up' : 'ti-trash'}`} style={{ fontSize:'18px', color: col.txt }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{esRestaurar ? 'Restaurar al inventario' : 'Mandar a la papelera'}</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{bien.claveinventario || 'Sin clave'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ minHeight:0, overflowY:'auto' }}>
+          <p style={{ padding:'12px 1.5rem', fontSize:'12.5px', lineHeight:1.6, color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)', borderBottom: sep }}>
+            {esRestaurar
+              ? 'El bien vuelve al inventario como activo. Se le asigna una clave nueva con el último consecutivo del área que elijas, porque mientras estuvo en la papelera su número quedó libre.'
+              : 'Al eliminar este registro se envía a la papelera, esto no es una baja.'}
+          </p>
+          {esRestaurar && (
+            <div style={{ padding: '12px 1.5rem', borderBottom: sep }}>
+              <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>Área a la que regresa</p>
+              <select value={idarea} onChange={e => setIdarea(e.target.value)} style={{ ...sStyle(dark), width: '100%' }}>
+                <option value="">— Elige el área —</option>
+                {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombredependencia ? `${a.nombredependencia} · ${a.nombrearea}` : a.nombrearea}</option>)}
+              </select>
+            </div>
+          )}
+          {dato('Nombre del bien', bien.nombrebien)}
+          {dato('Marca', bien.marca)}
+          {dato('Tipo / Modelo', bien.tipo)}
+          {dato('Serie', bien.serie)}
+          {dato('Área de adscripción', bien.area)}
+          {dato('Resguardo a cargo de', bien.resguardatario)}
+          {dato('Factura', bien.numerofactura)}
+          {dato('Importe', bien.costoinicial ? fmtMoneda(bien.costoinicial) : '')}
+        </div>
+
+        {err && <p style={{ padding:'10px 1.5rem', fontSize:'12.5px', color: dark ? '#f8a8a8' : '#b91c1c' }}>{err}</p>}
+
+        <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px', flexShrink:0 }}>
+          <button onClick={onClose} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>Cancelar</button>
+          <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: col.bg, border:`1px solid ${col.bd}`, borderRadius:'9px', fontSize:'14px', fontWeight:600, color: col.txt, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+            {guardando
+              ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</>
+              : <><i className={`ti ${esRestaurar ? 'ti-arrow-back-up' : 'ti-trash'}`} style={{ fontSize:'15px' }} />{esRestaurar ? 'Sí, restaurar' : 'Mover a Papelera'}</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
     </>,
     document.body
   )
@@ -2861,6 +3232,338 @@ function PaginaSeries({ onVolver, claves, nombre, marca, tipo, area, partida, se
   )
 }
 
+// Para comparar nombres sin que estorben acentos ni mayúsculas
+const normSug = s => String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
+// Caja de texto que va proponiendo lo que ya existe en el catálogo mientras se
+// escribe. Sigue siendo texto libre: si el proveedor es nuevo se teclea y ya;
+// las propuestas solo evitan volver a dar de alta uno que ya está.
+function CampoSugerido({ value, onChange, opciones, dark, placeholder }) {
+  const [abierto, setAbierto] = useState(false)
+  const [indice, setIndice]   = useState(-1)
+
+  const sugerencias = useMemo(() => {
+    const q = normSug(value)
+    if (!q) return []
+    // Primero los que empiezan igual, luego los que lo traen en medio. Se
+    // descartan los repetidos: el catálogo tiene el mismo nombre varias veces.
+    const vistos = new Set(), empiezan = [], contienen = []
+    for (const o of opciones) {
+      const n = normSug(o)
+      if (!n.includes(q) || vistos.has(n)) continue
+      vistos.add(n)
+      ;(n.startsWith(q) ? empiezan : contienen).push(o)
+    }
+    const lista = [...empiezan, ...contienen].slice(0, 8)
+    // Si ya está escrito completo no hay nada que proponer
+    return (lista.length === 1 && normSug(lista[0]) === q) ? [] : lista
+  }, [value, opciones])
+
+  const ver = abierto && sugerencias.length > 0
+
+  function elegir(v) { onChange(v); setAbierto(false); setIndice(-1) }
+
+  function teclas(e) {
+    if (!ver) return
+    if (e.key === 'ArrowDown')      { e.preventDefault(); setIndice(i => (i + 1) % sugerencias.length) }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); setIndice(i => (i <= 0 ? sugerencias.length : i) - 1) }
+    // La lista cambia al teclear: se comprueba que el señalado siga existiendo
+    else if (e.key === 'Enter' && indice >= 0 && indice < sugerencias.length) { e.preventDefault(); elegir(sugerencias[indice]) }
+    else if (e.key === 'Escape')    { setAbierto(false) }
+  }
+
+  // Resalta el pedazo que coincide con lo tecleado
+  function partir(nombre) {
+    const i = normSug(nombre).indexOf(normSug(value))
+    if (i < 0) return [nombre, '', '']
+    return [nombre.slice(0, i), nombre.slice(i, i + value.trim().length), nombre.slice(i + value.trim().length)]
+  }
+
+  return (
+    <div style={{ position:'relative' }}>
+      <input
+        value={value}
+        onChange={e => { onChange(e.target.value); setAbierto(true); setIndice(-1) }}
+        onFocus={() => setAbierto(true)}
+        // El clic en una propuesta se atiende en onMouseDown, antes de este blur
+        onBlur={() => setAbierto(false)}
+        onKeyDown={teclas}
+        placeholder={placeholder}
+        autoComplete="off" autoCorrect="off" spellCheck={false}
+        style={iStyle(dark)} />
+      {ver && (
+        <div style={{ position:'absolute', top:'calc(100% + 3px)', left:0, right:0, zIndex:40,
+          maxHeight:'196px', overflowY:'auto', borderRadius:'9px',
+          background: dark ? '#2a2a2c' : '#ffffff',
+          border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.15)',
+          boxShadow:'0 10px 28px rgba(0,0,0,0.28)' }}>
+          {sugerencias.map((s, i) => {
+            const [antes, medio, despues] = partir(s)
+            return (
+              <div key={s + i}
+                onMouseDown={e => { e.preventDefault(); elegir(s) }}
+                onMouseEnter={() => setIndice(i)}
+                style={{ padding:'7px 11px', fontSize:'13px', cursor:'pointer', lineHeight:1.4,
+                  color: dark ? '#e8e8e8' : '#111',
+                  background: i === indice ? (dark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.05)') : 'transparent' }}>
+                {antes}<b style={{ color: dark ? '#a8e6cf' : '#15803d' }}>{medio}</b>{despues}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Titular de un área ────────────────────────────────────────────────────────
+// Cambia el resguardante de un área completa, pero SOLO los bienes que hoy
+// tiene la persona que sale. Los demás resguardantes del área no se tocan, y
+// las bajas y traspasos tampoco: reescribirlos falsearía el histórico.
+//
+// Una misma persona puede resguardar en varias áreas a la vez. Como el titular
+// vive en cada bien y cada bien sabe su área, moverla de una no la mueve de las
+// otras. Por eso el filtro lleva SIEMPRE el área además de la persona.
+
+// Los titulares de un área, agrupados por persona. Una persona puede tener
+// varios renglones en el catálogo (uno por puesto), y aquí se juntan todos.
+async function titularesDeArea(idarea) {
+  const { data, error } = await supabase
+    .from('bienes')
+    .select('idbien, idresguardo, resguardos ( nombre, puesto )')
+    .eq('idarea', idarea)
+    .in('estadobien', ['ACTIVO', 'SOLICITUD BAJA'])
+    .limit(5000)
+  if (error) throw error
+
+  const porPersona = new Map()
+  let sinTitular = 0
+  for (const b of (data || [])) {
+    const nombre = (b.resguardos?.nombre || '').trim()
+    if (!nombre) { sinTitular++; continue }
+    const clave = nombre.toUpperCase()
+    if (!porPersona.has(clave)) porPersona.set(clave, { nombre, puestos: new Set(), filas: new Set(), bienes: 0 })
+    const p = porPersona.get(clave)
+    p.bienes++
+    p.filas.add(b.idresguardo)
+    if (b.resguardos?.puesto) p.puestos.add(b.resguardos.puesto.trim())
+  }
+  return {
+    sinTitular,
+    total: (data || []).length,
+    lista: [...porPersona.values()]
+      .map(p => ({ ...p, filas: [...p.filas], puestos: [...p.puestos] }))
+      .sort((a, b) => b.bienes - a.bienes),
+  }
+}
+
+// Mueve los bienes VIGENTES de un área que pertenecen a esas filas de resguardo
+async function reasignarTitularArea({ idarea, filasOrigen, idresguardoDestino }) {
+  const { data, error } = await supabase
+    .from('bienes')
+    .update({ idresguardo: idresguardoDestino })
+    .eq('idarea', idarea)
+    .in('idresguardo', filasOrigen)
+    .in('estadobien', ['ACTIVO', 'SOLICITUD BAJA'])
+    .select('idbien')
+  if (error) throw error
+  return (data || []).length
+}
+
+function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
+  const { close, anim } = useClosing(onClose)
+  const [idarea, setIdarea]   = useState('')
+  const [datos, setDatos]     = useState(null)      // { lista, total, sinTitular }
+  const [cargando, setCargando] = useState(false)
+  const [sale, setSale]       = useState(null)      // la persona que deja el área
+  const [nombre, setNombre]   = useState('')
+  const [puesto, setPuesto]   = useState('')
+  const [confirma, setConfirma] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [hecho, setHecho]     = useState(null)
+  const [err, setErr]         = useState(null)
+
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+
+  // Al elegir área se leen sus titulares
+  useEffect(() => {
+    // Al cambiar de área se empieza de cero: el puesto vuelve a proponerse solo
+    puestoTocado.current = false
+    setPuesto('')
+    if (!idarea) { setDatos(null); setSale(null); return }
+    let vivo = true
+    setCargando(true); setErr(null); setSale(null); setConfirma(false)
+    titularesDeArea(Number(idarea))
+      .then(d => { if (vivo) setDatos(d) })
+      .catch(e => { if (vivo) setErr(e.message) })
+      .finally(() => { if (vivo) setCargando(false) })
+    return () => { vivo = false }
+  }, [idarea])
+
+  // El puesto propuesto sigue a la persona que se elija, no se queda con el de
+  // la primera. Deja de seguirla en cuanto se escribe uno a mano.
+  const puestoTocado = useRef(false)
+  function elegirSale(p) {
+    setSale(p)
+    setConfirma(false)
+    if (!puestoTocado.current) setPuesto(p.puestos[0] || '')
+  }
+
+  const areaNom = allAreas.find(a => String(a.idarea) === String(idarea))?.nombrearea || ''
+  const listo = sale && nombre.trim() && !guardando
+
+  async function aplicar() {
+    setGuardando(true); setErr(null)
+    try {
+      const destino = await resolverResguardo(nombre, puesto)
+      if (!destino) throw new Error('No se pudo resolver el titular nuevo')
+      const n = await reasignarTitularArea({ idarea: Number(idarea), filasOrigen: sale.filas, idresguardoDestino: destino })
+      setHecho({ n, nombre: nombre.trim().toUpperCase() })
+      setTimeout(() => { onHecho?.(); close() }, 1900)
+    } catch (e) {
+      setErr(e.message); setGuardando(false); setConfirma(false)
+    }
+  }
+
+  const lbl = txt => <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>{txt}</p>
+
+  // Las áreas agrupadas por dependencia, para encontrarlas rápido
+  const grupos = {}
+  allAreas.forEach(a => (grupos[a.nombredependencia || '—'] = grupos[a.nombredependencia || '—'] || []).push(a))
+
+  return createPortal(
+    <>
+      <div onClick={close} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'620px', maxWidth:'95vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation: anim, overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background:t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-users-group" style={{ fontSize:'18px', color:t.text1 }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Titular del área</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Cambia el resguardante de todos sus bienes</p>
+            </div>
+          </div>
+          <button onClick={close} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem', minHeight:0, overflowY:'auto' }}>
+          {hecho ? (
+            <div style={{ padding:'14px', borderRadius:'10px', fontSize:'13px', lineHeight:1.6,
+              background: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)',
+              border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)',
+              color: dark ? '#a8e6cf' : '#15803d' }}>
+              <p style={{ fontWeight:600 }}><i className="ti ti-check" style={{ marginRight:'6px' }} />Titular actualizado</p>
+              <p>{hecho.n} {hecho.n === 1 ? 'bien pasó' : 'bienes pasaron'} a {hecho.nombre} en {areaNom}.</p>
+            </div>
+          ) : (
+            <>
+              <div>{lbl('Área')}
+                <select value={idarea} onChange={e => setIdarea(e.target.value)} style={sStyle(dark)}>
+                  <option value="">— Elige un área —</option>
+                  {Object.entries(grupos).sort().map(([dep, as]) => (
+                    <optgroup key={dep} label={dep}>
+                      {as.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {cargando && <p style={{ fontSize:'13px', color:t.text3 }}><i className="ti ti-loader-2" style={{ marginRight:'7px', animation:'spin 1s linear infinite' }} />Leyendo los titulares del área…</p>}
+
+              {datos && !cargando && (
+                <div>
+                  {lbl('¿Quién deja el área?')}
+                  {datos.lista.length === 0
+                    ? <p style={{ fontSize:'13px', color:t.text3 }}>Esta área no tiene bienes vigentes con titular.</p>
+                    : <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                        {datos.lista.map(p => {
+                          const sel = sale && sale.nombre === p.nombre
+                          return (
+                            <button key={p.nombre} onClick={() => elegirSale(p)}
+                              style={{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 12px', borderRadius:'9px', textAlign:'left', fontFamily:'inherit', cursor:'pointer',
+                                background: sel ? (dark ? 'rgba(168,197,248,0.14)' : 'rgba(37,99,235,0.07)') : 'transparent',
+                                border: sel ? (dark ? '1px solid rgba(168,197,248,0.4)' : '1px solid rgba(37,99,235,0.35)') : `1px solid ${t.cardBorder}` }}>
+                              <div style={{ width:'16px', height:'16px', borderRadius:'50%', flexShrink:0, border: `2px solid ${sel ? (dark ? '#a8c5f8' : '#2563eb') : t.text4}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                {sel && <div style={{ width:'8px', height:'8px', borderRadius:'50%', background: dark ? '#a8c5f8' : '#2563eb' }} />}
+                              </div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <p style={{ fontSize:'13px', fontWeight:500, color:t.text1 }}>{p.nombre}</p>
+                                {p.puestos.length > 0 && <p style={{ fontSize:'11.5px', color:t.text4 }}>
+                                  {p.puestos.join(' · ')}
+                                  {p.puestos.length > 1 && <span style={{ color: dark ? '#f5b759' : '#b45309' }}> — {p.puestos.length} puestos distintos</span>}
+                                </p>}
+                              </div>
+                              <span style={{ fontSize:'13px', fontWeight:600, color:t.text2, flexShrink:0 }}>{p.bienes}</span>
+                            </button>
+                          )
+                        })}
+                      </div>}
+                </div>
+              )}
+
+              {sale && (
+                <>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+                    {/* Sin sugerencias: el catálogo todavía trae renglones que
+                        no son personas y se proponían aquí como titulares */}
+                    <div>{lbl('Titular nuevo')}
+                      <input value={nombre} onChange={e => setNombre(e.target.value)}
+                        placeholder="LIC. NOMBRE APELLIDO" autoComplete="off" autoCorrect="off" spellCheck={false}
+                        style={iStyle(dark)} />
+                    </div>
+                    <div>{lbl('Puesto')}
+                      <input value={puesto} onChange={e => { puestoTocado.current = true; setPuesto(e.target.value) }}
+                        autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+                    </div>
+                  </div>
+
+                  <div style={{ padding:'12px 13px', borderRadius:'10px', fontSize:'12.5px', lineHeight:1.6,
+                    background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}` }}>
+                    <p style={{ color:t.text1, fontWeight:600 }}>Se van a mover {sale.bienes} {sale.bienes === 1 ? 'bien' : 'bienes'}</p>
+                    <p style={{ color:t.text3 }}>Los de {sale.nombre} en {areaNom}.</p>
+                    {datos.lista.length > 1 && <p style={{ color:t.text3, marginTop:'4px' }}>
+                      Los {datos.total - sale.bienes - datos.sinTitular} de los demás resguardantes de esta área no se tocan.
+                    </p>}
+                    <p style={{ color:t.text4, marginTop:'6px' }}>
+                      Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+            </>
+          )}
+        </div>
+
+        {!hecho && (
+          <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
+            <button onClick={close} disabled={guardando}
+              style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor: guardando ? 'not-allowed' : 'pointer' }}>Cancelar</button>
+            <button onClick={() => (confirma ? aplicar() : setConfirma(true))} disabled={!listo}
+              style={{ flex:1, padding:'10px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: listo ? 'pointer' : 'not-allowed', opacity: listo ? 1 : 0.5,
+                background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)',
+                border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)',
+                color: dark ? '#a8e6cf' : '#15803d', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Aplicando…</>
+                : confirma ? <><i className="ti ti-check" style={{ fontSize:'15px' }} />Sí, mover {sale?.bienes}</>
+                : <><i className="ti ti-users-group" style={{ fontSize:'15px' }} />Cambiar titular</>}
+            </button>
+          </div>
+        )}
+      </div>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
 function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [clave, setClave]     = useState('')
   const [nombre, setNombre]   = useState('')
@@ -2886,6 +3589,16 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   const [importe, setImporte]     = useState('')
   const [partida, setPartida]     = useState(PARTIDA_POR_MODO[modo] || '')
   const [proveedor, setProveedor] = useState('')
+  // Catálogo de proveedores para ir proponiendo mientras se escribe. Son unos
+  // cientos de nombres, así que se traen de una vez y se filtran sin ir y venir
+  // a la base en cada tecla.
+  const [provs, setProvs] = useState([])
+  useEffect(() => {
+    let vivo = true
+    supabase.from('proveedores').select('nombreproveedor').order('nombreproveedor').limit(5000)
+      .then(({ data }) => { if (vivo) setProvs((data || []).map(p => p.nombreproveedor).filter(Boolean)) })
+    return () => { vivo = false }
+  }, [])
   const [resgNombre, setResgNombre] = useState('')
   const [resgPuesto, setResgPuesto] = useState('')
 
@@ -2897,8 +3610,9 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
   // El importe es el de UN bien: si se registran varios, cada uno se guarda con
   // ese mismo costo y el total de la compra es el importe por la cantidad.
   const costoUnit = useMemo(() => {
-    const v = Number(String(importe).replace(/[^0-9.]/g, ''))
-    return Number.isFinite(v) && v > 0 ? v : null
+    const v = leerImporte(importe)
+    // Se redondea a centavos para no arrastrar decimales de más
+    return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null
   }, [importe])
   const totalLote = costoUnit ? costoUnit * n : 0
   const hayCompra = !!(numFactura.trim() || fechaFactura || costoUnit || proveedor.trim())
@@ -3185,7 +3899,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
                   <div>{lbl('Fecha')}<input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)} style={iStyle(dark)} /></div>
                 </div>
                 <div>{lbl('Proveedor')}
-                  <input value={proveedor} onChange={e => setProveedor(e.target.value)} autoComplete="off" autoCorrect="off" spellCheck={false} style={iStyle(dark)} />
+                  <CampoSugerido value={proveedor} onChange={setProveedor} opciones={provs} dark={dark} />
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
                   <div>{lbl('Importe c/u')}
@@ -3198,8 +3912,12 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
                     </select>
                   </div>
                 </div>
-                {costoUnit && n > 1 && <p style={{ fontSize:'11px', color: t.text3 }}>
-                  {n} × ${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · total ${totalLote.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                {/* Se muestra siempre el monto leído para que se note al momento
+                    si se escribió mal, no solo cuando son varios bienes */}
+                {costoUnit && <p style={{ fontSize:'11px', color: t.text3 }}>
+                  {n > 1
+                    ? `${n} × $${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · total $${totalLote.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                    : `Se guardará $${costoUnit.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}
                 </p>}
               </div>
             </section>
@@ -3309,7 +4027,82 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
 }
 
 // ── PÁGINA ────────────────────────────────────────────────────────────────────
-export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos' }) {
+// ── Menú de clic derecho sobre un renglón ─────────────────────────────────────
+// Se ancla al puntero y se corrige solo si no cabe hacia abajo o a la derecha.
+export function MenuFila({ menu, onClose, dark, t, onIrAPagina, onConsultar }) {
+  const ref = useRef(null)
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y })
+  // onClose llega como función nueva en cada render del padre; con la ref el
+  // efecto de abajo se monta una sola vez.
+  const cerrarRef = useRef(onClose)
+  cerrarRef.current = onClose
+
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    setPos({
+      x: Math.min(menu.x, window.innerWidth  - width  - 8),
+      y: Math.min(menu.y, window.innerHeight - height - 8),
+    })
+  }, [menu.x, menu.y])
+
+  // Los listeners para cerrar se registran un tick después: el mismo clic
+  // derecho que abre el menú sigue subiendo hasta window, y si ya estuvieran
+  // puestos lo cerrarían de inmediato —el menú ni se alcanzaba a ver—.
+  useEffect(() => {
+    const fuera = () => cerrarRef.current()
+    const tecla = e => { if (e.key === 'Escape') cerrarRef.current() }
+    let puestos = false
+    const poner = () => {
+      puestos = true
+      window.addEventListener('click', fuera)
+      window.addEventListener('contextmenu', fuera)
+      window.addEventListener('scroll', fuera, true)
+      window.addEventListener('keydown', tecla)
+    }
+    const id = setTimeout(poner, 0)
+    return () => {
+      clearTimeout(id)
+      if (!puestos) return
+      window.removeEventListener('click', fuera)
+      window.removeEventListener('contextmenu', fuera)
+      window.removeEventListener('scroll', fuera, true)
+      window.removeEventListener('keydown', tecla)
+    }
+  }, [])
+
+  const opciones = [
+    { icon: 'ti-map-pin', label: 'Ir a página', accion: () => onIrAPagina(menu.bien) },
+    { icon: 'ti-eye',     label: 'Consultar',   accion: () => onConsultar(menu.bien) },
+  ]
+
+  return createPortal(
+    <div ref={ref} onClick={e => e.stopPropagation()} onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
+      style={{ position: 'fixed', top: pos.y, left: pos.x, zIndex: 400, minWidth: '188px', padding: '5px',
+        borderRadius: '11px', background: dark ? '#232325' : '#ffffff',
+        border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)',
+        boxShadow: dark ? '0 12px 34px rgba(0,0,0,0.5)' : '0 12px 34px rgba(0,0,0,0.16)',
+        transformOrigin: 'top left', animation: 'menuFila 0.14s cubic-bezier(0.4,0,0.2,1)' }}>
+      <style>{`@keyframes menuFila{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}`}</style>
+      <p style={{ fontSize: '10px', fontWeight: 700, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '6px 9px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {menu.bien.claveinventario || 'Bien'}
+      </p>
+      {opciones.map(o => (
+        <button key={o.label} onClick={() => { onClose(); o.accion() }}
+          style={{ display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '8px 9px', borderRadius: '8px',
+            background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            fontSize: '13px', color: t.text1, textAlign: 'left' }}
+          onMouseEnter={e => e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+          <i className={`ti ${o.icon}`} style={{ fontSize: '15px', color: t.text3 }} />{o.label}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  )
+}
+
+export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', papelera = false }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [modo, setModo]                     = useState(initialModo)
@@ -3325,6 +4118,15 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const [paginaTexto, setPaginaTexto]       = useState('1')
 
   const [busqueda, setBusqueda]             = useState('')
+  // Al usar "Ir a su página" se quita la búsqueda y se marca el bien un momento
+  // para no perderlo de vista entre los demás renglones.
+  const [resaltado, setResaltado]           = useState(null)
+  const [ubicando, setUbicando]             = useState(false)
+  // Menú de clic derecho sobre un renglón: { x, y, bien }
+  const [menuFila, setMenuFila]             = useState(null)
+  const [confirmaRestaurar, setConfirmaRestaurar] = useState(null)
+  const refTabla = useRef(null)
+  const filaResaltada = useRef(null)
   const [filtroBien, setFiltroBien]         = useState('')
   const [modalTipo, setModalTipo]           = useState(false)
   const [areasSelec, setAreasSelec]         = useState(initialAreaFilter)
@@ -3341,6 +4143,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const [modalResguardosLote, setModalResguardosLote] = useState(null)   // array de bienes | null
   const [modalBaja, setModalBaja]           = useState(null)
   const [modalTrasp, setModalTrasp]         = useState(null)
+  const [modalTitularArea, setModalTitularArea] = useState(false)
   const [modalNuevo, setModalNuevo]         = useState(false)
 
   const skipDebounce = useRef(true)
@@ -3360,6 +4163,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       filtroEstado:  params.filtroEstado  ?? filtroEstado,
       filtroAreaIds: params.filtroAreaIds ?? areasSelec,
       porPagina:     params.porPagina     ?? porPagina,
+      papelera,
     })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(pag) })
       .catch(err => setError(err.message))
@@ -3380,20 +4184,70 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
     if (n - 1 !== pagina) cargar(n - 1)
   }
 
+  // Quita la búsqueda y carga la página donde ese bien vive en la lista completa
+  async function irAlBien(b) {
+    if (!b) return
+    setUbicando(true); setError(null)
+    try {
+      // Se deja puesto el filtro con SU área, no con toda la dependencia: la
+      // lista queda acotada a esa área y el consecutivo que se ve es el que le
+      // corresponde ahí, no el de todo el inventario.
+      const suArea = b.idarea != null ? [b.idarea] : areasSelec
+
+      const pag = await paginaDeBien(b, { modo, filtroBien, filtroEstado, filtroAreaIds: suArea, porPagina, papelera })
+      // Cambiar búsqueda y filtro dispararía otra carga en página 0; se salta
+      skipDebounce.current = true
+      setBusqueda('')
+      setAreasSelec(suArea)
+      setResaltado(b.idbien)
+      cargar(pag, { busqueda: '', filtroAreaIds: suArea })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setUbicando(false)
+    }
+  }
+
+  // Lleva el renglón a la vista y quita la marca sola a los pocos segundos
+  useEffect(() => {
+    if (!resaltado) return
+    filaResaltada.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const tm = setTimeout(() => setResaltado(null), 6000)
+    return () => clearTimeout(tm)
+  }, [resaltado, datos])
+
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina })
+    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina, papelera })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(0) })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
-  }, [modo])
+  }, [modo, papelera])
 
   useEffect(() => {
     if (skipDebounce.current) { skipDebounce.current = false; return }
     const timer = setTimeout(() => cargar(0), 400)
     return () => clearTimeout(timer)
   }, [busqueda, filtroBien, filtroEstado, areasSelec, porPagina])
+
+  // Clic derecho sobre un renglón. Va como listener nativo en fase de captura
+  // sobre la tabla: así se atiende antes que cualquier otro manejador y no
+  // depende de la delegación de eventos de React.
+  useEffect(() => {
+    const tabla = refTabla.current
+    if (!tabla) return
+    const abrir = (e) => {
+      const fila = e.target.closest?.('tr[data-idbien]')
+      if (!fila || !tabla.contains(fila)) return
+      const bien = datos.find(d => String(d.idbien) === fila.dataset.idbien)
+      if (!bien) return
+      e.preventDefault()
+      setMenuFila({ x: e.clientX, y: e.clientY, bien })
+    }
+    tabla.addEventListener('contextmenu', abrir, true)
+    return () => tabla.removeEventListener('contextmenu', abrir, true)
+  }, [datos])
 
   const hayFiltros = busqueda || filtroBien || areasSelec.length > 0 || filtroEstado !== 'Todos'
   const esVehiculo = modo === 'vehiculos' || modo === 'maquinaria'
@@ -3435,21 +4289,30 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
-      <Sidebar user={user} active="bienes" onNavigate={onNavigate} />
+      <Sidebar user={user} active={papelera ? 'papelera' : 'bienes'} onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Bienes Muebles</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : 'Bienes Muebles'}</h1>
             <p style={{ fontSize: '14px', color: t.text3 }}>
-              Inventario Municipal · {loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
+              {papelera ? 'Bienes capturados por error · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
             </p>
           </div>
-          <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
-            <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
-          </button>
+          {!papelera && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {/* Actúa sobre un área completa, por eso va aquí y no en la barra
+                  de acciones, que trabaja sobre los registros seleccionados. */}
+              <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+                <i className="ti ti-users-group" style={{ fontSize: '18px' }} />Titular del área
+              </button>
+              <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+                <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Filtros */}
@@ -3458,6 +4321,14 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
             <input type="text" placeholder="Buscar por nombre o clave..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
+            {/* Para ir a la página de un bien se usa el clic derecho sobre su
+                renglón: así se elige exactamente cuál, no la primera coincidencia. */}
+            {ubicando && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, fontSize: '12.5px',
+                color: dark ? '#a8c5f8' : '#2563eb', whiteSpace: 'nowrap' }}>
+                <i className="ti ti-loader-2" style={{ fontSize: '14px', animation: 'spin 1s linear infinite' }} />Buscando…
+              </span>
+            )}
             {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
           </div>
 
@@ -3479,7 +4350,9 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         </div>
 
         {/* Barra de selección */}
-        {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
+        {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla.
+            En la papelera no hay nada que operar en lote, así que no se muestra. */}
+        {!papelera && (
         <div style={barraSticky(dark, t)}>
           <div onClick={toggleModoSeleccion}
             style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
@@ -3502,7 +4375,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           )}
 
           {/* Siempre visibles; se atenúan mientras no haya registros marcados */}
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
               style={btnBarra(dark, t, seleccionados.size > 0)}>
               <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
@@ -3517,6 +4390,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             </button>
           </div>
         </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -3529,7 +4403,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         {/* Tabla */}
         <div style={{ ...card, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <table ref={refTabla} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
                   {modoSeleccion && (
@@ -3541,7 +4415,8 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                       </div>
                     </th>
                   )}
-                  <th rowSpan={2} style={thBase(dark)}>CLAVE DE INVENTARIO</th>
+                  {/* En la papelera la clave ya no aplica: al restaurar se asigna una nueva */}
+                  {!papelera && <th rowSpan={2} style={thBase(dark)}>CLAVE DE INVENTARIO</th>}
                   <th colSpan={esVehiculo ? 5 : 4} style={{ ...thBase(dark), textAlign: 'center', borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', borderRight: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', letterSpacing: '0.2em' }}>
                     D &nbsp; E &nbsp; S &nbsp; C &nbsp; R &nbsp; I &nbsp; P &nbsp; C &nbsp; I &nbsp; Ó &nbsp; N
                   </th>
@@ -3589,14 +4464,21 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                       </td></tr>
                     : datosFiltrados.map((b, i) => {
                         const sel = seleccionados.has(b.idbien)
-                        const bgFila = sel
+                        // El que se acaba de ubicar va marcado en ámbar unos segundos
+                        const marcado = b.idbien === resaltado
+                        const bgFila = marcado
+                          ? (dark ? 'rgba(168,197,248,0.18)' : 'rgba(37,99,235,0.10)')
+                          : sel
                           ? (dark ? 'rgba(168,197,248,0.10)' : 'rgba(37,99,235,0.06)')
                           : (i % 2 === 0 ? 'transparent' : (dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)'))
                         return (
                         <tr key={b.idbien}
+                          data-idbien={b.idbien}
+                          ref={marcado ? filaResaltada : null}
                           onClick={() => modoSeleccion && toggleSeleccion(b)}
-                          style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, transition: 'background 0.12s', cursor: modoSeleccion ? 'pointer' : 'default' }}
-                          onMouseEnter={e => e.currentTarget.style.background = sel ? (dark ? 'rgba(168,197,248,0.16)' : 'rgba(37,99,235,0.1)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')}
+                          style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, transition: 'background 0.35s', cursor: modoSeleccion ? 'pointer' : 'default',
+                            boxShadow: marcado ? `inset 3px 0 0 ${dark ? '#a8c5f8' : '#2563eb'}` : 'none' }}
+                          onMouseEnter={e => e.currentTarget.style.background = marcado ? bgFila : sel ? (dark ? 'rgba(168,197,248,0.16)' : 'rgba(37,99,235,0.1)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')}
                           onMouseLeave={e => e.currentTarget.style.background = bgFila}
                         >
                           {modoSeleccion && (
@@ -3606,7 +4488,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                               </div>
                             </td>
                           )}
-                          <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinventario || '—'}</span></td>
+                          {!papelera && <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.claveinventario || '—'}</span></td>}
                           <td style={{ ...tdBase(), width: '200px', maxWidth: '200px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><p style={{ color: t.text1, fontWeight: 500, lineHeight: 1.3 }}>{b.nombrebien}</p></td>
                           <td style={tdBase()}><span style={{ color: t.text2 }}>{b.marca || '—'}</span></td>
                           {esVehiculo
@@ -3641,6 +4523,14 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                           <td style={tdBase()}>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
                               <button onClick={(e) => { e.stopPropagation(); setPanelBien(b) }}      title="Consultar"    style={btnAccion(dark, 'consulta')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-eye"             style={{ fontSize: '14px' }} /></button>
+                              {/* En la papelera solo se consulta y se restaura */}
+                              {papelera && (
+                                <button onClick={(e) => { e.stopPropagation(); setConfirmaRestaurar(b) }} title="Restaurar al inventario"
+                                  style={btnAccion(dark, 'editar')} onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}>
+                                  <i className="ti ti-arrow-back-up" style={{ fontSize: '14px' }} />
+                                </button>
+                              )}
+                              {!papelera && <>
                               <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }}    title="Modificar"    style={btnAccion(dark, 'editar')}    onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-pencil"          style={{ fontSize: '14px' }} /></button>
                               {/* Con varios bienes marcados abre el resguardo del lote,
                                   igual que el botón de arriba de la tabla. */}
@@ -3649,6 +4539,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                                 style={btnAccion(dark, 'resguardo')} onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-file-text"      style={{ fontSize: '14px' }} /></button>
                               <button onClick={(e) => { e.stopPropagation(); setModalTrasp(b) }}     title="Traspaso"     style={btnAccion(dark, 'traspaso')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-arrows-exchange" style={{ fontSize: '14px' }} /></button>
                               <button onClick={(e) => { e.stopPropagation(); solicitarBajaUno(b) }}  title="Solicitar baja"  style={btnAccion(dark, 'baja')}     onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-circle-minus"    style={{ fontSize: '14px' }} /></button>
+                              </>}
                             </div>
                           </td>
                         </tr>
@@ -3700,6 +4591,16 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} } input::placeholder { color: ${dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}; }`}</style>
 
+      {menuFila && (
+        <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
+          onIrAPagina={b => irAlBien(b)} onConsultar={b => setPanelBien(b)} />
+      )}
+      {confirmaRestaurar && (
+        <ModalConfirmaBien bien={confirmaRestaurar} accion="restaurar" dark={dark} t={t}
+          onClose={() => setConfirmaRestaurar(null)}
+          areas={allAreas}
+          onConfirm={async (idarea) => { await restaurarDePapelera(confirmaRestaurar, idarea); cargar(pagina) }} />
+      )}
       {panelBien      && <PanelConsulta  bien={panelBien}      onClose={() => setPanelBien(null)}      t={t} dark={dark} />}
       {modalEditar    && <ModalEditar    bien={modalEditar}    onClose={() => setModalEditar(null)}    t={t} dark={dark} onSaved={() => cargar(pagina)} />}
       {modalResguardo && <ModalResguardo bien={modalResguardo} onClose={() => setModalResguardo(null)} t={t} dark={dark} />}
@@ -3723,6 +4624,11 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         modo={modo}
         onSelect={(id) => { setModo(id); setModalTipo(false) }}
         onClose={() => setModalTipo(false)} dark={dark} t={t}
+      />}
+      {modalTitularArea && <ModalTitularArea
+        allAreas={allAreas} dark={dark} t={t}
+        onHecho={() => cargar(pagina)}
+        onClose={() => setModalTitularArea(false)}
       />}
       {modalNuevo && <ModalNuevoBien
         modo={modo} allAreas={allAreas} dark={dark} t={t}
