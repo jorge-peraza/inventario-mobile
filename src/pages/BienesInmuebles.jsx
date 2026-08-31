@@ -860,7 +860,9 @@ async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categ
     if (m2Min !== '' && m2Min != null) q = q.gte('superficiem2', Number(m2Min))
     if (m2Max !== '' && m2Max != null) q = q.lte('superficiem2', Number(m2Max))
     if (categoriaIds && categoriaIds.length > 0) q = q.in('idcategoria', categoriaIds)
-    else q = q.not('idcategoria', 'in', `(${CATS_FUERA.join(',')})`)
+    // El reporte de "todos los filtrados" sale de la misma lista que la tabla:
+    // sin categoría elegida, deja fuera comodato, desincorporado y el trámite.
+    else q = q.not('idcategoria', 'in', `(${[...CATS_FUERA, ID_PROCESO].join(',')})`)
     const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break
@@ -1168,7 +1170,11 @@ function filtrosDeListaInmuebles(query, { m2Min, m2Max, categoriaIds }) {
   if (categoriaIds && categoriaIds.length > 0)
     query = query.in('idcategoria', categoriaIds)
   else
-    query = query.not('idcategoria', 'in', `(${CATS_FUERA.join(',')})`)
+    // Un inmueble vive en una sola lista: en cuanto se solicita su
+    // desincorporación pasa a esa pantalla y sale del inventario. Antes solo se
+    // ocultaban comodato y desincorporado, así que los del trámite salían en
+    // los dos lados y parecían duplicados.
+    query = query.not('idcategoria', 'in', `(${[...CATS_FUERA, ID_PROCESO].join(',')})`)
 
   return query
 }
@@ -1414,28 +1420,52 @@ export async function exportarEnajenacionesExcel(desinc, incorp, titulo = '') {
 
 // ── Página ────────────────────────────────────────────────────────────────────
 // ── Modal Desincorporación (observaciones + fecha) ──────────────────────────────
-export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, titulo = 'Desincorporación', textoBoton = 'Confirmar' }) {
+// Sirve para la solicitud (ámbar, como "En proceso") y para la baja definitiva
+// (rojo). Con varios inmuebles marcados la fecha es una sola para todos y cada
+// inmueble lleva su propia observación.
+export function ModalDesincorporacion({ cantidad, ids = [], onClose, dark, t, onConfirm, titulo = 'Desincorporación', textoBoton = 'Confirmar', tono = 'rojo', icono = 'ti-circle-minus' }) {
   const [obs, setObs]   = useState('')
   const [fecha, setFecha] = useState('')
   const [guardando, setGuardando] = useState(false)
+  const [filas, setFilas] = useState([])          // inmuebles marcados
+  const [obsPorId, setObsPorId] = useState({})    // idinmueble → observaciones
+  const varios = (ids?.length || 0) > 1
+
+  const col = tono === 'ambar'
+    ? { txt: dark ? '#ffd580' : '#b7790a', bg: dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.08)', bd: dark ? 'rgba(255,213,128,0.3)' : 'rgba(183,121,10,0.2)', bgBtn: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', bdBtn: dark ? 'rgba(255,213,128,0.35)' : 'rgba(183,121,10,0.35)' }
+    : { txt: dark ? '#f4a1a1' : '#c0392b', bg: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', bd: dark ? 'rgba(244,161,161,0.3)' : 'rgba(192,57,43,0.15)', bgBtn: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', bdBtn: dark ? 'rgba(244,161,161,0.35)' : 'rgba(192,57,43,0.35)' }
+
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [])
+
+  // Con varios marcados se traen sus datos para listarlos con su observación
+  useEffect(() => {
+    if (!varios) return
+    let vivo = true
+    fetchInmueblesPorIds(ids).then(r => { if (vivo) setFilas(r) }).catch(console.error)
+    return () => { vivo = false }
+  }, [])
+
   async function confirmar() {
     setGuardando(true)
-    try { await onConfirm({ obs, fecha: fecha || hoyISO() }); onClose() }
+    try { await onConfirm({ obs, fecha: fecha || hoyISO(), obsPorId }); onClose() }
     catch (e) { console.error(e); setGuardando(false) }
   }
+
+  const etq = txt => <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>{txt}</p>
+  const campo = { padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'14px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', boxSizing:'border-box' }
+
   return createPortal(
     <>
       <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'460px', maxWidth:'92vw', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
-        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width: varios ? '820px' : '460px', maxWidth:'94vw', maxHeight:'90vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <i className="ti ti-circle-minus" style={{ fontSize:'18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: col.bg, border:`1px solid ${col.bd}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className={`ti ${icono}`} style={{ fontSize:'18px', color: col.txt }} />
             </div>
             <div>
               <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{titulo}</p>
@@ -1446,22 +1476,47 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
             <i className="ti ti-x" style={{ fontSize:'15px' }} />
           </button>
         </div>
-        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem', minHeight:0, overflowY:'auto' }}>
           <div>
-            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Fecha</p>
+            {etq(varios ? 'Fecha (la misma para todos)' : 'Fecha')}
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
-              style={{ width:'100%', padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'14px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', colorScheme: dark ? 'dark' : 'light', boxSizing:'border-box' }} />
+              style={{ ...campo, width:'100%', colorScheme: dark ? 'dark' : 'light' }} />
           </div>
-          <div>
-            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'6px' }}>Observaciones</p>
-            <textarea value={obs} onChange={e => setObs(e.target.value)} rows={4} placeholder="Detalle de la desincorporación..."
-              style={{ width:'100%', padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'14px', resize:'none', lineHeight:1.5, background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', boxSizing:'border-box' }} />
-          </div>
+
+          {varios ? (
+            <div>
+              {/* Cada inmueble lleva su propia observación: en un lote no todos
+                  se solicitan por el mismo motivo. */}
+              <div style={{ display:'grid', gridTemplateColumns:'110px minmax(0,1fr) 110px minmax(0,1.1fr)', gap:'10px', padding:'0 2px 6px' }}>
+                {etq('Clave')}{etq('Nombre')}{etq('Superficie')}{etq('Observaciones')}
+              </div>
+              <div style={{ border:`1px solid ${t.cardBorder}`, borderRadius:'11px', overflow:'hidden' }}>
+                {filas.length === 0
+                  ? <p style={{ padding:'14px', fontSize:'13px', color:t.text3 }}><i className="ti ti-loader-2" style={{ marginRight:'7px', animation:'spin 1s linear infinite' }} />Leyendo los inmuebles marcados…</p>
+                  : filas.map((f, i) => (
+                      <div key={f.idinmueble} style={{ display:'grid', gridTemplateColumns:'110px minmax(0,1fr) 110px minmax(0,1.1fr)', gap:'10px', alignItems:'center', padding:'10px 12px', borderTop: i === 0 ? 'none' : (dark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.06)') }}>
+                        <span style={{ fontFamily:'monospace', fontSize:'11.5px', color:t.text3 }}>{f.claveinmueble || '—'}</span>
+                        <span style={{ fontSize:'12.5px', color:t.text1, lineHeight:1.3 }}>{f.nombreinmueble || '—'}</span>
+                        <span style={{ fontSize:'12px', color:t.text2, whiteSpace:'nowrap' }}>{f.superficiem2 != null ? fmtM2(f.superficiem2) : '—'}</span>
+                        <textarea value={obsPorId[f.idinmueble] || ''} rows={2} placeholder="Agregar Comentarios."
+                          onChange={e => setObsPorId(p => ({ ...p, [f.idinmueble]: e.target.value }))}
+                          style={{ ...campo, width:'100%', fontSize:'12.5px', resize:'vertical', lineHeight:1.4 }} />
+                      </div>
+                    ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              {etq('Observaciones')}
+              <textarea value={obs} onChange={e => setObs(e.target.value)} rows={4} placeholder="Detalle de la desincorporación..."
+                style={{ ...campo, width:'100%', resize:'none', lineHeight:1.5 }} />
+            </div>
+          )}
         </div>
-        <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
+        <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px', flexShrink:0 }}>
           <button onClick={onClose} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>Cancelar</button>
-          <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', borderRadius:'9px', fontSize:'14px', fontWeight:600, color: dark ? '#f4a1a1' : '#c0392b', fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
-            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</> : <><i className="ti ti-circle-minus" style={{ fontSize:'15px' }} />{textoBoton}</>}
+          <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: col.bgBtn, border:`1px solid ${col.bdBtn}`, borderRadius:'9px', fontSize:'14px', fontWeight:600, color: col.txt, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</> : <><i className={`ti ${icono}`} style={{ fontSize:'15px' }} />{textoBoton}</>}
           </button>
         </div>
       </div>
@@ -1824,12 +1879,14 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
     })
   }
 
-  async function confirmarDesinc(ids, { obs, fecha }) {
-    // Guarda la categoría original (para poder cancelar) + fecha/observaciones
+  async function confirmarDesinc(ids, { obs, fecha, obsPorId }) {
+    // Guarda la categoría original (para poder cancelar) + fecha/observaciones.
+    // La fecha es la misma para el lote; la observación puede ir por inmueble.
     const rows = await fetchInmueblesPorIds(ids)
     const catMap = {}
     rows.forEach(r => { catMap[r.idinmueble] = r.idcategoria })
-    for (const id of ids) setDesinc([id], { catOriginal: catMap[id], fechaProceso: fecha, obsProceso: obs })
+    for (const id of ids)
+      setDesinc([id], { catOriginal: catMap[id], fechaProceso: fecha, obsProceso: (obsPorId?.[id] ?? obs) || '' })
     await cambiarCategoria(ids, ID_PROCESO)   // pasa a "EN PROCESO DE DESINCORPORACION"
     setSeleccionados(new Set())
     setModoSeleccion(false)
@@ -2150,9 +2207,10 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         <ModalEditar inmueble={modalEditar} onClose={() => setModalEditar(null)} t={t} dark={dark} categorias={categorias} onSaved={() => cargar(pagina)} />
       )}
       {modalDesinc && (
-        <ModalDesincorporacion cantidad={modalDesinc.length} onClose={() => setModalDesinc(null)} dark={dark} t={t}
+        <ModalDesincorporacion cantidad={modalDesinc.length} ids={modalDesinc} onClose={() => setModalDesinc(null)} dark={dark} t={t}
           titulo="Solicitar Desincorporación" textoBoton="Confirmar"
-          onConfirm={({ obs, fecha }) => confirmarDesinc(modalDesinc, { obs, fecha })} />
+          tono="ambar" icono="ti-progress"
+          onConfirm={({ obs, fecha, obsPorId }) => confirmarDesinc(modalDesinc, { obs, fecha, obsPorId })} />
       )}
       {modalNuevo && (
         <ModalNuevoInmueble dark={dark} t={t}
