@@ -62,7 +62,30 @@ export async function fetchInmueblesPorCategoria(idcat) {
     if (data.length < BATCH) break
     desde += BATCH
   }
-  return todos
+  // El consecutivo es un orden global, por eso las claves salían salteadas
+  // (01-CC, 11-CC, 12-CC, 02-CC). Se reordena por la clave, con el número
+  // leído como número y no como texto: si no, "11" va antes que "2".
+  return todos.sort(compararClaveInmueble)
+}
+
+// Parte la clave en grupo + número, con las dos formas que existen en la base:
+// "01-CC" (número primero) y "PEND-3" (provisional, número al final).
+function partirClave(clave) {
+  const txt = String(clave || '').trim()
+  const normal = txt.match(/^(\d+)\s*-\s*(.*)$/)
+  if (normal) return { grupo: normal[2].toUpperCase(), numero: parseInt(normal[1], 10) }
+  const provisional = txt.match(/^(.*?)\s*-\s*(\d+)$/)
+  if (provisional) return { grupo: provisional[1].toUpperCase(), numero: parseInt(provisional[2], 10) }
+  return { grupo: txt.toUpperCase(), numero: Number.POSITIVE_INFINITY }
+}
+
+// Ordena por el código de categoría y, dentro de él, por número ascendente
+export function compararClaveInmueble(a, b) {
+  const x = partirClave(a.claveinmueble)
+  const y = partirClave(b.claveinmueble)
+  if (x.grupo !== y.grupo) return x.grupo.localeCompare(y.grupo, 'es')
+  if (x.numero !== y.numero) return x.numero - y.numero
+  return (a.idinmueble || 0) - (b.idinmueble || 0)
 }
 
 export async function contarCategoria(idcat) {

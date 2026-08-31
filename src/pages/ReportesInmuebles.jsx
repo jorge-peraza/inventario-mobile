@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
-import { PanelConsulta, ModalEditar, ModalNuevoInmueble, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
-import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
+import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
+import { barraSticky, btnBarra, sStyle, MenuFila } from './BienesMuebles'
+import { getComentario, setComentario } from '../comentarios'
+import { siguienteClaveInmueble } from './BienesInmuebles'
 import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, getDesinc, setDesinc, quitarDesinc, hoyISO } from '../desincorporaciones'
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
@@ -71,6 +73,147 @@ function ModalRepDesinc({ onClose, dark, t, rows, tituloInicial }) {
   )
 }
 
+// La clave del inmueble termina con el código de su categoría (01-BOL, 37-E),
+// así que de ahí se sabe a cuál regresa sin preguntar. Los registros con clave
+// provisional (PEND-3) no lo traen: solo en esos hay que indicarla.
+function categoriaDesdeClave(clave, categorias) {
+  const m = String(clave || '').match(/-([A-Za-zÑñ]+)$/)
+  if (!m) return null
+  const suf = m[1].toUpperCase()
+  const cat = (categorias || []).find(c =>
+    ![ID_PROCESO, ID_DESINC].includes(c.idcategoria) &&
+    String(c.clavecategoria || '').toUpperCase() === suf)
+  return cat ? cat.idcategoria : null
+}
+
+// Confirmación de los movimientos entre En proceso, Desincorporado y el
+// inventario. Ninguno de estos cambios debe aplicarse sin preguntar.
+function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, categorias = [], catOriginal }) {
+  const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState(null)
+  // Los desincorporados de antes no guardan de qué categoría salieron: ahí se pregunta
+  const deLaClave = catOriginal ?? categoriaDesdeClave(inm.claveinmueble, categorias)
+  const [idcat, setIdcat] = useState(deLaClave ?? '')
+  const [comentario, setComentarioTxt] = useState(() => getComentario(inm.idinmueble))
+
+  // Clave que tomaría al regresar. Se consulta a la base al elegir categoría,
+  // igual que en el alta de un inmueble nuevo.
+  const [claveNueva, setClaveNueva] = useState('')
+  useEffect(() => {
+    if (!pideCategoria || !idcat) { setClaveNueva(''); return }
+    let vivo = true
+    setClaveNueva('Generando…')
+    siguienteClaveInmueble(Number(idcat), categorias)
+      .then(g => { if (vivo) setClaveNueva(g ? g.clave : '') })
+      .catch(() => { if (vivo) setClaveNueva('') })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idcat])
+  const pideCategoria = accion === 'alInventario' && !deLaClave
+
+  const textos = {
+    alInventario: {
+      titulo: 'Regresar al Inventario',
+      icono: 'ti-arrow-back-up',
+      detalle: null,
+      boton: 'Regresar al Inventario',
+      col: { txt: dark ? '#a8e6cf' : '#15803d', bg: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', bd: dark ? 'rgba(168,230,207,0.3)' : 'rgba(30,126,74,0.2)' },
+    },
+    aProceso: {
+      titulo: 'Regresar a Proceso de Desincorporación',
+      icono: 'ti-progress',
+      detalle: null,
+      boton: 'Regresar a Proceso de Desincorporación',
+      col: { txt: dark ? '#ffd580' : '#b7790a', bg: dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.08)', bd: dark ? 'rgba(255,213,128,0.3)' : 'rgba(183,121,10,0.25)' },
+    },
+  }[accion]
+
+  async function confirmar() {
+    if (pideCategoria && !idcat) { setErr('Elige la categoría a la que regresa'); return }
+    setGuardando(true); setErr(null)
+    try { setComentario(inm.idinmueble, comentario); await onConfirm(pideCategoria ? Number(idcat) : deLaClave); onClose() } catch (e) { setErr(e.message); setGuardando(false) }
+  }
+
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const dato = (etq, val) => (
+    <div style={{ padding: '10px 1.5rem', borderBottom: sep }}>
+      <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '3px' }}>{etq}</p>
+      <p style={{ fontSize: '13px', color: dark ? '#f0f0f0' : '#111', lineHeight: 1.35 }}>{val || '—'}</p>
+    </div>
+  )
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 401, width: '480px', maxWidth: '94vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '9px', flexShrink: 0, background: textos.col.bg, border: `1px solid ${textos.col.bd}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className={`ti ${textos.icono}`} style={{ fontSize: '18px', color: textos.col.txt }} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{textos.titulo}</p>
+              <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inm.claveinmueble || 'Sin clave'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize: '15px' }} />
+          </button>
+        </div>
+
+        <div style={{ minHeight: 0, overflowY: 'auto' }}>
+          {textos.detalle && <p style={{ padding: '12px 1.5rem', fontSize: '12.5px', lineHeight: 1.6, color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)', borderBottom: sep }}>{textos.detalle}</p>}
+          {/* Categoría y la clave que tomaría van juntas, mitad y mitad: se leen
+              como una sola decisión. La clave solo se muestra, no se edita. */}
+          {pideCategoria && (
+            <div style={{ padding: '12px 1.5rem', borderBottom: sep, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>Categoría a la que regresa</p>
+                <select value={idcat} onChange={e => setIdcat(e.target.value)} style={{ ...sStyle(dark), width: '100%' }}>
+                  <option value="">— Elige la categoría —</option>
+                  {categorias.filter(c => ![ID_PROCESO, ID_DESINC].includes(c.idcategoria))
+                    .map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
+                </select>
+              </div>
+              <div>
+                <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>Nueva clave de inventario</p>
+                <input value={claveNueva} readOnly
+                  placeholder={idcat ? 'Generando…' : 'Elige primero la categoría'}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '9px', outline: 'none', fontFamily: 'inherit', fontSize: '13px', background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', border: dark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.1)', color: dark ? '#f0f0f0' : '#111', boxSizing: 'border-box', cursor: 'default' }} />
+              </div>
+            </div>
+          )}
+          {/* Cuando sale de la clave se muestra, no se pregunta */}
+          {accion === 'alInventario' && !pideCategoria &&
+            dato('Categoría a la que regresa', categorias.find(c => c.idcategoria === deLaClave)?.nombrecategoria)}
+          {dato('Nombre del inmueble', inm.nombreinmueble)}
+          {dato('Ubicación', inm.ubicacion)}
+          {dato('Superficie', inm.superficiem2 ? fmtM2(inm.superficiem2) : '')}
+          <div style={{ padding: '12px 1.5rem', borderBottom: sep }}>
+            <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>Comentarios</p>
+            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2} placeholder="Agregar Comentarios."
+              style={{ width: '100%', padding: '9px 12px', borderRadius: '9px', outline: 'none', fontFamily: 'inherit', fontSize: '13px', resize: 'vertical', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', boxSizing: 'border-box' }} />
+          </div>
+        </div>
+
+        {err && <p style={{ padding: '10px 1.5rem', fontSize: '12.5px', color: dark ? '#f8a8a8' : '#b91c1c' }}>{err}</p>}
+
+        <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+          <button onClick={onClose} disabled={guardando} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={confirmar} disabled={guardando} style={{ flex: 1, padding: '10px', background: textos.col.bg, border: `1px solid ${textos.col.bd}`, borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: textos.col.txt, fontFamily: 'inherit', cursor: guardando ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            {guardando
+              ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Procesando…</>
+              : textos.boton}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
 export default function ReportesInmuebles({ user, onNavigate }) {
   const { dark, t, sidebarOpen } = useTheme()
   const [vista, setVista]   = useState('inicio')   // 'inicio' | 'proceso' | 'desincorporado'
@@ -78,10 +221,12 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [loading, setLoading] = useState(false)
   const [panel, setPanel]   = useState(null)
   const [modalEditar, setModalEditar] = useState(null)
-  const [modalNuevo, setModalNuevo]   = useState(false)
   const [modalDesinc, setModalDesinc] = useState(null)
   const [modalReporte, setModalReporte] = useState(false)
   const [modalEnaj, setModalEnaj] = useState(false)
+  const [menuFila, setMenuFila]   = useState(null)
+  const refTabla = useRef(null)
+  const [confirmar, setConfirmar] = useState(null)   // { inm, accion }
   const [modoSeleccion, setModoSeleccion] = useState(false)
   const [seleccionados, setSeleccionados] = useState(() => new Map())   // idinmueble -> bien
   const [conteos, setConteos] = useState({ proceso: null, desinc: null })
@@ -109,7 +254,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   }, [])
   useEffect(() => { cargarConteos() }, [cargarConteos])
   useEffect(() => {
-    supabaseInmuebles.from('categoriasinmuebles').select('idcategoria, nombrecategoria')
+    supabaseInmuebles.from('categoriasinmuebles').select('idcategoria, nombrecategoria, clavecategoria')
       .then(({ data }) => setCategorias(data || [])).catch(console.error)
   }, [])
 
@@ -136,12 +281,29 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   function toggleSeleccion(b) { setSeleccionados(prev => { const n = new Map(prev); n.has(b.idinmueble) ? n.delete(b.idinmueble) : n.set(b.idinmueble, b); return n }) }
   function toggleModoSeleccion() { setModoSeleccion(m => { if (m) setSeleccionados(new Map()); return !m }) }
 
-  async function cancelarProceso(b) {
-    const cat = getDesinc()[b.idinmueble]?.catOriginal
-    if (!cat) return   // sin categoría original conocida, no se puede revertir
-    await cambiarCategoria([b.idinmueble], cat)   // regresa a su categoría original
-    quitarDesinc([b.idinmueble])
-    await cargar(ID_PROCESO)
+  // Movimientos entre En proceso, Desincorporado y el inventario. Siempre se
+  // disparan desde el modal de confirmación, nunca de un solo clic.
+  async function moverInmueble(b, accion, categoriaDestino) {
+    if (accion === 'alInventario') {
+      const cat = categoriaDestino || getDesinc()[b.idinmueble]?.catOriginal
+      if (!cat) throw new Error('Falta indicar la categoría a la que regresa')
+      await cambiarCategoria([b.idinmueble], cat)   // regresa a su categoría original
+      quitarDesinc([b.idinmueble])
+
+      // Con clave provisional (PEND-3) se le da la que le toca en la categoría
+      // elegida; si ya trae clave normal se respeta.
+      if (!/^\d+\s*-\s*[A-Za-zÑñ]+$/.test(String(b.claveinmueble || ''))) {
+        const g = await siguienteClaveInmueble(cat, categorias)
+        if (g) {
+          const { error } = await supabaseInmuebles
+            .from('bienesinmuebles').update({ claveinmueble: g.clave }).eq('idinmueble', b.idinmueble)
+          if (error) throw error
+        }
+      }
+    } else if (accion === 'aProceso') {
+      await cambiarCategoria([b.idinmueble], ID_PROCESO)
+    }
+    await cargar(esDesinc ? ID_DESINC : ID_PROCESO)
     cargarConteos()
   }
 
@@ -172,6 +334,22 @@ export default function ReportesInmuebles({ user, onNavigate }) {
     (min == null || (b.superficiem2 != null && Number(b.superficiem2) >= min)) &&
     (max == null || (b.superficiem2 != null && Number(b.superficiem2) <= max))
   )
+
+  // Clic derecho sobre un renglón: listener nativo en captura sobre la tabla
+  useEffect(() => {
+    const tabla = refTabla.current
+    if (!tabla) return
+    const abrir = (e) => {
+      const fila = e.target.closest?.('tr[data-idinmueble]')
+      if (!fila || !tabla.contains(fila)) return
+      const inm = filtrados.find(d => String(d.idinmueble) === fila.dataset.idinmueble)
+      if (!inm) return
+      e.preventDefault()
+      setMenuFila({ x: e.clientX, y: e.clientY, bien: { ...inm, claveinventario: inm.claveinmueble } })
+    }
+    tabla.addEventListener('contextmenu', abrir, true)
+    return () => tabla.removeEventListener('contextmenu', abrir, true)
+  }, [filtrados])
   useEffect(() => { setPagina(0) }, [vista, busqueda, m2Min, m2Max, porPagina])
   const totalPag = Math.max(1, Math.ceil(filtrados.length / porPagina))
   const paginados = filtrados.slice(pagina * porPagina, (pagina + 1) * porPagina)
@@ -186,7 +364,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
 
   const cards = [
     { id: 'proceso',        icon: 'ti-progress',     label: 'En Proceso de Desincorporación', value: conteos.proceso, hint: 'Inmuebles en trámite', color: t.colorYellow },
-    { id: 'desincorporado', icon: 'ti-archive-off',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
+    { id: 'desincorporado', icon: 'ti-circle-minus',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
     { id: 'enajenaciones',  icon: 'ti-transfer',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
   ]
 
@@ -232,14 +410,16 @@ export default function ReportesInmuebles({ user, onNavigate }) {
         ) : (
           <>
             {/* Filtros */}
-            <div style={{ ...cardTabla, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div className="barra-fit" style={{ ...cardTabla, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 13px', borderRadius: '9px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', flex: 1, minWidth: '200px' }}>
                 <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
                 <input type="text" placeholder="Buscar por nombre, clave, catastral o ubicación..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
                   style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
                 {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {/* El rango de m² viaja junto: mide lo suyo y solo cuando el
+                  renglón ya no da baja completo y ocupa el ancho (grupo-m2). */}
+              <div className="grupo-m2" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 13px', borderRadius: '9px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', width: '120px' }}>
                   <i className="ti ti-ruler-measure" style={{ fontSize: '14px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
                   <input type="number" placeholder="Min m²" value={m2Min} onChange={e => setM2Min(e.target.value)} style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '13px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', MozAppearance: 'textfield' }} />
@@ -255,30 +435,49 @@ export default function ReportesInmuebles({ user, onNavigate }) {
 
             {/* Seleccionar + Generar */}
             {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
-            <div style={barraSticky(dark, t)}>
+            {/* Misma barra que Bienes Inmuebles, sin los botones de alta y de
+                desincorporación: aquí solo se selecciona y se reporta. */}
+            <div className="barra-fit" style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none' }}>
-                <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {modoSeleccion && <i className="ti ti-check" style={{ fontSize: '11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
+                  background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
+                <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0,
+                  background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent',
+                  border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)',
+                  display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
                 </div>
-                Seleccionar registros
+                Seleccionar Registros
               </div>
-              {modoSeleccion && seleccionados.size > 0 && (
-                <span style={{ fontSize: '13px', color: t.text3 }}>{seleccionados.size} seleccionado{seleccionados.size !== 1 ? 's' : ''}</span>
+
+              {modoSeleccion && (
+                <span style={{ fontSize:'13px', color:t.text3 }}>
+                  {seleccionados.size === 0
+                    ? 'Ningún registro seleccionado'
+                    : `${seleccionados.size} registro${seleccionados.size !== 1 ? 's' : ''} seleccionado${seleccionados.size !== 1 ? 's' : ''}`}
+                </span>
               )}
-              <button onClick={() => setModalNuevo(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                <i className="ti ti-building-plus" style={{ fontSize: '17px' }} />Nuevo Inmueble
-              </button>
-              <button onClick={() => setModalReporte(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Generar Reporte
-              </button>
+
+              {modoSeleccion && seleccionados.size > 0 && (
+                <button onClick={() => setSeleccionados(new Map())}
+                  style={{ display:'flex', alignItems:'center', gap:'6px', padding:'7px 12px', borderRadius:'8px', fontSize:'13px', fontFamily:'inherit', cursor:'pointer',
+                    background:'transparent', border:`1px solid ${t.cardBorder}`, color:t.text3 }}>
+                  <i className="ti ti-x" style={{ fontSize:'14px' }} />Limpiar
+                </button>
+              )}
+
+              <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
+                <button onClick={() => setModalReporte(true)}
+                  style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
+                    background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
+                  <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
+                </button>
+              </div>
             </div>
 
             <div style={{ ...cardTabla, overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <table ref={refTabla} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}` }}>
                       {modoSeleccion && (
@@ -311,7 +510,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                             const sel = seleccionados.has(b.idinmueble)
                             const bgFila = sel ? (dark ? 'rgba(168,197,248,0.10)' : 'rgba(37,99,235,0.06)') : (i % 2 !== 0 ? (dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)') : 'transparent')
                             return (
-                            <tr key={b.idinmueble} onClick={() => modoSeleccion && toggleSeleccion(b)} style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, cursor: modoSeleccion ? 'pointer' : 'default' }}>
+                            <tr key={b.idinmueble} data-idinmueble={b.idinmueble} onClick={() => modoSeleccion && toggleSeleccion(b)} style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, background: bgFila, cursor: modoSeleccion ? 'pointer' : 'default' }}>
                               {modoSeleccion && (
                                 <td style={{ ...tdBase(), textAlign: 'center', verticalAlign: 'middle' }}>
                                   <div style={{ width: '17px', height: '17px', borderRadius: '5px', margin: '0 auto', background: sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -343,11 +542,22 @@ export default function ReportesInmuebles({ user, onNavigate }) {
                                     <button onClick={(e) => { e.stopPropagation(); setModalDesinc(b) }} title="Desincorporar"
                                       style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#f4a1a1' : '#c0392b' }}
                                       onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                                      <i className="ti ti-archive-off" style={{ fontSize: '14px' }} />
+                                      <i className="ti ti-circle-minus" style={{ fontSize: '14px' }} />
                                     </button>
                                   )}
-                                  {!esDesinc && b._d.catOriginal && (
-                                    <button onClick={(e) => { e.stopPropagation(); cancelarProceso(b) }} title="Cancelar y regresar al inventario"
+                                  {/* Desde Desincorporado se puede devolver el
+                                      inmueble a trámite, por si se confirmó por error */}
+                                  {esDesinc && (
+                                    <button onClick={(e) => { e.stopPropagation(); setConfirmar({ inm: b, accion: 'aProceso' }) }} title="Regresar a En proceso de desincorporación"
+                                      style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,213,128,0.14)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#ffd580' : '#b7790a' }}
+                                      onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                      <i className="ti ti-progress" style={{ fontSize: '14px' }} />
+                                    </button>
+                                  )}
+                                  {/* La X regresa al inventario normal, desde
+                                      cualquiera de las dos pantallas */}
+                                  {(
+                                    <button onClick={(e) => { e.stopPropagation(); setConfirmar({ inm: b, accion: 'alInventario' }) }} title="Regresar al inventario"
                                       style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}
                                       onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                       <i className="ti ti-x" style={{ fontSize: '14px' }} />
@@ -411,11 +621,23 @@ export default function ReportesInmuebles({ user, onNavigate }) {
       )}
       {modalEditar && (
         <ModalEditar inmueble={modalEditar} onClose={() => setModalEditar(null)} dark={dark} t={t}
-          categorias={categorias} onSaved={() => cargar(vista === 'desinc' ? ID_DESINC : ID_PROCESO)} />
+          categorias={categorias} onSaved={() => cargar(esDesinc ? ID_DESINC : ID_PROCESO)} />
       )}
-      {modalNuevo && (
-        <ModalNuevoInmueble onClose={() => setModalNuevo(false)} dark={dark} t={t}
-          categorias={categorias} onCreated={() => cargar(vista === 'desinc' ? ID_DESINC : ID_PROCESO)} />
+      {menuFila && (
+        <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
+          acciones={[
+            { icon: 'ti-eye',    label: 'Consultar', accion: () => setPanel(menuFila.bien) },
+            { icon: 'ti-pencil', label: 'Modificar', accion: () => setModalEditar(menuFila.bien) },
+            { icon: 'ti-circle-minus', label: 'Desincorporar', accion: () => setModalDesinc(menuFila.bien), visible: !esDesinc, separador: true },
+            { icon: 'ti-progress', label: 'Regresar a trámite', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'aProceso' }), visible: esDesinc, separador: true },
+            { icon: 'ti-arrow-back-up', label: 'Regresar al inventario', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'alInventario' }) },
+          ]} />
+      )}
+      {confirmar && (
+        <ModalConfirmaMovimiento inm={confirmar.inm} accion={confirmar.accion} dark={dark} t={t}
+          categorias={categorias} catOriginal={confirmar.inm._d?.catOriginal}
+          onClose={() => setConfirmar(null)}
+          onConfirm={(cat) => moverInmueble(confirmar.inm, confirmar.accion, cat)} />
       )}
       {modalEnaj && <ModalEnajenaciones onClose={() => setModalEnaj(false)} dark={dark} t={t} />}
     </div>

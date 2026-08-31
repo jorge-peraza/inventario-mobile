@@ -55,6 +55,7 @@ function App() {
   // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
   // misma key React reutilizaba la instancia y mostraba los datos del otro
   if (page === 'papelera')            return <ThemeProvider><BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera /></ThemeProvider>
+  if (page === 'traspasos')           return <ThemeProvider><BienesMuebles key={`traspasos-${recarga}`} user={user} onNavigate={navigate} traspasos /></ThemeProvider>
   if (page === 'dependencias')        return <ThemeProvider><Dependencias key={recarga}       user={user} onNavigate={navigate} /></ThemeProvider>
 
   return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>

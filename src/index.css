@@ -24,3 +24,77 @@ button { cursor: pointer; font-family: inherit; }
   justify-content: center;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Barras de acciones y filtros ─────────────────────────────────────────────
+   En pantalla amplia cada control mide lo que necesita. Solo cuando la ventana
+   se hace chica —y los botones empezarían a encimarse— se reparten el renglón
+   para que queden parejos en vez de amontonados. */
+@media (max-width: 900px) {
+  .barra-fit > button,
+  .barra-fit > div > button {
+    flex: 1 1 auto !important;
+    justify-content: center !important;
+  }
+  .barra-fit > div {
+    flex: 1 1 auto;
+  }
+}
+
+/* Más angosto todavía: se aprieta el relleno y la letra para que la barra no
+   pase de dos renglones en pantalla dividida. */
+@media (max-width: 700px) {
+  .barra-fit > button,
+  .barra-fit > div > button {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+    gap: 6px !important;
+  }
+  .barra-fit > button > i,
+  .barra-fit > div > button > i {
+    font-size: 15px !important;
+  }
+}
+@media (max-width: 620px) {
+  /* Ya no caben las etiquetas: se dejan solo los iconos para que la barra no
+     pase de dos renglones. font-size 0 oculta el texto suelto del botón. */
+  .barra-fit > button,
+  .barra-fit > div > button {
+    font-size: 0 !important;
+    gap: 0 !important;
+    padding: 9px 13px !important;
+    flex: 0 0 auto !important;
+  }
+  .barra-fit > button > i,
+  .barra-fit > div > button > i {
+    font-size: 18px !important;
+  }
+  /* El grupo de acciones se pone en su propio renglón, centrado */
+  .barra-fit > div {
+    flex: 1 1 100% !important;
+    justify-content: center !important;
+  }
+}
+
+/* El rango de m²: en pantalla amplia cada caja mide lo suyo; cuando la ventana
+   se angosta y el grupo baja de renglón, lo ocupa completo en vez de quedarse
+   recortado a la izquierda. */
+@media (max-width: 900px) {
+  .barra-fit > .grupo-m2 {
+    flex: 1 1 100% !important;
+  }
+  .barra-fit > .grupo-m2 > div {
+    flex: 1 1 auto;
+    width: auto !important;
+  }
+}
+
+/* Pie de la tabla: en pantalla chica los dos grupos se acomodan en renglones
+   completos en vez de apretarse en los extremos. */
+@media (max-width: 700px) {
+  .pie-tabla {
+    justify-content: center !important;
+  }
+  .pie-tabla > div {
+    justify-content: center;
+  }
+}

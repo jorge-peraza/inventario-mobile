@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo } from 'react'
+import { createContext, useContext, useState, useMemo, useEffect } from 'react'
 import { guardarPreferencia } from '../auth'
 
 const ThemeContext = createContext()
@@ -14,9 +14,19 @@ export function ThemeProvider({ children }) {
     return n
   })
   const toggleSidebar = () => setSidebar(o => !o)
+
+  // En ventana angosta (pantalla dividida) el menú se recoge solo: con 230px
+  // ocupados el contenido se queda sin espacio y las barras se amontonan.
+  const [angosta, setAngosta] = useState(() => typeof window !== 'undefined' && window.innerWidth < 900)
+  useEffect(() => {
+    const medir = () => setAngosta(window.innerWidth < 900)
+    medir()
+    window.addEventListener('resize', medir)
+    return () => window.removeEventListener('resize', medir)
+  }, [])
   const t = useMemo(() => tokens(dark), [dark])
   return (
-    <ThemeContext.Provider value={{ dark, toggle, t, sidebarOpen, toggleSidebar }}>
+    <ThemeContext.Provider value={{ dark, toggle, t, sidebarOpen: sidebarOpen && !angosta, toggleSidebar }}>
       {children}
     </ThemeContext.Provider>
   )

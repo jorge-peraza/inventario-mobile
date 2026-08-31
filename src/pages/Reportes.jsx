@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
-import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { guardarPreferencia, metadataUsuario } from '../auth'
 
 // Los reportes personalizados se guardan en la CUENTA del usuario (user_metadata
@@ -578,6 +578,11 @@ export default function Reportes({ user, onNavigate }) {
   const esConfirmadas = vista === 'confirmadas'
   const estadoActual = esConfirmadas ? 'BAJA' : 'SOLICITUD BAJA'
 
+  // El filtro de dependencias de estas listas cuenta sobre la lista misma: el
+  // total del catálogo es de bienes vigentes y aquí no viene al caso. Los
+  // modales de reporte siguen recibiendo el catálogo completo.
+  const areasDeLista = useMemo(() => areasConConteo(allAreas, datos), [allAreas, datos])
+
   const cargarConteos = useCallback(async () => {
     try {
       const [sol, baj] = await Promise.all([fetchBienesPorEstado('SOLICITUD BAJA'), fetchBienesPorEstado('BAJA')])
@@ -800,23 +805,23 @@ export default function Reportes({ user, onNavigate }) {
                   style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
                 {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
               </div>
-              <div style={{ ...searchBoxStyle(dark), minWidth: '160px' }}>
+              <div style={{ ...searchBoxStyle(dark), flex: '1 1 160px', minWidth: '160px' }}>
                 <i className="ti ti-tag" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
                 <input type="text" placeholder="silla, escritorio..." value={filtroBien} onChange={e => setFiltroBien(e.target.value)}
                   style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
                 {filtroBien && <button onClick={() => setFiltroBien('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
               </div>
-              <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
+              <GroupedAreaSelector areas={areasDeLista} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
             </div>
 
             {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
-            <div style={barraSticky(dark, t)}>
+            <div className="barra-fit" style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {modoSeleccion && <i className="ti ti-check" style={{ fontSize: '11px', color: dark ? '#1c1c1e' : '#fff' }} />}
                 </div>
-                Seleccionar registros
+                Seleccionar Registros
               </div>
               {modoSeleccion && (
                 <span style={{ fontSize: '13px', color: t.text3 }}>

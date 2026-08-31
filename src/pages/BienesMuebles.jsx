@@ -117,7 +117,7 @@ export function btnBarra(dark, t, activo = true) {
     cursor: activo ? 'pointer' : 'not-allowed', opacity: activo ? 1 : 0.45,
     background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1,
     backdropFilter: 'blur(10px)', transition: 'opacity 0.15s',
-    // En ventana angosta la barra envuelve, pero la etiqueta no debe partirse
+    // El reparto del renglón en ventana chica lo hace .barra-fit (index.css)
     whiteSpace: 'nowrap', flexShrink: 0,
   }
 }
@@ -1306,11 +1306,14 @@ const PARTIDA_POR_MODO = {
 // ── QUERY SUPABASE ────────────────────────────────────────────────────────────
 // Los mismos filtros que usa la tabla, menos el texto buscado. Se comparte con
 // paginaDeBien para que el conteo salga sobre exactamente la misma lista.
-function filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera }) {
-  query = query
-    // La papelera es la misma lista, solo cambia el estado que se pide
-    .in('estadobien', papelera ? [ESTADO_PAPELERA] : ['ACTIVO', 'SOLICITUD BAJA'])
-    .in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+function filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos }) {
+  // La papelera y los traspasos son la misma lista, solo cambia el estado
+  query = query.in('estadobien', traspasos ? ['TRASPASO'] : papelera ? [ESTADO_PAPELERA] : ['ACTIVO', 'SOLICITUD BAJA'])
+
+  // Los traspasados llevan su propia categoría ('TRASPASOS'), así que filtrar
+  // por tipo de bien los dejaría a todos fuera: en esa vista no se aplica.
+  if (!traspasos)
+    query = query.in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
 
   if (filtroAreaIds && filtroAreaIds.length > 0)
     query = query.in('idarea', filtroAreaIds)
@@ -1382,7 +1385,7 @@ async function paginaDeBien(bien, filtros) {
   return Math.floor((count || 0) / porPagina)
 }
 
-async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera }) {
+async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera, traspasos }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
 
@@ -1405,7 +1408,7 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
   // revisa el listado de un área.
   query = ordenDeLista(query, filtroAreaIds)
 
-  query = filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera })
+  query = filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos })
 
   if (busqueda)
     query = query.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
@@ -1752,6 +1755,38 @@ export async function fetchAreas() {
   return data
 }
 
+// El total que trae el catálogo (`areas_activas.total_bienes`) cuenta los bienes
+// vigentes. En las listas de otro estado —traspasos, bajas, solicitudes— ese
+// número engaña: el filtro promete cientos y la tabla luego enseña tres. Estas
+// dos funciones rehacen el conteo sobre la lista que se está viendo y dejan
+// fuera las áreas que no tienen nada ahí.
+export function areasConConteo(areas, filas) {
+  const porArea = new Map()
+  for (const b of filas || []) porArea.set(b.idarea, (porArea.get(b.idarea) || 0) + 1)
+  return (areas || [])
+    .map(a => ({ ...a, total_bienes: porArea.get(a.idarea) || 0 }))
+    .filter(a => a.total_bienes > 0)
+}
+
+// Igual, pero cuando la lista no está cargada en pantalla (la tabla viene
+// paginada): se pregunta a la base solo por el área de cada bien.
+export async function conteoAreasPorEstado(estados) {
+  const BATCH = 1000
+  const porArea = new Map()
+  let desde = 0
+  while (true) {
+    const { data, error } = await supabase.from('bienes').select('idarea')
+      .in('estadobien', estados)
+      .range(desde, desde + BATCH - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    for (const b of data) porArea.set(b.idarea, (porArea.get(b.idarea) || 0) + 1)
+    if (data.length < BATCH) break
+    desde += BATCH
+  }
+  return porArea
+}
+
 // ── REPORTE (Excel / PDF, réplica de la tabla) ─────────────────────────────────
 const GRIS_HEADER = 'BFBFBF'
 const NEGRO       = '000000'
@@ -1826,7 +1861,23 @@ export async function contarPorFechaFactura({ desde, hasta }) {
 }
 
 // Columnas del reporte según el tipo (idénticas a la tabla)
-export function colsReporte(modo) {
+export function colsReporte(modo, traspasos) {
+  // El reporte de traspasos lleva las columnas de la tabla de traspasos: el
+  // oficio y la fecha con que salió el bien en vez de los datos de compra.
+  if (traspasos) return [
+    { key: 'claveinventario',  label: 'CLAVE DE INVENTARIO', m: 'Clave de inventario', w: 18, noWrap: true },
+    { key: 'nombrebien',       label: 'NOMBRE DEL BIEN',     m: 'Nombre del bien',     w: 34, grupo: 'DESCRIPCIÓN', align: 'left' },
+    { key: 'marca',            label: 'MARCA',               m: 'Marca',               w: 14, grupo: 'DESCRIPCIÓN' },
+    { key: 'tipo',             label: 'TIPO',                m: 'Tipo',                w: 14, grupo: 'DESCRIPCIÓN' },
+    { key: 'serie',            label: 'SERIE',               m: 'Serie',               w: 18, grupo: 'DESCRIPCIÓN' },
+    { key: 'area',             label: 'ÁREA DE ORIGEN',      m: 'Área de origen',      w: 28, align: 'left' },
+    { key: 'resguardo',        label: 'RESGUARDO A CARGO DE', m: 'Resguardo a cargo de', w: 26, align: 'left' },
+    { key: 'oficiotraspaso',   label: 'OFICIO',              m: 'Oficio',              w: 16, noWrap: true },
+    { key: 'fechatraspaso',    label: 'FECHA DE TRASPASO',   m: 'Fecha de traspaso',   w: 14, noWrap: true },
+    { key: 'notatraspaso',     label: 'MOVIMIENTO',          m: 'Movimiento',          w: 40, align: 'left' },
+    { key: 'importe',          label: 'IMPORTE',             m: 'Importe',             w: 14 },
+    { key: 'numerofactura',    label: 'FACTURA',             m: 'Factura',             w: 14 },
+  ]
   const veh = modo === 'vehiculos' || modo === 'maquinaria'
   const desc = veh
     ? [
@@ -1883,6 +1934,12 @@ export function valorMueble(col, b) {
       const p = b.puesto && b.puesto !== '—' ? b.puesto : ''
       return n ? (p ? `${n} (${p})` : n) : (p || '')
     }
+    case 'oficiotraspaso':
+      return oficioDeTraspaso(b.observaciones)
+    case 'fechatraspaso':
+      return fechaDeTraspaso(b.observaciones)
+    case 'notatraspaso':
+      return notaDeTraspaso(b.observaciones)
     case 'observaciones': {
       const lbl = estadoInfo(b.observaciones, false).label
       const o = b.observaciones && b.observaciones !== '—' ? b.observaciones : ''
@@ -1925,6 +1982,39 @@ export function fechaDeAlta(observaciones) {
   if (d && Number(d[1]) <= 31 && Number(d[2]) >= 1 && Number(d[2]) <= 12)
     return `${d[3]}-${String(d[2]).padStart(2, '0')}-${String(d[1]).padStart(2, '0')}`
   return null
+}
+
+// ── TRASPASOS ─────────────────────────────────────────────────────────────────
+// Un traspaso tampoco tiene columnas propias: el destino, el oficio y la fecha
+// quedaron escritos dentro de observaciones, con la forma que usa Oficialía:
+// "TRASPASO A MEDICOS CALIFICADORES MEDIANTE OFICIO 614/2025 18-MARZO-2025".
+// De ahí se leen para poder mostrarlos en su propia columna.
+// Se toma el último tramo que hable de traspaso: observaciones acumula la
+// historia del bien separada por "|" y el traspaso siempre se anota al final.
+export function notaDeTraspaso(observaciones) {
+  const partes = String(observaciones || '').split('|').map(s => s.trim())
+  return partes.filter(p => /TRASPAS/i.test(p)).pop() || ''
+}
+
+export function oficioDeTraspaso(observaciones) {
+  const nota = notaDeTraspaso(observaciones).toUpperCase()
+  // OFIC\w* cubre "OFICIO", "OFICIOS" y la errata "OFICOIO" que hay capturada
+  const m = nota.match(/OFIC\w*\s+(?:N[O°.]*\s*)?([A-Z0-9][A-Z0-9/.\-]*)/)
+  return m ? m[1].replace(/[.,]$/, '') : ''
+}
+
+export function fechaDeTraspaso(observaciones) {
+  const s = notaDeTraspaso(observaciones).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const m = s.match(/(\d{1,2})\s*[-/ ]\s*([A-Z]{3,12})\s*[-/ ]\s*(\d{4})/)
+  if (m) {
+    const mes = MESES_ALTA.findIndex(x => x.startsWith(m[2].slice(0, 3)))
+    const dia = Number(m[1])
+    if (mes >= 0 && dia >= 1 && dia <= 31) return `${m[3]}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+  }
+  const d = s.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/)
+  if (d && Number(d[1]) <= 31 && Number(d[2]) >= 1 && Number(d[2]) <= 12)
+    return `${d[3]}-${String(d[2]).padStart(2, '0')}-${String(d[1]).padStart(2, '0')}`
+  return ''
 }
 
 // El número de oficio con el que se dio de alta, para que salga en el reporte
@@ -2001,12 +2091,15 @@ export const COLS_ALTAS = [
   { key: 'resguardatario',  label: 'RESGUARDANTE',        m: 'Resguardante',        w: 24, align: 'left' },
 ]
 
-export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds }) {
+export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds, traspasos }) {
   const BATCH = 1000
   let todos = [], desde = 0
   while (true) {
     let q = supabase.from('bienes').select(SELECT_BIENES).order('consecutivo', { ascending: true }).order('idbien', { ascending: true }).range(desde, desde + BATCH - 1)
-    q = q.in('estadobien', ['ACTIVO', 'SOLICITUD BAJA']).in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
+    // Los traspasados llevan su propia categoría, por eso ahí no se filtra por tipo
+    q = traspasos
+      ? q.eq('estadobien', 'TRASPASO')
+      : q.in('estadobien', ['ACTIVO', 'SOLICITUD BAJA']).in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
     if (filtroAreaIds && filtroAreaIds.length) q = q.in('idarea', filtroAreaIds)
     if (busqueda)   q = q.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
     if (filtroBien) q = q.or(`nombrebien.ilike.%${filtroBien}%,tipo.ilike.%${filtroBien}%,marca.ilike.%${filtroBien}%`)
@@ -2201,7 +2294,7 @@ export function ModalConfirmaBien({ bien, accion, onClose, onConfirm, dark, t, a
           <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: col.bg, border:`1px solid ${col.bd}`, borderRadius:'9px', fontSize:'14px', fontWeight:600, color: col.txt, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
             {guardando
               ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</>
-              : <><i className={`ti ${esRestaurar ? 'ti-arrow-back-up' : 'ti-trash'}`} style={{ fontSize:'15px' }} />{esRestaurar ? 'Sí, restaurar' : 'Mover a Papelera'}</>}
+              : (esRestaurar ? 'Restaurar al Inventario' : 'Mover a Papelera')}
           </button>
         </div>
       </div>
@@ -2998,8 +3091,8 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
 }
 
 // ── Modal Reporte ───────────────────────────────────────────────────────────────
-function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, totalFiltrados }) {
-  const COLS = colsReporte(modo)
+function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, totalFiltrados, traspasos }) {
+  const COLS = colsReporte(modo, traspasos)
   const haySel = seleccionados.length > 0
   const [colsSel, setColsSel] = useState(() => new Set(COLS.map(c => c.key)))
   const [titulo, setTitulo]   = useState('')
@@ -3379,8 +3472,80 @@ async function reasignarTitularArea({ idarea, filasOrigen, idresguardoDestino })
   return (data || []).length
 }
 
+// Confirmación del cambio de titular. El movimiento alcanza a todos los bienes
+// que esa persona tiene en el área, así que antes de tocarlos se repite lo que
+// va a pasar y se pide el sí.
+function ModalConfirmaTitular({ resumen, onClose, onConfirm, dark, t, guardando }) {
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const dato = (etq, val) => (
+    <div style={{ padding: '10px 1.5rem', borderBottom: sep }}>
+      <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '3px' }}>{etq}</p>
+      <p style={{ fontSize: '13px', color: dark ? '#f0f0f0' : '#111', lineHeight: 1.35 }}>{val || '—'}</p>
+    </div>
+  )
+
+  return createPortal(
+    <>
+      <div onClick={guardando ? undefined : onClose} style={{ position:'fixed', inset:0, zIndex:400, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:401, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background:t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-users-group" style={{ fontSize:'18px', color:t.text1 }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Confirmar Cambio de Titular</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{resumen.area}</p>
+            </div>
+          </div>
+          <button onClick={onClose} disabled={guardando} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor: guardando ? 'not-allowed' : 'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ minHeight:0, overflowY:'auto' }}>
+          <div style={{ padding:'12px 1.5rem', borderBottom: sep, fontSize:'12.5px', lineHeight:1.6 }}>
+            <p style={{ color: dark ? '#f0f0f0' : '#111', fontWeight:600 }}>Se Actualizarán {resumen.bienes} {resumen.bienes === 1 ? 'Bien' : 'Bienes'}</p>
+            <p style={{ color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
+              Del Titular {resumen.sale} a {resumen.nombre} en {resumen.area}.
+            </p>
+            {resumen.otros > 0 && <p style={{ color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
+              Los {resumen.otros} de los demás resguardantes de esta área no se tocan.
+            </p>}
+            <p style={{ color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)', marginTop:'6px' }}>
+              Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
+            </p>
+          </div>
+          {dato('Área', resumen.area)}
+          {dato('Titular que deja el área', resumen.sale)}
+          {dato('Titular nuevo', resumen.nombre)}
+          {dato('Puesto', resumen.puesto)}
+          {dato('Bienes que cambian de titular', String(resumen.bienes))}
+        </div>
+
+        <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
+          <button onClick={onClose} disabled={guardando}
+            style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor: guardando ? 'not-allowed' : 'pointer' }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={guardando}
+            style={{ flex:1, padding:'10px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer',
+              background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)',
+              border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)',
+              color: dark ? '#a8e6cf' : '#15803d', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Aplicando…</> : 'Sí, actualizar'}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
 function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
-  const { close, anim } = useClosing(onClose)
+  // Entra como los demás modales del programa, no de lado
+  const close = onClose
+  const anim = 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)'
   const [idarea, setIdarea]   = useState('')
   const [datos, setDatos]     = useState(null)      // { lista, total, sinTitular }
   const [cargando, setCargando] = useState(false)
@@ -3397,8 +3562,7 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
 
   // Al elegir área se leen sus titulares
   useEffect(() => {
-    // Al cambiar de área se empieza de cero: el puesto vuelve a proponerse solo
-    puestoTocado.current = false
+    // Al cambiar de área se empieza de cero
     setPuesto('')
     if (!idarea) { setDatos(null); setSale(null); return }
     let vivo = true
@@ -3410,13 +3574,11 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
     return () => { vivo = false }
   }, [idarea])
 
-  // El puesto propuesto sigue a la persona que se elija, no se queda con el de
-  // la primera. Deja de seguirla en cuanto se escribe uno a mano.
-  const puestoTocado = useRef(false)
+  // El puesto se captura a mano: se deja vacío con su placeholder en vez de
+  // proponer el de la persona que sale.
   function elegirSale(p) {
     setSale(p)
     setConfirma(false)
-    if (!puestoTocado.current) setPuesto(p.puestos[0] || '')
   }
 
   const areaNom = allAreas.find(a => String(a.idarea) === String(idarea))?.nombrearea || ''
@@ -3452,7 +3614,7 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
               <i className="ti ti-users-group" style={{ fontSize:'18px', color:t.text1 }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Titular del área</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Titular del Área</p>
               <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Cambia el resguardante de todos sus bienes</p>
             </div>
           </div>
@@ -3493,13 +3655,15 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
                     : <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
                         {datos.lista.map(p => {
                           const sel = sale && sale.nombre === p.nombre
+                          // Marcado solo con sombreado, sin color: el mismo gris
+                          // que usan las demás listas del programa
                           return (
                             <button key={p.nombre} onClick={() => elegirSale(p)}
                               style={{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 12px', borderRadius:'9px', textAlign:'left', fontFamily:'inherit', cursor:'pointer',
-                                background: sel ? (dark ? 'rgba(168,197,248,0.14)' : 'rgba(37,99,235,0.07)') : 'transparent',
-                                border: sel ? (dark ? '1px solid rgba(168,197,248,0.4)' : '1px solid rgba(37,99,235,0.35)') : `1px solid ${t.cardBorder}` }}>
-                              <div style={{ width:'16px', height:'16px', borderRadius:'50%', flexShrink:0, border: `2px solid ${sel ? (dark ? '#a8c5f8' : '#2563eb') : t.text4}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                                {sel && <div style={{ width:'8px', height:'8px', borderRadius:'50%', background: dark ? '#a8c5f8' : '#2563eb' }} />}
+                                background: sel ? (dark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.05)') : 'transparent',
+                                border: sel ? (dark ? '1px solid rgba(255,255,255,0.22)' : '1px solid rgba(0,0,0,0.18)') : `1px solid ${t.cardBorder}` }}>
+                              <div style={{ width:'16px', height:'16px', borderRadius:'50%', flexShrink:0, border: `2px solid ${sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)') : t.text4}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                {sel && <div style={{ width:'8px', height:'8px', borderRadius:'50%', background: dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)' }} />}
                               </div>
                               <div style={{ flex:1, minWidth:0 }}>
                                 <p style={{ fontSize:'13px', fontWeight:500, color:t.text1 }}>{p.nombre}</p>
@@ -3523,26 +3687,29 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
                         no son personas y se proponían aquí como titulares */}
                     <div>{lbl('Titular nuevo')}
                       <input value={nombre} onChange={e => setNombre(e.target.value)}
-                        placeholder="LIC. NOMBRE APELLIDO" autoComplete="off" autoCorrect="off" spellCheck={false}
+                        placeholder="Nombre del Titular" autoComplete="off" autoCorrect="off" spellCheck={false}
                         style={iStyle(dark)} />
                     </div>
                     <div>{lbl('Puesto')}
-                      <input value={puesto} onChange={e => { puestoTocado.current = true; setPuesto(e.target.value) }}
-                        autoComplete="off" spellCheck={false} style={iStyle(dark)} />
+                      <input value={puesto} onChange={e => setPuesto(e.target.value)}
+                        placeholder="Puesto del Titular" autoComplete="off" spellCheck={false} style={iStyle(dark)} />
                     </div>
                   </div>
 
-                  <div style={{ padding:'12px 13px', borderRadius:'10px', fontSize:'12.5px', lineHeight:1.6,
-                    background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}` }}>
-                    <p style={{ color:t.text1, fontWeight:600 }}>Se van a mover {sale.bienes} {sale.bienes === 1 ? 'bien' : 'bienes'}</p>
-                    <p style={{ color:t.text3 }}>Los de {sale.nombre} en {areaNom}.</p>
-                    {datos.lista.length > 1 && <p style={{ color:t.text3, marginTop:'4px' }}>
-                      Los {datos.total - sale.bienes - datos.sinTitular} de los demás resguardantes de esta área no se tocan.
-                    </p>}
-                    <p style={{ color:t.text4, marginTop:'6px' }}>
-                      Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
-                    </p>
-                  </div>
+                  {/* El aviso sale hasta que hay nombre nuevo: antes de eso no
+                      hay nada que anunciar. Va como texto, sin recuadro. */}
+                  {nombre.trim() && (
+                    <div style={{ fontSize:'12.5px', lineHeight:1.6 }}>
+                      <p style={{ color:t.text1, fontWeight:600 }}>Se Actualizarán {sale.bienes} {sale.bienes === 1 ? 'Bien' : 'Bienes'}</p>
+                      <p style={{ color:t.text3 }}>Del Titular {sale.nombre} a {nombre.trim().toUpperCase()} en {areaNom}.</p>
+                      {datos.lista.length > 1 && <p style={{ color:t.text3 }}>
+                        Los {datos.total - sale.bienes - datos.sinTitular} de los demás resguardantes de esta área no se tocan.
+                      </p>}
+                      <p style={{ color:t.text4, marginTop:'6px' }}>
+                        Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -3555,19 +3722,31 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
           <div style={{ flexShrink:0, padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
             <button onClick={close} disabled={guardando}
               style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor: guardando ? 'not-allowed' : 'pointer' }}>Cancelar</button>
-            <button onClick={() => (confirma ? aplicar() : setConfirma(true))} disabled={!listo}
+            {/* La confirmación va en su propio modal, no en el mismo botón */}
+            <button onClick={() => setConfirma(true)} disabled={!listo}
               style={{ flex:1, padding:'10px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: listo ? 'pointer' : 'not-allowed', opacity: listo ? 1 : 0.5,
                 background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)',
                 border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)',
                 color: dark ? '#a8e6cf' : '#15803d', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
-              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Aplicando…</>
-                : confirma ? <><i className="ti ti-check" style={{ fontSize:'15px' }} />Sí, mover {sale?.bienes}</>
-                : <><i className="ti ti-users-group" style={{ fontSize:'15px' }} />Cambiar titular</>}
+              {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Aplicando…</> : 'Cambiar titular'}
             </button>
           </div>
         )}
       </div>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      {confirma && sale && (
+        <ModalConfirmaTitular dark={dark} t={t} guardando={guardando}
+          resumen={{
+            area: areaNom,
+            sale: sale.nombre,
+            nombre: nombre.trim().toUpperCase(),
+            puesto: puesto.trim(),
+            bienes: sale.bienes,
+            otros: datos.lista.length > 1 ? datos.total - sale.bienes - datos.sinTitular : 0,
+          }}
+          onClose={() => { if (!guardando) setConfirma(false) }}
+          onConfirm={aplicar} />
+      )}
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
     </>,
     document.body
   )
@@ -4038,7 +4217,7 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
 // ── PÁGINA ────────────────────────────────────────────────────────────────────
 // ── Menú de clic derecho sobre un renglón ─────────────────────────────────────
 // Se ancla al puntero y se corrige solo si no cabe hacia abajo o a la derecha.
-export function MenuFila({ menu, onClose, dark, t, onIrAPagina, onConsultar }) {
+export function MenuFila({ menu, onClose, dark, t, acciones = [] }) {
   const ref = useRef(null)
   const [pos, setPos] = useState({ x: menu.x, y: menu.y })
   // onClose llega como función nueva en cada render del padre; con la ref el
@@ -4080,10 +4259,8 @@ export function MenuFila({ menu, onClose, dark, t, onIrAPagina, onConsultar }) {
     }
   }, [])
 
-  const opciones = [
-    { icon: 'ti-map-pin', label: 'Ir a página', accion: () => onIrAPagina(menu.bien) },
-    { icon: 'ti-eye',     label: 'Consultar',   accion: () => onConsultar(menu.bien) },
-  ]
+  // Cada pantalla decide qué acciones ofrece sobre el renglón
+  const opciones = acciones.filter(o => o && (o.visible === undefined || o.visible))
 
   return createPortal(
     <div ref={ref} onClick={e => e.stopPropagation()} onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
@@ -4100,10 +4277,12 @@ export function MenuFila({ menu, onClose, dark, t, onIrAPagina, onConsultar }) {
         <button key={o.label} onClick={() => { onClose(); o.accion() }}
           style={{ display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '8px 9px', borderRadius: '8px',
             background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-            fontSize: '13px', color: t.text1, textAlign: 'left' }}
+            fontSize: '13px', color: o.color || t.text1, textAlign: 'left',
+            borderTop: o.separador ? (dark ? '1px solid rgba(255,255,255,0.09)' : '1px solid rgba(0,0,0,0.07)') : 'none',
+            marginTop: o.separador ? '4px' : 0, paddingTop: o.separador ? '10px' : '8px' }}
           onMouseEnter={e => e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <i className={`ti ${o.icon}`} style={{ fontSize: '15px', color: t.text3 }} />{o.label}
+          <i className={`ti ${o.icon}`} style={{ fontSize: '15px', color: o.color || t.text3 }} />{o.label}
         </button>
       ))}
     </div>,
@@ -4111,7 +4290,7 @@ export function MenuFila({ menu, onClose, dark, t, onIrAPagina, onConsultar }) {
   )
 }
 
-export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', papelera = false }) {
+export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', papelera = false, traspasos = false }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [modo, setModo]                     = useState(initialModo)
@@ -4158,8 +4337,19 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const skipDebounce = useRef(true)
 
   useEffect(() => {
-    fetchAreas().then(setAllAreas).catch(console.error)
-  }, [])
+    let vivo = true
+    fetchAreas()
+      .then(async areas => {
+        // En traspasos el filtro debe traer los números de esa lista, no los
+        // del inventario vigente. La papelera conserva el catálogo completo
+        // porque de ahí se elige el área a la que regresa un bien.
+        if (!traspasos) { if (vivo) setAllAreas(areas); return }
+        const conteo = await conteoAreasPorEstado(['TRASPASO'])
+        if (vivo) setAllAreas(areas.map(a => ({ ...a, total_bienes: conteo.get(a.idarea) || 0 })).filter(a => a.total_bienes > 0))
+      })
+      .catch(console.error)
+    return () => { vivo = false }
+  }, [traspasos])
 
   const cargar = useCallback((pag, params = {}) => {
     setLoading(true)
@@ -4173,6 +4363,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       filtroAreaIds: params.filtroAreaIds ?? areasSelec,
       porPagina:     params.porPagina     ?? porPagina,
       papelera,
+      traspasos,
     })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(pag) })
       .catch(err => setError(err.message))
@@ -4203,7 +4394,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       // corresponde ahí, no el de todo el inventario.
       const suArea = b.idarea != null ? [b.idarea] : areasSelec
 
-      const pag = await paginaDeBien(b, { modo, filtroBien, filtroEstado, filtroAreaIds: suArea, porPagina, papelera })
+      const pag = await paginaDeBien(b, { modo, filtroBien, filtroEstado, filtroAreaIds: suArea, porPagina, papelera, traspasos })
       // Cambiar búsqueda y filtro dispararía otra carga en página 0; se salta
       skipDebounce.current = true
       setBusqueda('')
@@ -4228,11 +4419,11 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina, papelera })
+    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina, papelera, traspasos })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(0) })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
-  }, [modo, papelera])
+  }, [modo, papelera, traspasos])
 
   useEffect(() => {
     if (skipDebounce.current) { skipDebounce.current = false; return }
@@ -4298,19 +4489,19 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
-      <Sidebar user={user} active={papelera ? 'papelera' : 'bienes'} onNavigate={onNavigate} />
+      <Sidebar user={user} active={papelera ? 'papelera' : traspasos ? 'traspasos' : 'bienes'} onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : 'Bienes Muebles'}</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : traspasos ? 'Traspasos' : 'Bienes Muebles'}</h1>
             <p style={{ fontSize: '14px', color: t.text3 }}>
-              {papelera ? 'Bienes capturados por error · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
+              {papelera ? 'Bienes capturados por error · ' : traspasos ? 'Bienes traspasados · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
             </p>
           </div>
-          {!papelera && (
+          {!papelera && !traspasos && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {/* Actúa sobre un área completa, por eso va aquí y no en la barra
                   de acciones, que trabaja sobre los registros seleccionados. */}
@@ -4325,7 +4516,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         </div>
 
         {/* Filtros */}
-        <div style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', overflow: 'visible', position: 'relative', zIndex: 100 }}>
+        <div className="barra-fit" style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', overflow: 'visible', position: 'relative', zIndex: 100 }}>
           <div style={{ ...searchBoxStyle(dark), flex: 1, minWidth: '180px' }}>
             <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
             <input type="text" placeholder="Buscar por nombre o clave..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
@@ -4341,20 +4532,26 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
           </div>
 
-          <button onClick={() => setModalTipo(true)}
-            style={{ ...searchBoxStyle(dark), minWidth: '200px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-            <i className={`ti ${MODOS.find(m => m.id === modo)?.icon || 'ti-category'}`} style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)', flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: dark ? '#f0f0f0' : '#111' }}>
-              {MODOS.find(m => m.id === modo)?.label || 'Categoría'}
-            </span>
-            <i className="ti ti-chevron-down" style={{ fontSize: '14px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
-          </button>
+          {/* En traspasos no aplica el tipo de bien: todos llevan la categoría
+              TRASPASOS. Quedan la búsqueda y el filtro de dependencia y área. */}
+          {!traspasos && (
+            <button onClick={() => setModalTipo(true)}
+              style={{ ...searchBoxStyle(dark), minWidth: '200px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+              <i className={`ti ${MODOS.find(m => m.id === modo)?.icon || 'ti-category'}`} style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)', flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: dark ? '#f0f0f0' : '#111' }}>
+                {MODOS.find(m => m.id === modo)?.label || 'Categoría'}
+              </span>
+              <i className="ti ti-chevron-down" style={{ fontSize: '14px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
+            </button>
+          )}
 
           <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} />
 
-          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...sStyle(dark), width: 'auto' }}>
-            {['Todos', 'Buen estado', 'Deteriorado', 'No verificado'].map(e => <option key={e}>{e}</option>)}
-          </select>
+          {!traspasos && (
+            <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...sStyle(dark), width: 'auto' }}>
+              {['Todos', 'Buen estado', 'Deteriorado', 'No verificado'].map(e => <option key={e}>{e}</option>)}
+            </select>
+          )}
 
         </div>
 
@@ -4362,13 +4559,13 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla.
             En la papelera no hay nada que operar en lote, así que no se muestra. */}
         {!papelera && (
-        <div style={barraSticky(dark, t)}>
+        <div className="barra-fit" style={barraSticky(dark, t)} data-barra="acciones">
           <div onClick={toggleModoSeleccion}
-            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
+            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none', whiteSpace:'nowrap' }}>
             <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
             </div>
-            Seleccionar registros
+            Seleccionar Registros
           </div>
 
           {modoSeleccion && (
@@ -4383,17 +4580,21 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             </button>
           )}
 
-          {/* Siempre visibles; se atenúan mientras no haya registros marcados */}
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
-            <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
-              style={btnBarra(dark, t, seleccionados.size > 0)}>
-              <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
-              {seleccionados.size > 1 ? `Resguardos (${seleccionados.size})` : 'Resguardo'}
-            </button>
-            <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
-              style={btnBarra(dark, t, seleccionados.size > 0)}>
-              <i className="ti ti-circle-minus" style={{ fontSize:'17px' }} />Solicitar Baja
-            </button>
+          {/* Siempre visibles; se atenúan mientras no haya registros marcados.
+              En traspasos solo se consulta y se reporta: resguardos y bajas
+              trabajan sobre bienes vigentes. */}
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
+            {!traspasos && <>
+              <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
+                style={btnBarra(dark, t, seleccionados.size > 0)}>
+                <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
+                {seleccionados.size > 1 ? `Resguardos (${seleccionados.size})` : 'Resguardo'}
+              </button>
+              <button onClick={solicitarBaja} disabled={seleccionados.size === 0}
+                style={btnBarra(dark, t, seleccionados.size > 0)}>
+                <i className="ti ti-circle-minus" style={{ fontSize:'17px' }} />Solicitar Baja
+              </button>
+            </>}
             <button onClick={() => setModalReporte(true)} style={btnBarra(dark, t, true)}>
               <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
             </button>
@@ -4429,14 +4630,23 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                   <th colSpan={esVehiculo ? 5 : 4} style={{ ...thBase(dark), textAlign: 'center', borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', borderRight: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)', letterSpacing: '0.2em' }}>
                     D &nbsp; E &nbsp; S &nbsp; C &nbsp; R &nbsp; I &nbsp; P &nbsp; C &nbsp; I &nbsp; Ó &nbsp; N
                   </th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ÁREA DE ADSCRIPCIÓN</th>
+                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>{traspasos ? 'ÁREA DE ORIGEN' : 'ÁREA DE ADSCRIPCIÓN'}</th>
                   <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>RESGUARDO A CARGO DE</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>OBSERVACIONES</th>
+                  {/* En traspasos manda el movimiento: con qué oficio salió el
+                      bien, cuándo y a dónde. Eso vive dentro de observaciones. */}
+                  {traspasos && <>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>OFICIO</th>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FECHA DE TRASPASO</th>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>MOVIMIENTO</th>
+                  </>}
+                  {!traspasos && <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>OBSERVACIONES</th>}
                   <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>IMPORTE</th>
                   <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FACTURA</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PROVEEDOR</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FECHA FACTURA</th>
-                  <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PARTIDA</th>
+                  {!traspasos && <>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PROVEEDOR</th>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>FECHA FACTURA</th>
+                    <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PARTIDA</th>
+                  </>}
                   <th rowSpan={2} style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ACCIONES</th>
                 </tr>
                 <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
@@ -4516,6 +4726,14 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                             <p style={{ color: t.text2 }}>{b.resguardatario}</p>
                             <p style={{ color: t.text4, fontSize: '11px', marginTop: '2px' }}>{b.puesto}</p>
                           </td>
+                          {traspasos && <>
+                            <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text2 }}>{oficioDeTraspaso(b.observaciones) || '—'}</span></td>
+                            <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3 }}>{fechaDeTraspaso(b.observaciones) || '—'}</span></td>
+                            <td style={{ ...tdBase(), width: '230px', maxWidth: '230px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                              <p title={b.observaciones} style={{ fontSize: '11px', color: t.text3, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{notaDeTraspaso(b.observaciones) || '—'}</p>
+                            </td>
+                          </>}
+                          {!traspasos && (
                           <td style={{ ...tdBase(), width: '170px', maxWidth: '170px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             {(() => { const e = estadoInfo(b.observaciones, dark); return (
                               <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '20px', display: 'inline-block', marginBottom: '4px', background: e.bg, color: e.color, border: `1px solid ${e.color}44` }}>
@@ -4524,11 +4742,14 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                             ) })()}
                             <p title={b.observaciones} style={{ fontSize: '11px', color: t.text4, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{b.observaciones || '—'}</p>
                           </td>
+                          )}
                           <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2, fontWeight: 500 }}>{fmt(b.costoinicial)}</span></td>
                           <td style={tdBase()}><span style={{ color: t.text3, fontSize: '11px' }}>{b.numerofactura}</span></td>
-                          <td style={tdBase()}><span style={{ color: t.text2 }}>{b.proveedor}</span></td>
-                          <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3 }}>{b.fechafactura}</span></td>
-                          <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '11px' }}>{b.partida || '—'}</span></td>
+                          {!traspasos && <>
+                            <td style={tdBase()}><span style={{ color: t.text2 }}>{b.proveedor}</span></td>
+                            <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3 }}>{b.fechafactura}</span></td>
+                            <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '11px' }}>{b.partida || '—'}</span></td>
+                          </>}
                           <td style={tdBase()}>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
                               <button onClick={(e) => { e.stopPropagation(); setPanelBien(b) }}      title="Consultar"    style={btnAccion(dark, 'consulta')}  onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-eye"             style={{ fontSize: '14px' }} /></button>
@@ -4539,7 +4760,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                                   <i className="ti ti-arrow-back-up" style={{ fontSize: '14px' }} />
                                 </button>
                               )}
-                              {!papelera && <>
+                              {!papelera && !traspasos && <>
                               <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }}    title="Modificar"    style={btnAccion(dark, 'editar')}    onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-pencil"          style={{ fontSize: '14px' }} /></button>
                               {/* Con varios bienes marcados abre el resguardo del lote,
                                   igual que el botón de arriba de la tabla. */}
@@ -4560,7 +4781,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           </div>
 
           {/* Footer paginación */}
-          <div style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="pie-tabla" style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <p style={{ fontSize: '12px', color: t.text4 }}>
                 {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()}`}
@@ -4579,7 +4800,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                 style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color: t.text1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <i className="ti ti-chevron-left" style={{ fontSize: '14px' }} />
               </button>
-              <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '13px', color: t.text2, display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                 Pág.
                 {/* Selector de página: evita teclear y saber de memoria cuántas hay */}
                 <select value={pagina} disabled={loading} aria-label="Ir a la página"
@@ -4602,7 +4823,15 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
       {menuFila && (
         <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
-          onIrAPagina={b => irAlBien(b)} onConsultar={b => setPanelBien(b)} />
+          acciones={[
+            { icon: 'ti-map-pin', label: 'Ir a página',   accion: () => irAlBien(menuFila.bien) },
+            { icon: 'ti-eye',     label: 'Consultar',     accion: () => setPanelBien(menuFila.bien) },
+            { icon: 'ti-pencil',  label: 'Modificar',     accion: () => setModalEditar(menuFila.bien), visible: !papelera && !traspasos },
+            { icon: 'ti-file-text', label: 'Ver resguardo', accion: () => setModalResguardo(menuFila.bien), visible: !papelera && !traspasos },
+            { icon: 'ti-arrows-exchange', label: 'Traspaso', accion: () => setModalTrasp(menuFila.bien), visible: !papelera && !traspasos },
+            { icon: 'ti-circle-minus', label: 'Solicitar baja', accion: () => solicitarBajaUno(menuFila.bien), visible: !papelera && !traspasos, separador: true },
+            { icon: 'ti-arrow-back-up', label: 'Restaurar al inventario', accion: () => setConfirmaRestaurar(menuFila.bien), visible: papelera, separador: true },
+          ]} />
       )}
       {confirmaRestaurar && (
         <ModalConfirmaBien bien={confirmaRestaurar} accion="restaurar" dark={dark} t={t}
@@ -4619,8 +4848,9 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         onClose={() => setModalReporte(false)}
         dark={dark} t={t}
         modo={modo}
+        traspasos={traspasos}
         seleccionados={[...seleccionados.keys()]}
-        filtros={{ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec }}
+        filtros={{ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, traspasos }}
         totalFiltrados={totalRegistros}
       />}
       {modalSolicitar && <ModalSolicitarBaja

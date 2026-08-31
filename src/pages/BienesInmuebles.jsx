@@ -396,7 +396,7 @@ export function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = 
           {/* Comentario interno: solo se ve aquí y en el panel de consulta */}
           <div style={{ padding:'11px 0', borderBottom:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` }}>
             <p style={{ fontSize:'10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'5px' }}>Comentarios</p>
-            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2}
+            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2} placeholder="Agregar Comentarios."
               placeholder="Nota interna sobre este inmueble"
               style={{ width:'100%', background:'transparent', border:'none', outline:'none', fontSize:'14px', color: dark ? '#f0f0f0' : '#111', fontFamily:'inherit', resize:'none', lineHeight:1.5, padding:0 }} />
           </div>
@@ -1435,7 +1435,7 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
             <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.3)' : '1px solid rgba(192,57,43,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <i className="ti ti-archive-off" style={{ fontSize:'18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
+              <i className="ti ti-circle-minus" style={{ fontSize:'18px', color: dark ? '#f4a1a1' : '#c0392b' }} />
             </div>
             <div>
               <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{titulo}</p>
@@ -1461,7 +1461,7 @@ export function ModalDesincorporacion({ cantidad, onClose, dark, t, onConfirm, t
         <div style={{ padding:'1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', gap:'8px' }}>
           <button onClick={onClose} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius:'9px', fontSize:'14px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>Cancelar</button>
           <button onClick={confirmar} disabled={guardando} style={{ flex:1, padding:'10px', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', borderRadius:'9px', fontSize:'14px', fontWeight:600, color: dark ? '#f4a1a1' : '#c0392b', fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
-            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</> : <><i className="ti ti-archive-off" style={{ fontSize:'15px' }} />{textoBoton}</>}
+            {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Procesando…</> : <><i className="ti ti-circle-minus" style={{ fontSize:'15px' }} />{textoBoton}</>}
           </button>
         </div>
       </div>
@@ -1529,6 +1529,7 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
   const [adquisicion, setAdquisicion] = useState('')
   const [afavorde, setAfavorde] = useState('H. AYUNTAMIENTO DE NOGALES')
   const [fechaEnaj, setFechaEnaj] = useState('')
+  const [comentario, setComentarioTxt] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState(null)
   const [claveAuto, setClaveAuto] = useState(false)   // true mientras no se toque a mano
@@ -1586,7 +1587,7 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
     if (clave === 'Generando…') { setErr('Espera a que se genere la clave'); return }
     setGuardando(true); setErr(null)
     try {
-      const { error } = await supabase.from('bienesinmuebles').insert({
+      const { data, error } = await supabase.from('bienesinmuebles').insert({
         claveinmueble: clave.trim() || null,
         consecutivo: await siguienteConsecutivoInmueble(),
         nombreinmueble: nombre.trim().toUpperCase(),
@@ -1600,8 +1601,10 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
         adquisicion: adquisicion.trim() || null,
         afavorde: afavorde.trim() || null,
         fecha_enajenacion: fechaEnaj || null,
-      })
+      }).select('idinmueble').maybeSingle()
       if (error) throw error
+      // El comentario vive aparte, igual que en modificar
+      if (data?.idinmueble && comentario.trim()) setComentario(data.idinmueble, comentario)
       onCreated()
       onClose()
     } catch (e) { setErr(e.message); setGuardando(false) }
@@ -1659,6 +1662,10 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
           <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'10px', flexWrap:'wrap' }}>
             <div>{lbl('A favor de')}<input value={afavorde} onChange={e => setAfavorde(e.target.value)} style={iStyle(dark)} /></div>
             <div>{lbl('Fecha enajenación')}<input type="date" value={fechaEnaj} onChange={e => setFechaEnaj(e.target.value)} style={iStyle(dark)} /></div>
+          </div>
+          <div>{lbl('Comentarios')}
+            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2} placeholder="Agregar Comentarios."
+              style={{ ...iStyle(dark), resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
         </div>
 
@@ -1877,7 +1884,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         </div>
 
         {/* Filtros */}
-        <div style={{ ...card, padding:'1rem 1.25rem', marginBottom:'1rem', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', overflow:'visible', position:'relative', zIndex:100 }}>
+        <div className="barra-fit" style={{ ...card, padding:'1rem 1.25rem', marginBottom:'1rem', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', overflow:'visible', position:'relative', zIndex:100 }}>
           {/* Búsqueda */}
           <div style={{ ...searchBoxStyle(dark), flex:1, minWidth:'200px' }}>
             <i className="ti ti-search" style={{ fontSize:'16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink:0 }} />
@@ -1894,8 +1901,9 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             {busqueda && <button onClick={() => setBusqueda('')} style={{ background:'none', border:'none', cursor:'pointer', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', padding:0, display:'flex' }}><i className="ti ti-x" style={{ fontSize:'14px' }} /></button>}
           </div>
 
-          {/* Rango m² */}
-          <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+          {/* Rango m²: mide lo suyo y solo se reparte el renglón cuando la
+              ventana se angosta y los controles se encimarían (grupo-m2) */}
+          <div className="grupo-m2" style={{ display:'flex', alignItems:'center', gap:'6px' }}>
             <div style={{ ...searchBoxStyle(dark), gap:'6px', width:'130px' }}>
               <i className="ti ti-ruler-measure" style={{ fontSize:'14px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink:0 }} />
               <input type="number" placeholder="Min m²" value={m2Min} onChange={e => setM2Min(e.target.value)}
@@ -1916,7 +1924,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
         {/* Barra de selección */}
         {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
-        <div style={barraSticky(dark, t)}>
+        <div className="barra-fit" style={barraSticky(dark, t)}>
           <div onClick={toggleModoSeleccion}
             style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
               background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
@@ -1926,7 +1934,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
               display:'flex', alignItems:'center', justifyContent:'center' }}>
               {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
             </div>
-            Seleccionar registros
+            Seleccionar Registros
           </div>
 
           {modoSeleccion && (
@@ -1945,11 +1953,11 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             </button>
           )}
 
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
             {/* Siempre visible; atenuado mientras no haya registros marcados */}
             <button onClick={() => seleccionados.size > 0 && setModalDesinc([...seleccionados])} disabled={seleccionados.size === 0}
               style={btnBarra(dark, t, seleccionados.size > 0)}>
-              <i className="ti ti-archive-off" style={{ fontSize:'17px' }} />Desincorporación
+              <i className="ti ti-progress" style={{ fontSize:'17px', color: dark ? '#ffd580' : '#b7790a' }} />Solicitar Desincorporación
             </button>
             <button onClick={() => setModalNuevo(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
@@ -2067,12 +2075,14 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                               >
                                 <i className="ti ti-pencil" style={{ fontSize:'14px' }} />
                               </button>
-                              <button onClick={(e) => { e.stopPropagation(); setModalDesinc([b.idinmueble]) }} title="Desincorporar"
-                                style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(244,161,161,0.12)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.25)' : '1px solid rgba(192,57,43,0.18)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#f4a1a1' : '#c0392b' }}
+                              {/* Es una solicitud, no la desincorporación en sí:
+                                  lleva el icono y el ámbar de "En proceso" */}
+                              <button onClick={(e) => { e.stopPropagation(); setModalDesinc([b.idinmueble]) }} title="Solicitar desincorporación"
+                                style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,213,128,0.14)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.25)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ffd580' : '#b7790a' }}
                                 onMouseEnter={e => e.currentTarget.style.opacity='0.7'}
                                 onMouseLeave={e => e.currentTarget.style.opacity='1'}
                               >
-                                <i className="ti ti-archive-off" style={{ fontSize:'14px' }} />
+                                <i className="ti ti-progress" style={{ fontSize:'14px' }} />
                               </button>
                             </div>
                           </td>
@@ -2085,7 +2095,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
           </div>
 
           {/* Footer paginación */}
-          <div style={{ padding:'10px 14px', borderTop:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div className="pie-tabla" style={{ padding:'10px 14px', borderTop:`1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'10px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
               <p style={{ fontSize:'12px', color:t.text4 }}>
                 {loading ? 'Cargando…' : `Mostrando ${totalRegistros === 0 ? 0 : pagina * porPagina + 1}–${Math.min((pagina + 1) * porPagina, totalRegistros)} de ${totalRegistros.toLocaleString()} registros`}
@@ -2104,7 +2114,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                 style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.12)', cursor: pagina === 0 ? 'not-allowed' : 'pointer', opacity: pagina === 0 ? 0.4 : 1, color:t.text1, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <i className="ti ti-chevron-left" style={{ fontSize:'14px' }} />
               </button>
-              <span style={{ fontSize:'13px', color:t.text2, display:'flex', alignItems:'center', gap:'6px' }}>
+              <span style={{ fontSize:'13px', color:t.text2, display:'flex', alignItems:'center', gap:'6px', whiteSpace:'nowrap' }}>
                 Pág.
                 {/* Selector de página, igual que en Bienes Muebles */}
                 <select value={pagina} disabled={loading} aria-label="Ir a la página"
@@ -2126,7 +2136,12 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
       {menuFila && (
         <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
-          onIrAPagina={b => irAlInmueble(b)} onConsultar={b => setPanelInmueble(b)} />
+          acciones={[
+            { icon: 'ti-map-pin', label: 'Ir a página', accion: () => irAlInmueble(menuFila.bien) },
+            { icon: 'ti-eye',     label: 'Consultar',   accion: () => setPanelInmueble(menuFila.bien) },
+            { icon: 'ti-pencil',  label: 'Modificar',   accion: () => setModalEditar(menuFila.bien) },
+            { icon: 'ti-progress', label: 'Solicitar desincorporación', accion: () => setModalDesinc([menuFila.bien.idinmueble]), separador: true },
+          ]} />
       )}
       {panelInmueble && (
         <PanelConsulta inmueble={panelInmueble} onClose={() => setPanelInmueble(null)} t={t} dark={dark} categorias={categorias} />
