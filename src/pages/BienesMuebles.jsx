@@ -1048,6 +1048,7 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
   const [dep, setDep]       = useState('')
   const [resg, setResg]     = useState('')
   const [puesto, setPuesto] = useState('')
+  const [oficio, setOficio] = useState('')
   const [motivo, setMotivo] = useState('')
   const [fecha, setFecha]   = useState('')
   const [nuevaClave, setNuevaClave] = useState('')
@@ -1065,6 +1066,17 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
     return m ? m[1] : tipoDeCategoria(bien.categoriainventario)
   }, [bien.claveinventario, bien.categoriainventario])
 
+  // Áreas agrupadas por dependencia para el <select>, como en registrar un bien
+  const gruposDep = useMemo(() => {
+    const m = new Map()
+    for (const a of allAreas) {
+      const nd = a.nombredependencia || 'Sin dependencia'
+      if (!m.has(nd)) m.set(nd, [])
+      m.get(nd).push(a)
+    }
+    return [...m.entries()]
+  }, [allAreas])
+
   useEffect(() => {
     if (!dep) { setNuevaClave(''); return }
     let vivo = true
@@ -1075,43 +1087,118 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
     return () => { vivo = false }
   }, [dep, tipoBien, anioBien])
 
+  // Fecha como la captura Oficialía en las observaciones: 14-AGOSTO-2026. Es el
+  // formato que lee fechaDeTraspaso() para la columna del apartado de traspasos.
+  function fechaTexto(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
+    return m ? `${Number(m[3])}-${MESES_ALTA[Number(m[2]) - 1]}-${m[1]}` : ''
+  }
+
+  // Un traspaso deja DOS registros, que es como lo llevan los inventarios:
+  //   · el de origen se queda en su área y con su clave, en estado TRASPASO. Es
+  //     el histórico de quien entregó y lo que se ve en el apartado de traspasos.
+  //   · el de destino es un alta: registro nuevo, ACTIVO, con la clave y el
+  //     consecutivo que le tocan en esa área.
+  // Antes se movía el mismo registro al destino, así que la dependencia que
+  // entregaba se quedaba sin rastro del bien y el traspaso no salía por ningún lado.
   async function confirmar() {
-    if (!dep) { setErr('Selecciona la dependencia destino'); return }
+    if (!dep) { setErr('Selecciona el área destino'); return }
     setGuardando(true); setErr(null)
+    let facturaCreada = null
     try {
       // Recalcula la clave por si otro usuario tomó el consecutivo mientras tanto
       const gen = await siguienteClave({ idarea: dep, tipo: tipoBien, anio: anioBien })
-      // Al cambiar idarea, el bien deja de aparecer en el área de origen y pasa
-      // al destino con su nueva clave de inventario.
-      const parche = { idarea: Number(dep) }
-      if (gen) { parche.claveinventario = gen.clave; parche.consecutivo = gen.consecutivo }
+      // Hay áreas sin prefijo asignado. Sin clave no se puede dar de alta el bien
+      // en el destino, así que se detiene aquí en vez de dejarlo sin número.
+      if (!gen) throw new Error('Esa área todavía no tiene prefijo de clave asignado, así que no se le puede generar número de inventario. Hay que pedirle a Oficialía que le asigne uno.')
 
-      // Nuevo titular: si la persona ya está en el catálogo se reutiliza su
-      // registro; si no, se da de alta. Igual que al registrar un bien.
-      if (resg.trim()) parche.idresguardo = await resolverResguardo(resg, puesto)
+      const destino    = allAreas.find(a => String(a.idarea) === String(dep))
+      const nomDestino = String(destino?.nombrearea || 'OTRA AREA').toUpperCase()
+      const nomOrigen  = String(bien.area && bien.area !== '—' ? bien.area : 'OTRA AREA').toUpperCase()
 
-      // El motivo y la fecha no tienen columna propia, así que se anotan en
-      // observaciones. Se conserva el estado al inicio del texto (de ahí lo leen
-      // el filtro y el badge) y lo que ya estuviera escrito antes.
-      // Se deja constancia del origen y de la clave anterior: al traspasar, la
-      // clave se reemplaza por la del área destino y si no se anota aquí no queda
-      // forma de saber de dónde salió el bien.
-      const destino = allAreas.find(a => String(a.idarea) === String(dep))
-      const nota = ['TRASPASO A ' + String(destino?.nombrearea || 'OTRA AREA').toUpperCase()]
-      if (fecha) { const [a, m, d] = fecha.split('-'); nota.push(`EL ${d}/${m}/${a}`) }
-      const origen = []
-      if (bien.area && bien.area !== '—') origen.push(String(bien.area).toUpperCase())
-      if (bien.claveinventario) origen.push('CLAVE ANTERIOR ' + bien.claveinventario)
-      if (origen.length) nota.push('· DE ' + origen.join(', '))
-      if (motivo) nota.push('· MOTIVO: ' + motivo.toUpperCase())
+      // El oficio, la fecha y el motivo no tienen columna propia: se anotan en
+      // observaciones con la redacción de Oficialía, porque de ese texto salen
+      // las columnas OFICIO, FECHA DE TRASPASO y MOVIMIENTO del apartado.
+      const cola = [
+        oficio.trim() ? 'MEDIANTE OFICIO ' + oficio.trim().toUpperCase() : '',
+        fechaTexto(fecha),
+        motivo.trim() ? '· MOTIVO: ' + motivo.trim().toUpperCase() : '',
+      ].filter(Boolean).join(' ')
+      const notaSale  = `TRASPASO AL INVENTARIO DE ${nomDestino} ${cola}`.trim()
+      const notaLlega = `TRASPASO DEL INVENTARIO DE ${nomOrigen} ${cola}`.trim()
+
+      // Titular del destino: se reutiliza la persona si ya está en el catálogo.
+      // Si no se captura ninguna, el bien llega sin resguardo.
+      const idresguardo = resg.trim() ? await resolverResguardo(resg, puesto) : null
       const { estado, resto } = partirObs(bien.observaciones)
-      parche.observaciones = unirObs(estado, [resto, nota.join(' ')].filter(Boolean).join(' | '))
 
-      const { error } = await supabase.from('bienes').update(parche).eq('idbien', bien.idbien)
-      if (error) throw error
+      // ── El registro que LLEGA al destino ────────────────────────────────────
+      // Ni idbien ni idfactura son autoincrementales: se toman del máximo actual.
+      const { data: maxB, error: eB } = await supabase.from('bienes').select('idbien').order('idbien', { ascending: false }).limit(1)
+      if (eB) throw eB
+      const idbien = ((maxB && maxB[0]?.idbien) || 0) + 1
+
+      // El bien se lleva su compra: número de factura, fecha, importe y proveedor.
+      // No se volvió a comprar, así que se copia la factura del original en una
+      // fila propia —no se comparte— para que editar la de una dependencia no
+      // altere la de la otra.
+      let idfactura = null
+      if (bien.idfactura != null) {
+        const { data: orig, error: eO } = await supabase.from('facturas')
+          .select('numerofactura, fechafactura, costoinicial, idproveedor')
+          .eq('idfactura', bien.idfactura).maybeSingle()
+        if (eO) throw eO
+        if (orig) {
+          const { data: maxF, error: eF } = await supabase.from('facturas').select('idfactura').order('idfactura', { ascending: false }).limit(1)
+          if (eF) throw eF
+          idfactura = ((maxF && maxF[0]?.idfactura) || 0) + 1
+          const { error: eIF } = await supabase.from('facturas').insert({ idfactura, ...orig })
+          if (eIF) throw eIF
+          facturaCreada = idfactura
+        }
+      }
+
+      const nuevo = {
+        idbien,
+        claveinventario: gen.clave,
+        consecutivo:     gen.consecutivo,
+        nombrebien:      bien.nombrebien,
+        tipo:            bien.tipo   || null,
+        marca:           bien.marca  || null,
+        serie:           bien.serie  || null,
+        observaciones:   unirObs(estado, notaLlega),
+        idarea:          Number(dep),
+        idresguardo,
+        idfactura,
+        partida:             bien.partida || null,
+        categoriainventario: bien.categoriainventario,
+        anio:                bien.anio ?? null,
+        estadobien:          'ACTIVO',
+      }
+      // Entró al inventario del destino el día del traspaso, no el día que se
+      // capturó. La columna puede no existir todavía en la base; si no está, se
+      // inserta sin ella y la fecha queda solo en el texto del movimiento.
+      let eIns = (await supabase.from('bienes').insert({ ...nuevo, fechaalta: fecha || null })).error
+      if (eIns && /fechaalta/i.test(eIns.message || '')) eIns = (await supabase.from('bienes').insert(nuevo)).error
+      if (eIns) throw eIns
+
+      // ── El registro que SALE del origen ─────────────────────────────────────
+      // No se le cambia el área ni la clave: así la dependencia que entregó lo
+      // sigue viendo, con su número de siempre, en el apartado de traspasos.
+      const { error: eUpd } = await supabase.from('bienes').update({
+        estadobien:    'TRASPASO',
+        observaciones: unirObs(estado, [resto, notaSale].filter(Boolean).join(' | ')),
+      }).eq('idbien', bien.idbien)
+      if (eUpd) throw eUpd
+
       onDone && onDone()
       close()
-    } catch (e) { setErr(e.message); setGuardando(false) }
+    } catch (e) {
+      // Si el alta falló después de crear la factura, se borra: si no, quedaría
+      // suelta y el reporte de adquisiciones la contaría sin ningún bien detrás.
+      if (facturaCreada != null) await supabase.from('facturas').delete().eq('idfactura', facturaCreada)
+      setErr(e.message); setGuardando(false)
+    }
   }
 
   return (
@@ -1138,22 +1225,30 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
             <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop: '2px' }}>Origen: {bien.area} — {bien.resguardatario}</p>
           </div>
           <div style={{ padding: '0 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <MField label="Dependencia destino" dark={dark}>
+            <MField label="Área destino" dark={dark}>
+              {/* Agrupadas por dependencia, igual que el select de registrar un
+                  bien: en una lista plana no se distingue de qué dependencia es
+                  cada área y hay nombres que se repiten (DESPACHO, DIRECCION). */}
               <select value={dep} onChange={e => setDep(e.target.value)} style={sStyle(dark)}>
-                <option value="">Seleccionar dependencia...</option>
-                {allAreas.map(a => (
-                  <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>
+                <option value="">Seleccionar área...</option>
+                {gruposDep.map(([nomDep, areas]) => (
+                  <optgroup key={nomDep} label={nomDep}>
+                    {areas.map(a => <option key={a.idarea} value={a.idarea}>{a.nombrearea}</option>)}
+                  </optgroup>
                 ))}
               </select>
             </MField>
             {dep && (
               <div style={{ padding: '10px 14px', borderRadius: '10px', background: dark ? 'rgba(255,213,128,0.10)' : 'rgba(183,121,10,0.06)', border: dark ? '1px solid rgba(255,213,128,0.25)' : '1px solid rgba(183,121,10,0.2)' }}>
-                <p style={{ fontSize: '11px', fontWeight: 600, color: dark ? 'rgba(255,213,128,0.8)' : '#b45309', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Nueva clave de inventario</p>
+                <p style={{ fontSize: '11px', fontWeight: 600, color: dark ? 'rgba(255,213,128,0.8)' : '#b45309', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Se da de alta en el destino como</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'monospace', fontSize: '13px' }}>
-                  <span style={{ color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', textDecoration: 'line-through' }}>{bien.claveinventario || '—'}</span>
+                  <span style={{ color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)' }}>{bien.claveinventario || '—'}</span>
                   <i className="ti ti-arrow-right" style={{ fontSize: '14px', color: dark ? '#ffd580' : '#b45309' }} />
                   <span style={{ fontWeight: 700, color: dark ? '#ffd580' : '#b45309' }}>{nuevaClave || 'sin clave para esa área'}</span>
                 </div>
+                <p style={{ fontSize: '11px', color: dark ? 'rgba(255,213,128,0.7)' : '#b45309', marginTop: '6px', lineHeight: 1.4 }}>
+                  {bien.claveinventario || 'El bien'} se queda en {bien.area} como traspasado, para que ahí quede el registro de que salió.
+                </p>
               </div>
             )}
             <MField label="Nuevo resguardatario" dark={dark}>
@@ -1162,22 +1257,23 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
             <MField label="Puesto del nuevo resguardatario" dark={dark}>
               <input type="text" placeholder="Cargo o puesto" value={puesto} onChange={e => setPuesto(e.target.value)} style={iStyle(dark)} />
             </MField>
-            <MField label="Motivo del traspaso" dark={dark}>
-              <select value={motivo} onChange={e => setMotivo(e.target.value)} style={sStyle(dark)}>
-                <option value="">Seleccionar motivo...</option>
-                <option>Reasignación de funciones</option>
-                <option>Necesidad operativa</option>
-                <option>Reestructura organizacional</option>
-                <option>Solicitud de dependencia</option>
-                <option>Otro</option>
-              </select>
+            <MField label="Oficio del traspaso" dark={dark}>
+              <input type="text" placeholder="Ej. 1022ADM-488" value={oficio} onChange={e => setOficio(e.target.value)} style={iStyle(dark)} />
             </MField>
             <MField label="Fecha de traspaso" dark={dark}>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
             </MField>
-            {/* No hay columnas para el motivo ni la fecha: se anotan en observaciones */}
-            <p style={{ fontSize: '11px', color: t.text4, marginTop: '-6px' }}>
-              El motivo y la fecha se agregan a las observaciones del bien, sin borrar lo que ya tenía.
+            {/* Antes era una lista cerrada de cinco motivos y no dejaba capturar lo
+                que va en el inventario. El oficio y la fecha llenan las columnas
+                del apartado de traspasos, que se leen de este texto. */}
+            <MField label="Motivo del traspaso" dark={dark}>
+              <input type="text" placeholder="Opcional" value={motivo} onChange={e => setMotivo(e.target.value)} style={iStyle(dark)} />
+            </MField>
+            <p style={{ fontSize: '11px', color: t.text4, marginTop: '-6px', lineHeight: 1.45 }}>
+              Queda anotado en los dos bienes, sin borrar lo que ya tenían:<br />
+              <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>
+                TRASPASO AL INVENTARIO DE …{oficio.trim() ? ' MEDIANTE OFICIO ' + oficio.trim().toUpperCase() : ''}{fechaTexto(fecha) ? ' ' + fechaTexto(fecha) : ''}
+              </span>
             </p>
           </div>
           <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
@@ -3039,7 +3135,7 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
               <i className="ti ti-file-invoice" style={{ fontSize:'18px', color: dark ? '#a8c8ff' : '#1e4dcc' }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de Adquisiciones</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de Conciliación</p>
               <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Agrupado por factura</p>
             </div>
           </div>
@@ -4290,7 +4386,7 @@ export function MenuFila({ menu, onClose, dark, t, acciones = [] }) {
   )
 }
 
-export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', papelera = false, traspasos = false }) {
+export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', initialBusqueda = '', papelera = false, traspasos = false }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [modo, setModo]                     = useState(initialModo)
@@ -4305,7 +4401,9 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   // puede borrar y teclear otro número sin que la tabla salte en cada tecla.
   const [paginaTexto, setPaginaTexto]       = useState('1')
 
-  const [busqueda, setBusqueda]             = useState('')
+  // Puede llegar con una búsqueda puesta: es lo que hace la dirección #/b/CLAVE
+  // del QR de las etiquetas, que abre el inventario ya filtrado por esa clave.
+  const [busqueda, setBusqueda]             = useState(initialBusqueda)
   // Al usar "Ir a su página" se quita la búsqueda y se marca el bien un momento
   // para no perderlo de vista entre los demás renglones.
   const [resaltado, setResaltado]           = useState(null)

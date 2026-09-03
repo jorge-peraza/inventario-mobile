@@ -734,7 +734,7 @@ export default function Reportes({ user, onNavigate }) {
                   { id: 'mensual',    icon: 'ti-file-text',    label: 'Reporte Mensual',       hint: 'Facturas del último mes',      value: conteoPeriodo.mensual,    color: t.text2 },
                   { id: 'trimestral', icon: 'ti-file-text',    label: 'Reporte Trimestral',    hint: 'Facturas de 3 meses',          value: conteoPeriodo.trimestral, color: t.text2 },
                   { id: 'anual',      icon: 'ti-file-text',    label: 'Reporte Anual',         hint: 'Facturas del último año',      value: conteoPeriodo.anual,      color: t.text2 },
-                  { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Adquisiciones', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
+                  { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Conciliación', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
                   { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',        hint: 'Inventario detallado por fecha',  value: null,                  color: t.text2 },
                   // Va por fecha de alta, no por fecha de factura
                   { id: 'altas',      icon: 'ti-calendar-plus', label: 'Altas del Mes',         hint: 'Por fecha de alta, no de factura', value: null,                 color: t.text2 },

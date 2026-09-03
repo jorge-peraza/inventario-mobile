@@ -24,7 +24,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # La ruta base sale del nombre del repositorio, no fija en vite.config.js:
+      # el mismo código se publica en inventario-nogales (producción) y en
+      # inventario-mobile (pruebas desde el celular) sin tocar nada.
+      - run: npm run build -- --base=/${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
