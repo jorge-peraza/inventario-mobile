@@ -58,12 +58,19 @@ export function abrirReconteo({ idarea, nombrearea, dependencia, bienes, usuario
     usuario: usuario || '',
     inicio: new Date().toISOString(),
     fin: null,
-    // Foto de lo que la base decía en ese momento
+    // Foto de lo que la base decía en ese momento. Se guardan también marca,
+    // modelo y serie: son los datos que hay que enseñar al escanear una
+    // etiqueta, y así se resuelven sin volver a preguntarle a la base —que en
+    // una bodega puede no estar al alcance.
     esperados: bienes.map(b => ({
       idbien: b.idbien,
       clave:  (b.clave || '').toUpperCase(),
       nombre: b.nombre,
+      marca:  b.marca,
+      modelo: b.modelo,
+      serie:  b.serie,
       resguardante: b.resguardante,
+      area:   b.area,
     })),
     // clave → { fecha, metodo: 'qr' | 'manual' }
     encontrados: {},
@@ -84,6 +91,23 @@ function conReconteo(id, cambiar) {
   lista[i] = copia
   guardarTodo(lista)
   return copia
+}
+
+// Qué es esa clave dentro del reconteo, SIN escribir nada. El escáner pregunta
+// primero para poder enseñar el bien y esperar el visto bueno: marcar solo con
+// apuntar la cámara verifica cosas por accidente.
+//   'nuevo'    → está en la lista y falta por verificar
+//   'repetido' → ya se había verificado en este mismo reconteo
+//   'ajeno'    → no pertenece a esta área
+export function revisar(id, claveCruda) {
+  const clave = normalizarClave(claveCruda)
+  const r = reconteo(id)
+  if (!r || !clave) return { estado: 'ajeno', clave }
+
+  const bien = r.esperados.find(e => e.clave === clave)
+  if (!bien) return { estado: 'ajeno', clave }
+  if (r.encontrados[clave]) return { estado: 'repetido', clave, bien, cuando: r.encontrados[clave].fecha }
+  return { estado: 'nuevo', clave, bien }
 }
 
 // Marca una clave. Devuelve qué pasó para poder avisarlo en pantalla:

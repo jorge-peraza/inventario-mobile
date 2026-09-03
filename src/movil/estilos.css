@@ -1,27 +1,29 @@
 /* ── Vista móvil ──────────────────────────────────────────────────────────────
-   El escritorio pinta casi todo con estilos en línea. Aquí no alcanza: el
-   celular necesita media queries, safe-area y estados táctiles, y eso solo se
-   puede desde CSS. Los colores van en variables para que el modo oscuro sea
-   una sola redefinición.
-   Todo cuelga de .movil para no tocar ni un pixel de la vista de escritorio. */
+   No es otra aplicación: es la misma con otro acomodo. Los colores NO se
+   definen aquí, los inyecta AppMovil.jsx desde el mismo ThemeContext que pinta
+   el escritorio, para que el gris, el verde y el ámbar sean exactamente los
+   mismos y el modo oscuro siga la preferencia de la cuenta.
+   Lo que sí vive aquí es lo que el celular necesita y el escritorio no: media
+   queries, safe-area y estados táctiles. Todo cuelga de .movil para no tocar
+   ni un pixel de la vista de escritorio. Los valores de abajo son solo el
+   respaldo por si el tema no alcanzara a cargar. */
 .movil {
-  --fondo:        #e9e9ec;
-  --fondo-2:      #f4f4f6;
+  --fondo:        #e8e8ea;
   --tarjeta:      rgba(255, 255, 255, 0.72);
-  --borde:        rgba(0, 0, 0, 0.10);
+  --borde:        rgba(0, 0, 0, 0.1);
   --borde-fuerte: rgba(0, 0, 0, 0.18);
-  --texto-1:      #111113;
-  --texto-2:      #3a3a3f;
-  --texto-3:      #6b6b73;
-  --texto-4:      #93939c;
+  --texto-1:      #111111;
+  --texto-2:      #333333;
+  --texto-3:      #777777;
+  --texto-4:      #aaaaaa;
   --campo:        #ffffff;
-  --barra:        rgba(248, 248, 250, 0.92);
-  --ok:           #15803d;
-  --ok-suave:     rgba(30, 126, 74, 0.10);
-  --falta:        #b7790a;
-  --falta-suave:  rgba(183, 121, 10, 0.10);
-  --alerta:       #c0392b;
-  --alerta-suave: rgba(192, 57, 43, 0.09);
+  --barra:        rgba(255, 255, 255, 0.65);
+  --ok:           #16a34a;
+  --ok-suave:     rgba(22, 163, 74, 0.12);
+  --falta:        #d97706;
+  --falta-suave:  rgba(217, 119, 6, 0.12);
+  --alerta:       #dc2626;
+  --alerta-suave: rgba(220, 38, 38, 0.1);
   --sombra:       0 6px 20px rgba(0, 0, 0, 0.07);
 
   min-height: 100vh;
@@ -35,27 +37,6 @@
   /* El alto de la barra de abajo más la raya del iPhone */
   padding-bottom: calc(64px + env(safe-area-inset-bottom));
   -webkit-tap-highlight-color: transparent;
-}
-
-.movil.oscuro {
-  --fondo:        #151517;
-  --fondo-2:      #1c1c1e;
-  --tarjeta:      rgba(255, 255, 255, 0.06);
-  --borde:        rgba(255, 255, 255, 0.12);
-  --borde-fuerte: rgba(255, 255, 255, 0.20);
-  --texto-1:      #f2f2f4;
-  --texto-2:      #d2d2d8;
-  --texto-3:      #9a9aa2;
-  --texto-4:      #6e6e77;
-  --campo:        #2a2a2c;
-  --barra:        rgba(28, 28, 30, 0.92);
-  --ok:           #a8e6cf;
-  --ok-suave:     rgba(168, 230, 207, 0.14);
-  --falta:        #ffd580;
-  --falta-suave:  rgba(255, 213, 128, 0.14);
-  --alerta:       #f4a1a1;
-  --alerta-suave: rgba(244, 161, 161, 0.14);
-  --sombra:       0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
 .movil * { box-sizing: border-box; }
@@ -304,6 +285,24 @@
   padding: 12px 16px; border-radius: 12px;
   background: #fff; color: #111; font-weight: 600;
 }
+
+/* Tarjeta de confirmación del escáner: qué bien se leyó, con Cancelar y OK.
+   Se pausa el escaneo mientras está abierta, para no marcar de más. */
+.movil-escaner .confirma {
+  width: 100%;
+  border-radius: 16px;
+  padding: 14px;
+  text-align: left;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  color: var(--texto-1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.movil-escaner .confirma .clave { color: var(--texto-3); }
+.movil-escaner .confirma .campos { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.movil-escaner .confirma .campos > div { min-width: 0; }
+.movil-escaner .confirma .botones { display: flex; gap: 8px; margin-top: 14px; }
+.movil-escaner .confirma .botones .boton { padding: 12px; }
 
 /* En pantalla ancha (probar desde la computadora) queda centrada como celular */
 @media (min-width: 620px) {

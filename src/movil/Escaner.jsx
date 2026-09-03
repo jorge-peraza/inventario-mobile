@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { volver, irA } from '../rutas'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
-import { reconteoAbierto, reconteo, marcar, resumen, normalizarClave } from './reconteo'
+import { reconteoAbierto, reconteo, revisar, marcar, resumen, normalizarClave, fechaCorta } from './reconteo'
 import { bienPorClave } from './datos'
 
 // ── Escáner del reconteo ──────────────────────────────────────────────────────
@@ -9,13 +9,18 @@ import { bienPorClave } from './datos'
 // lista del área que ya está en memoria, así que no hace falta señal: en una
 // bodega esa es la diferencia entre poder contar y no poder.
 //
+// Leer NO marca: primero se enseña el bien y se espera el visto bueno. Si solo
+// con apuntar la cámara se verificara, bastaría pasar cerca de un estante para
+// dar por bueno lo que no se revisó.
+//
 // Una etiqueta rota o un bien sin etiquetar se capturan a mano en la misma
 // pantalla, sin salir del escaneo.
 export function Escaner({ idarea }) {
   const refVideo = useRef(null)
+  const refPausa = useRef(false)
   const refUltima = useRef({ clave: '', cuando: 0 })
   const [rc, setRc] = useState(() => reconteoAbierto(idarea))
-  const [aviso, setAviso] = useState(null)      // { tipo, texto }
+  const [lectura, setLectura] = useState(null)   // { estado, clave, bien, cuando, ajeno }
   const [error, setError] = useState(null)
   const [manual, setManual] = useState('')
 
@@ -50,12 +55,8 @@ export function Escaner({ idarea }) {
     }
   }, [])
 
-  function mostrar(tipo, texto) {
-    setAviso({ tipo, texto })
-    setTimeout(() => setAviso(a => (a?.texto === texto ? null : a)), 2200)
-  }
-
   function leido(texto, metodo = 'qr') {
+    if (refPausa.current) return                 // hay una confirmación abierta
     const actual = rc || reconteoAbierto(idarea)
     if (!actual) return
     const clave = normalizarClave(texto)
@@ -64,26 +65,36 @@ export function Escaner({ idarea }) {
     // La cámara lee el mismo código muchas veces por segundo: se ignora la
     // repetición inmediata para no vibrar sin parar sobre la misma etiqueta.
     const ahora = Date.now()
-    if (clave === refUltima.current.clave && ahora - refUltima.current.cuando < 2000) return
+    if (clave === refUltima.current.clave && ahora - refUltima.current.cuando < 1500) return
     refUltima.current = { clave, cuando: ahora }
 
-    const r = marcar(actual.id, clave, metodo)
-    setRc(reconteo(actual.id))
+    const r = revisar(actual.id, clave)
+    refPausa.current = true
+    avisar(r.estado === 'nuevo' ? 'ok' : 'mal')
+    setLectura({ ...r, metodo })
 
-    if (r.estado === 'ok')            { avisar('ok');  mostrar('ok', `✓ ${r.bien.nombre}`) }
-    else if (r.estado === 'repetido') { avisar('mal'); mostrar('repite', `Ya estaba verificado · ${clave}`) }
-    else {
-      // No está en esta área. Vale la pena decir si el bien existe y dónde
-      // debería estar: encontrar uno fuera de su área es justo lo que un
-      // reconteo tiene que sacar a la luz.
-      avisar('mal')
-      mostrar('error', `${clave} no es de esta área`)
+    // Si no es de esta área, se averigua dónde debería estar: encontrar un bien
+    // fuera de su área es justo lo que un reconteo tiene que sacar a la luz.
+    if (r.estado === 'ajeno') {
       bienPorClave(clave)
-        .then(b => mostrar('error', b
-          ? `${clave} está asignado a ${b.area}`
-          : `${clave} no existe en el inventario`))
-        .catch(() => {})
+        .then(b => setLectura(l => (l && l.clave === clave ? { ...l, ajeno: b, buscado: true } : l)))
+        .catch(() => setLectura(l => (l && l.clave === clave ? { ...l, buscado: true } : l)))
     }
+  }
+
+  function cerrarLectura() {
+    setLectura(null)
+    refPausa.current = false
+    refUltima.current = { clave: '', cuando: 0 }
+  }
+
+  function confirmar() {
+    const actual = rc || reconteoAbierto(idarea)
+    if (actual && lectura?.estado === 'nuevo') {
+      marcar(actual.id, lectura.clave, lectura.metodo || 'qr')
+      setRc(reconteo(actual.id))
+    }
+    cerrarLectura()
   }
 
   const s = resumen(rc)
@@ -105,18 +116,81 @@ export function Escaner({ idarea }) {
           </button>
         </div>
 
-        <div className="mira" />
+        {!lectura && <div className="mira" />}
 
         <div className="abajo">
-          {aviso && <div className={`aviso ${aviso.tipo}`}>{aviso.texto}</div>}
           {error && <div className="aviso error">{error}</div>}
 
-          <form className="manual" onSubmit={e => { e.preventDefault(); if (manual.trim()) { leido(manual, 'manual'); setManual('') } }}>
-            <input value={manual} onChange={e => setManual(e.target.value)}
-              placeholder="Clave a mano (etiqueta rota)" autoCapitalize="characters" autoCorrect="off" />
-            <button type="submit">Marcar</button>
-          </form>
+          {lectura
+            ? <TarjetaLectura lectura={lectura} onConfirmar={confirmar} onCancelar={cerrarLectura} />
+            : (
+              <form className="manual" onSubmit={e => { e.preventDefault(); if (manual.trim()) { leido(manual, 'manual'); setManual('') } }}>
+                <input value={manual} onChange={e => setManual(e.target.value)}
+                  placeholder="Clave a mano (etiqueta rota)" autoCapitalize="characters" autoCorrect="off" />
+                <button type="submit">Buscar</button>
+              </form>
+            )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Lo que se leyó, con sus datos, antes de darlo por verificado
+function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
+  const { estado, clave, bien, cuando, ajeno, buscado } = lectura
+
+  const encabezado = estado === 'nuevo'
+    ? { color: 'var(--ok)',     icono: 'ti-qrcode',       texto: '¿Es este el bien?' }
+    : estado === 'repetido'
+      ? { color: 'var(--falta)', icono: 'ti-checks',      texto: 'Este mueble ya está verificado' }
+      : { color: 'var(--alerta)', icono: 'ti-alert-circle', texto: 'No es de esta área' }
+
+  const dato = (etq, valor) => (
+    <div key={etq}>
+      <p className="etiqueta">{etq}</p>
+      <p style={{ fontSize: '13px' }}>{valor || '—'}</p>
+    </div>
+  )
+
+  return (
+    <div className="confirma">
+      <p style={{ display: 'flex', alignItems: 'center', gap: '7px', color: encabezado.color, fontWeight: 600, fontSize: '13.5px' }}>
+        <i className={`ti ${encabezado.icono}`} style={{ fontSize: '17px' }} />{encabezado.texto}
+      </p>
+
+      <p className="clave" style={{ marginTop: '8px' }}>{clave}</p>
+
+      {bien ? (
+        <>
+          <p className="nombre" style={{ fontSize: '15px' }}>{bien.nombre}</p>
+          <div className="campos">
+            {dato('Marca', bien.marca)}
+            {dato('Modelo', bien.modelo)}
+            {dato('Serie', bien.serie)}
+            {dato('Resguardo', bien.resguardante)}
+          </div>
+          {estado === 'repetido' && (
+            <p className="detalle" style={{ marginTop: '8px' }}>Se verificó el {fechaCorta(cuando)}.</p>
+          )}
+        </>
+      ) : (
+        <p className="detalle" style={{ marginTop: '4px' }}>
+          {!buscado ? 'Buscando en el inventario…'
+            : ajeno ? <>{ajeno.nombre}<br />Está asignado a <b>{ajeno.area}</b>.</>
+            : 'Esta clave no existe en el inventario.'}
+        </p>
+      )}
+
+      <div className="botones">
+        <button className="boton suave" onClick={onCancelar}>
+          {estado === 'nuevo' ? 'Cancelar' : 'Seguir escaneando'}
+        </button>
+        {estado === 'nuevo' && (
+          <button className="boton" onClick={onConfirmar}>
+            <i className="ti ti-check" style={{ fontSize: '17px' }} />OK
+          </button>
+        )}
       </div>
     </div>
   )

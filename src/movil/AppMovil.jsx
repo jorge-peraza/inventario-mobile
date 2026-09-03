@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import './estilos.css'
+import { useTheme } from '../context/ThemeContext'
 import { useRuta, irA, reemplazarRuta, volver } from '../rutas'
-import { fijarVista } from './useEsMovil'
 import { InicioMuebles, BuscarBienes, FichaBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
 import { Escaner } from './Escaner'
 import { InicioInmuebles, BuscarInmuebles, FichaInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
@@ -12,23 +12,38 @@ import { InicioInmuebles, BuscarInmuebles, FichaInmueble, ReportesInmueblesMovil
 // El reconteo con cámara existe nada más en bienes muebles; inmuebles usa la
 // misma cáscara sin ese botón.
 
-const oscuroDelSistema = () =>
-  typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+// Los colores salen del mismo tema del escritorio: así el celular se siente la
+// misma aplicación y respeta el claro/oscuro guardado en la cuenta.
+function variablesDelTema(t, dark) {
+  return {
+    '--fondo':        t.bg,
+    '--tarjeta':      t.cardBg,
+    '--borde':        t.cardBorder,
+    '--borde-fuerte': dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
+    '--texto-1':      t.text1,
+    '--texto-2':      t.text2,
+    '--texto-3':      t.text3,
+    '--texto-4':      t.text4,
+    // Las cajas de captura son las mismas del escritorio (searchBoxStyle)
+    '--campo':        dark ? '#2a2a2c' : '#ffffff',
+    '--barra':        t.sidebarBg,
+    '--ok':           t.colorGreen,
+    '--ok-suave':     dark ? 'rgba(126,232,162,0.14)' : 'rgba(22,163,74,0.10)',
+    '--falta':        t.colorYellow,
+    '--falta-suave':  dark ? 'rgba(255,213,128,0.14)' : 'rgba(217,119,6,0.10)',
+    '--alerta':       t.colorRed,
+    '--alerta-suave': dark ? 'rgba(244,161,161,0.14)' : 'rgba(220,38,38,0.09)',
+    '--sombra':       dark ? '0 6px 20px rgba(0,0,0,0.35)' : '0 6px 20px rgba(0,0,0,0.07)',
+  }
+}
 
 export default function AppMovil({ user, onSalir }) {
   const ruta = useRuta()
-  const [oscuro, setOscuro] = useState(oscuroDelSistema)
+  const { dark, t } = useTheme()
   const [hoja, setHoja] = useState(false)
 
   const inmuebles = user?.rol === 'admin_inmuebles'
   const raiz = inmuebles ? 'i/inicio' : 'm/inicio'
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const alCambiar = () => setOscuro(mq.matches)
-    mq.addEventListener('change', alCambiar)
-    return () => mq.removeEventListener('change', alCambiar)
-  }, [])
 
   // Sin dirección o con una que no existe, se manda al inicio sin dejar rastro
   useEffect(() => {
@@ -62,6 +77,8 @@ export default function AppMovil({ user, onSalir }) {
 
     switch (sub) {
       case 'bienes':    return <BuscarBienes />
+      case 'traspasos': return <BuscarBienes lista="traspasos" />
+      case 'papelera':  return <BuscarBienes lista="papelera" />
       case 'reconteo':  return arg ? <ListaReconteo idarea={arg} usuario={user} /> : <ElegirArea />
       case 'escanear':  return <Escaner idarea={arg} usuario={user} />
       case 'historial': return <HistorialReconteos />
@@ -89,7 +106,7 @@ export default function AppMovil({ user, onSalir }) {
       ]
 
   return (
-    <div className={`movil${oscuro ? ' oscuro' : ''}`}>
+    <div className="movil" style={variablesDelTema(t, dark)}>
       {pantalla()}
 
       {!pantallaLlena && (
@@ -105,7 +122,8 @@ export default function AppMovil({ user, onSalir }) {
       )}
 
       {hoja && (
-        <HojaMas user={user} inmuebles={inmuebles} onCerrar={() => setHoja(false)} onSalir={onSalir} />
+        <HojaMas user={user} inmuebles={inmuebles} dark={dark}
+          onCerrar={() => setHoja(false)} onSalir={onSalir} />
       )}
     </div>
   )
@@ -130,16 +148,20 @@ export function Cabecera({ titulo, sub, atras = false, accion = null }) {
 }
 
 // ── Lo que no cabe en la barra ───────────────────────────────────────────────
-function HojaMas({ user, inmuebles, onCerrar, onSalir }) {
+// Son las mismas opciones del menú lateral del escritorio, en una hoja.
+function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
+  const { toggle } = useTheme()
   const ir = (...r) => { onCerrar(); irA(...r) }
 
   const opciones = inmuebles
     ? [
-        { icono: 'ti-progress',      texto: 'En proceso de desincorporación', al: () => ir('i', 'reportes') },
-        { icono: 'ti-circle-minus',  texto: 'Desincorporados',                al: () => ir('i', 'reportes') },
+        { icono: 'ti-building',      texto: 'Bienes inmuebles',  al: () => ir('i', 'inmuebles') },
+        { icono: 'ti-chart-bar',     texto: 'Reportes',          al: () => ir('i', 'reportes') },
       ]
     : [
-        { icono: 'ti-arrows-exchange', texto: 'Traspasos',        al: () => ir('m', 'bienes') },
+        { icono: 'ti-armchair',        texto: 'Bienes muebles',   al: () => ir('m', 'bienes') },
+        { icono: 'ti-arrows-exchange', texto: 'Traspasos',        al: () => ir('m', 'traspasos') },
+        { icono: 'ti-trash',           texto: 'Papelera',         al: () => ir('m', 'papelera') },
         { icono: 'ti-history',         texto: 'Historial de reconteos', al: () => ir('m', 'historial') },
       ]
 
@@ -151,7 +173,7 @@ function HojaMas({ user, inmuebles, onCerrar, onSalir }) {
         <div style={{ padding: '0 16px 10px' }}>
           <p style={{ fontSize: '15px', fontWeight: 600 }}>{user?.nombre}</p>
           <p style={{ fontSize: '12.5px', color: 'var(--texto-3)' }}>
-            {user?.rol === 'admin' ? 'Administrador · Bienes muebles' : 'Administrador · Bienes inmuebles'}
+            {inmuebles ? 'Administrador · Bienes inmuebles' : 'Administrador · Bienes muebles'}
           </p>
         </div>
         {opciones.map(o => (
@@ -161,9 +183,9 @@ function HojaMas({ user, inmuebles, onCerrar, onSalir }) {
             <i className="ti ti-chevron-right flecha" />
           </button>
         ))}
-        <button className="fila" onClick={() => { fijarVista('escritorio'); onCerrar() }}>
-          <i className="ti ti-device-desktop" style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
-          <span className="crece nombre">Ver como escritorio</span>
+        <button className="fila" onClick={toggle}>
+          <i className={`ti ti-${dark ? 'sun' : 'moon'}`} style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
+          <span className="crece nombre">{dark ? 'Tema claro' : 'Tema oscuro'}</span>
         </button>
         <button className="fila" onClick={() => { onCerrar(); onSalir?.() }}>
           <i className="ti ti-logout" style={{ fontSize: '20px', color: 'var(--alerta)' }} />

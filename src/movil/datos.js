@@ -85,15 +85,25 @@ export async function bienPorClave(clave) {
   return mapear(data[0])
 }
 
-export async function buscarBienes(texto, limite = 40) {
+// Las mismas listas que en el escritorio: el inventario vigente, los traspasos
+// y la papelera. Cambia nada más el estado que se pide.
+const ESTADOS = {
+  inventario: VIGENTES,
+  traspasos:  ['TRASPASO'],
+  papelera:   ['PAPELERA'],
+}
+
+export async function buscarBienes(texto, { lista = 'inventario', areaIds = [], limite = 40 } = {}) {
   const q = String(texto || '').trim()
-  if (!q) return []
-  const { data, error } = await supabase
-    .from('bienes').select(SELECT)
-    .in('estadobien', VIGENTES)
-    .or(`nombrebien.ilike.%${q}%,claveinventario.ilike.%${q}%,serie.ilike.%${q}%`)
+  let consulta = supabase.from('bienes').select(SELECT)
+    .in('estadobien', ESTADOS[lista] || VIGENTES)
     .order('idbien', { ascending: false })
     .limit(limite)
+
+  if (q) consulta = consulta.or(`nombrebien.ilike.%${q}%,claveinventario.ilike.%${q}%,serie.ilike.%${q}%,marca.ilike.%${q}%`)
+  if (areaIds && areaIds.length) consulta = consulta.in('idarea', areaIds)
+
+  const { data, error } = await consulta
   if (error) throw error
   return (data || []).map(mapear)
 }
