@@ -106,13 +106,14 @@ export function revisar(id, claveCruda) {
 
   const bien = r.esperados.find(e => e.clave === clave)
   if (!bien) return { estado: 'ajeno', clave }
-  if (r.encontrados[clave]) return { estado: 'repetido', clave, bien, cuando: r.encontrados[clave].fecha }
+  const ya = r.encontrados[clave]
+  if (ya) return { estado: 'repetido', clave, bien, cuando: ya.fecha, observacion: ya.observacion || '' }
   return { estado: 'nuevo', clave, bien }
 }
 
 // Marca una clave. Devuelve qué pasó para poder avisarlo en pantalla:
 //   'ok' | 'repetido' | 'ajeno' | 'desconocido'
-export function marcar(id, claveCruda, metodo = 'qr') {
+export function marcar(id, claveCruda, metodo = 'qr', observacion = '') {
   const clave = normalizarClave(claveCruda)
   const r = reconteo(id)
   if (!r || !clave) return { estado: 'desconocido', clave }
@@ -124,7 +125,14 @@ export function marcar(id, claveCruda, metodo = 'qr') {
   }
   if (r.encontrados[clave]) return { estado: 'repetido', clave, bien: esperado }
 
-  conReconteo(id, c => { c.encontrados = { ...c.encontrados, [clave]: { fecha: new Date().toISOString(), metodo } } })
+  conReconteo(id, c => {
+    c.encontrados = {
+      ...c.encontrados,
+      // La observación se anota junto al bien y viaja al historial: es lo que
+      // se vio en el momento (dañado, sin etiqueta, en otra oficina).
+      [clave]: { fecha: new Date().toISOString(), metodo, observacion: observacion || '' },
+    }
+  })
   return { estado: 'ok', clave, bien: esperado }
 }
 

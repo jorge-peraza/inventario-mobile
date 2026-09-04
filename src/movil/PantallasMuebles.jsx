@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { irA, volver } from '../rutas'
-import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes } from './datos'
+import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
   cerrarReconteo, borrarReconteo, resumen, fechaCorta,
@@ -119,15 +119,26 @@ const TITULOS = {
   papelera:   { titulo: 'Papelera',       sub: 'Bienes capturados por error' },
 }
 
+// Los filtros se recuerdan: antes vivían en el estado de la pantalla y al
+// entrar a un bien y regresar había que volver a ponerlos.
+function filtroGuardado(lista) {
+  try { return JSON.parse(localStorage.getItem('filtro-' + lista) || '{}') } catch { return {} }
+}
+function guardarFiltro(lista, filtro) {
+  try { localStorage.setItem('filtro-' + lista, JSON.stringify(filtro)) } catch { /* modo privado */ }
+}
+
 export function BuscarBienes({ lista = 'inventario' }) {
-  const [texto, setTexto] = useState('')
+  const guardado = filtroGuardado(lista)
+  const [texto, setTexto] = useState(guardado.texto || '')
   const [areas, setAreas] = useState([])
-  const [areaSel, setAreaSel] = useState([])       // idarea marcadas
+  const [areaSel, setAreaSel] = useState(guardado.areaSel || [])   // idarea marcadas
   const [hojaAreas, setHojaAreas] = useState(false)
   const [datos, setDatos] = useState([])
   const [cargando, setCargando] = useState(false)
 
   useEffect(() => { areasConDependencia().then(setAreas).catch(console.error) }, [])
+  useEffect(() => { guardarFiltro(lista, { texto, areaSel }) }, [lista, texto, areaSel])
 
   useEffect(() => {
     if (!texto.trim() && areaSel.length === 0) { setDatos([]); return }
@@ -274,7 +285,12 @@ export function FichaBien({ clave }) {
 
   return (
     <>
-      <Cabecera titulo="Bien" sub={clave} atras />
+      <Cabecera titulo="Bien" sub={clave} atras
+        accion={bien && (
+          <button className="icono-btn" onClick={() => irA('m', 'editar', clave)} aria-label="Modificar">
+            <i className="ti ti-pencil" />
+          </button>
+        )} />
       <div className="contenido">
         {cargando && <Cargando />}
         {!cargando && !bien && (
@@ -300,6 +316,90 @@ export function FichaBien({ clave }) {
               {dato('Fecha de factura', bien.fechafactura)}
               {dato('Importe', fmtDinero(bien.importe))}
               {dato('Observaciones', bien.observaciones)}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ── Modificar un bien desde el celular ───────────────────────────────────────
+// Solo los datos que se corrigen viendo el mueble enfrente. La factura, el área
+// y el resguardo se quedan en la computadora: mueven claves y catálogos, y eso
+// no se hace de paso en un pasillo.
+export function EditarBien({ clave }) {
+  const [bien, setBien] = useState(null)
+  const [campos, setCampos] = useState({ nombre: '', marca: '', modelo: '', serie: '', observaciones: '' })
+  const [cargando, setCargando] = useState(true)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    setCargando(true)
+    bienPorClave(clave)
+      .then(b => {
+        setBien(b)
+        if (b) setCampos({
+          nombre: b.nombre || '', marca: b.marca || '', modelo: b.modelo || '',
+          serie: b.serie || '', observaciones: b.observaciones || '',
+        })
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setCargando(false))
+  }, [clave])
+
+  async function guardar() {
+    if (!bien) return
+    setGuardando(true); setError(null)
+    try {
+      await actualizarBien(bien.idbien, campos)
+      volver()
+    } catch (e) { setError(e.message); setGuardando(false) }
+  }
+
+  const campo = (etq, llave, opciones = {}) => (
+    <div key={llave}>
+      <p className="etiqueta" style={{ marginBottom: '6px' }}>{etq}</p>
+      {opciones.largo
+        ? <textarea value={campos[llave]} onChange={e => setCampos(c => ({ ...c, [llave]: e.target.value }))}
+            rows={4} placeholder={opciones.placeholder}
+            style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
+              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '15px', outline: 'none', resize: 'vertical' }} />
+        : <input value={campos[llave]} onChange={e => setCampos(c => ({ ...c, [llave]: e.target.value }))}
+            placeholder={opciones.placeholder} autoCapitalize="characters" autoCorrect="off"
+            style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
+              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px', outline: 'none' }} />}
+    </div>
+  )
+
+  return (
+    <>
+      <Cabecera titulo="Modificar bien" sub={clave} atras />
+      <div className="contenido">
+        {cargando && <Cargando />}
+        {!cargando && !bien && <Vacio icono="ti-qrcode" texto={`No hay ningún bien con la clave ${clave}`} />}
+        {bien && (
+          <>
+            {campo('Nombre del bien', 'nombre')}
+            {campo('Marca', 'marca')}
+            {campo('Tipo / Modelo', 'modelo')}
+            {campo('Serie', 'serie')}
+            {campo('Observaciones', 'observaciones', { largo: true, placeholder: 'Agregar Comentarios.' })}
+
+            <p className="detalle">
+              El área, el resguardo y la factura se cambian desde la computadora.
+            </p>
+
+            {error && <div className="tarjeta" style={{ borderColor: 'var(--alerta)', color: 'var(--alerta)' }}>{error}</div>}
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="boton suave" onClick={volver} disabled={guardando}>Cancelar</button>
+              <button className="boton" onClick={guardar} disabled={guardando}>
+                {guardando
+                  ? <><i className="ti ti-loader-2 gira" style={{ fontSize: '17px' }} />Guardando…</>
+                  : <><i className="ti ti-device-floppy" style={{ fontSize: '17px' }} />Guardar</>}
+              </button>
             </div>
           </>
         )}
@@ -533,7 +633,7 @@ export function ListaReconteo({ idarea, usuario }) {
                     onClick={() => (e.verificado ? desmarcar(rc.id, e.clave) : marcar(rc.id, e.clave, 'manual'))}
                     aria-label={e.verificado ? 'Quitar verificación' : 'Marcar como encontrado'}>
                     <span className={`marca ${e.verificado ? 'ok' : 'falta'}`}>
-                      <i className={`ti ti-${e.verificado ? 'check' : 'point'}`} />
+                      <i className={`ti ti-${e.verificado ? 'check' : 'question-mark'}`} />
                     </span>
                   </button>
                   <button className="crece" style={{ textAlign: 'left', padding: 0 }}
@@ -617,7 +717,7 @@ export function HistorialReconteos() {
                     ? <div className="fila"><span className="detalle">Aparecieron todos los bienes del área.</span></div>
                     : faltantes.map(e => (
                         <button key={e.clave} className="fila" style={{ paddingLeft: '28px' }} onClick={() => irA('b', e.clave)}>
-                          <span className="marca falta"><i className="ti ti-point" /></span>
+                          <span className="marca falta"><i className="ti ti-question-mark" /></span>
                           <div className="crece">
                             <p className="clave">{e.clave}</p>
                             <p className="nombre" style={{ fontWeight: 400 }}>{e.nombre}</p>

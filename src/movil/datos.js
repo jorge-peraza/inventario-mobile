@@ -93,6 +93,22 @@ const ESTADOS = {
   papelera:   ['PAPELERA'],
 }
 
+// Guarda los datos del bien que se pueden corregir desde el celular. La factura,
+// el área y el resguardo se quedan para la computadora: mueven consecutivos,
+// claves y catálogos, y eso no se hace de paso en un pasillo.
+export async function actualizarBien(idbien, campos) {
+  const parche = {
+    nombrebien:    (campos.nombre || '').trim().toUpperCase() || null,
+    marca:         (campos.marca || '').trim().toUpperCase() || null,
+    tipo:          (campos.modelo || '').trim().toUpperCase() || null,
+    serie:         (campos.serie || '').trim().toUpperCase() || null,
+    observaciones: (campos.observaciones || '').trim() || null,
+  }
+  const { error } = await supabase.from('bienes').update(parche).eq('idbien', idbien)
+  if (error) throw error
+  return parche
+}
+
 export async function buscarBienes(texto, { lista = 'inventario', areaIds = [], limite = 40 } = {}) {
   const q = String(texto || '').trim()
   let consulta = supabase.from('bienes').select(SELECT)

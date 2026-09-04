@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import './estilos.css'
 import { useTheme } from '../context/ThemeContext'
 import { useRuta, irA, reemplazarRuta, volver } from '../rutas'
-import { InicioMuebles, BuscarBienes, FichaBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
+import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
 import { Escaner } from './Escaner'
 import { InicioInmuebles, BuscarInmuebles, FichaInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
 
@@ -26,7 +26,11 @@ function variablesDelTema(t, dark) {
     '--texto-4':      t.text4,
     // Las cajas de captura son las mismas del escritorio (searchBoxStyle)
     '--campo':        dark ? '#2a2a2c' : '#ffffff',
-    '--barra':        t.sidebarBg,
+    // Las barras van opacas, no translúcidas: si no, se transparentaban los
+    // renglones de la lista por debajo y no se veía dónde acaba el contenido.
+    '--barra':        dark ? '#1c1c1e' : '#f4f4f6',
+    // El botón principal se pinta con text1; encima hace falta el contrario
+    '--sobre-boton':  dark ? '#111113' : '#ffffff',
     '--ok':           t.colorGreen,
     '--ok-suave':     dark ? 'rgba(126,232,162,0.14)' : 'rgba(22,163,74,0.10)',
     '--falta':        t.colorYellow,
@@ -77,6 +81,7 @@ export default function AppMovil({ user, onSalir }) {
 
     switch (sub) {
       case 'bienes':    return <BuscarBienes />
+      case 'editar':    return <EditarBien clave={arg} />
       case 'traspasos': return <BuscarBienes lista="traspasos" />
       case 'papelera':  return <BuscarBienes lista="papelera" />
       case 'reconteo':  return arg ? <ListaReconteo idarea={arg} usuario={user} /> : <ElegirArea />
@@ -147,11 +152,36 @@ export function Cabecera({ titulo, sub, atras = false, accion = null }) {
   )
 }
 
+// Pantalla completa: quita la barra del navegador y se siente aplicación. En
+// Android lo hace la API de fullscreen; en iPhone Safari no la permite, ahí el
+// camino es "Añadir a pantalla de inicio", que el manifiesto ya deja lista.
+function pantallaCompletaDisponible() {
+  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+}
+
+async function alternarPantallaCompleta() {
+  const raiz = document.documentElement
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.())
+    } else {
+      await (raiz.requestFullscreen?.({ navigationUI: 'hide' }) ?? raiz.webkitRequestFullscreen?.())
+    }
+  } catch { /* el navegador puede negarlo */ }
+}
+
 // ── Lo que no cabe en la barra ───────────────────────────────────────────────
 // Son las mismas opciones del menú lateral del escritorio, en una hoja.
 function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
   const { toggle } = useTheme()
+  const [completa, setCompleta] = useState(() => !!document.fullscreenElement)
   const ir = (...r) => { onCerrar(); irA(...r) }
+
+  useEffect(() => {
+    const alCambiar = () => setCompleta(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', alCambiar)
+    return () => document.removeEventListener('fullscreenchange', alCambiar)
+  }, [])
 
   const opciones = inmuebles
     ? [
@@ -183,6 +213,12 @@ function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
             <i className="ti ti-chevron-right flecha" />
           </button>
         ))}
+        {pantallaCompletaDisponible() && (
+          <button className="fila" onClick={() => { alternarPantallaCompleta(); onCerrar() }}>
+            <i className={`ti ti-${completa ? 'arrows-minimize' : 'arrows-maximize'}`} style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
+            <span className="crece nombre">{completa ? 'Salir de pantalla completa' : 'Pantalla completa'}</span>
+          </button>
+        )}
         <button className="fila" onClick={toggle}>
           <i className={`ti ti-${dark ? 'sun' : 'moon'}`} style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
           <span className="crece nombre">{dark ? 'Tema claro' : 'Tema oscuro'}</span>

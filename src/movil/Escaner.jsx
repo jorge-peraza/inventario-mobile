@@ -88,10 +88,10 @@ export function Escaner({ idarea }) {
     refUltima.current = { clave: '', cuando: 0 }
   }
 
-  function confirmar() {
+  function confirmar(observacion) {
     const actual = rc || reconteoAbierto(idarea)
     if (actual && lectura?.estado === 'nuevo') {
-      marcar(actual.id, lectura.clave, lectura.metodo || 'qr')
+      marcar(actual.id, lectura.clave, lectura.metodo || 'qr', observacion)
       setRc(reconteo(actual.id))
     }
     cerrarLectura()
@@ -103,16 +103,15 @@ export function Escaner({ idarea }) {
     <div className="movil-escaner">
       <video ref={refVideo} muted playsInline />
       <div className="capa">
+        {/* La equis regresa a la lista del área, así que el botón de lista que
+            estaba junto sobraba: hacía exactamente lo mismo. */}
         <div className="arriba">
-          <button className="icono-btn" onClick={volver} aria-label="Cerrar">
-            <i className="ti ti-x" />
-          </button>
           <div className="cuenta">
             {s.encontrados} de {s.total}
             <span>{rc?.nombrearea || 'Reconteo'} · faltan {s.faltan}</span>
           </div>
-          <button className="icono-btn" onClick={() => irA('m', 'reconteo', idarea)} aria-label="Ver la lista">
-            <i className="ti ti-list" />
+          <button className="icono-btn" onClick={volver} aria-label="Cerrar">
+            <i className="ti ti-x" />
           </button>
         </div>
 
@@ -126,7 +125,7 @@ export function Escaner({ idarea }) {
             : (
               <form className="manual" onSubmit={e => { e.preventDefault(); if (manual.trim()) { leido(manual, 'manual'); setManual('') } }}>
                 <input value={manual} onChange={e => setManual(e.target.value)}
-                  placeholder="Clave a mano (etiqueta rota)" autoCapitalize="characters" autoCorrect="off" />
+                  placeholder="Clave a mano" autoCapitalize="characters" autoCorrect="off" />
                 <button type="submit">Buscar</button>
               </form>
             )}
@@ -138,7 +137,8 @@ export function Escaner({ idarea }) {
 
 // Lo que se leyó, con sus datos, antes de darlo por verificado
 function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
-  const { estado, clave, bien, cuando, ajeno, buscado } = lectura
+  const { estado, clave, bien, cuando, observacion, ajeno, buscado } = lectura
+  const [nota, setNota] = useState('')
 
   const encabezado = estado === 'nuevo'
     ? { color: 'var(--ok)',     icono: 'ti-qrcode',       texto: '¿Es este el bien?' }
@@ -171,7 +171,20 @@ function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
             {dato('Resguardo', bien.resguardante)}
           </div>
           {estado === 'repetido' && (
-            <p className="detalle" style={{ marginTop: '8px' }}>Se verificó el {fechaCorta(cuando)}.</p>
+            <>
+              <p className="detalle" style={{ marginTop: '8px' }}>Se verificó el {fechaCorta(cuando)}.</p>
+              {observacion && <p className="detalle">Observación: {observacion}</p>}
+            </>
+          )}
+          {/* La observación queda guardada con el bien en el historial: sirve
+              para anotar en el momento lo que se vio —está dañado, no tiene
+              etiqueta, está en otra oficina— sin cortar el escaneo. */}
+          {estado === 'nuevo' && (
+            <input value={nota} onChange={e => setNota(e.target.value)}
+              placeholder="Observación (opcional)"
+              style={{ width: '100%', marginTop: '10px', padding: '10px 12px', borderRadius: '10px',
+                background: 'var(--campo)', border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)',
+                fontSize: '14px', outline: 'none' }} />
           )}
         </>
       ) : (
@@ -187,7 +200,7 @@ function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
           {estado === 'nuevo' ? 'Cancelar' : 'Seguir escaneando'}
         </button>
         {estado === 'nuevo' && (
-          <button className="boton" onClick={onConfirmar}>
+          <button className="boton" onClick={() => onConfirmar(nota.trim())}>
             <i className="ti ti-check" style={{ fontSize: '17px' }} />OK
           </button>
         )}

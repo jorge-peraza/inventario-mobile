@@ -17,7 +17,13 @@
   --texto-3:      #777777;
   --texto-4:      #aaaaaa;
   --campo:        #ffffff;
-  --barra:        rgba(255, 255, 255, 0.65);
+  /* Las barras van opacas: translúcidas dejaban pasar los renglones de la
+     tabla y no se distinguía dónde terminaba el contenido. */
+  --barra:        #f4f4f6;
+  /* Color del texto SOBRE el botón principal. Antes se usaba el del fondo, que
+     es un degradado y no un color: el texto se quedaba del mismo color que el
+     botón y no se leía. */
+  --sobre-boton:  #ffffff;
   --ok:           #16a34a;
   --ok-suave:     rgba(22, 163, 74, 0.12);
   --falta:        #d97706;
@@ -54,8 +60,6 @@
   gap: 10px;
   padding: calc(11px + env(safe-area-inset-top)) 16px 11px;
   background: var(--barra);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
   border-bottom: 1px solid var(--borde);
 }
 .movil .encabezado .titulo { flex: 1; min-width: 0; }
@@ -91,15 +95,14 @@
   align-items: end;
   padding: 7px 4px calc(7px + env(safe-area-inset-bottom));
   background: var(--barra);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
   border-top: 1px solid var(--borde);
 }
 .movil-barra button {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: 5px 2px;
   font-size: 10.5px;
-  color: var(--texto-4);
+  /* text-3 y no text-4: en modo claro el más tenue casi desaparecía */
+  color: var(--texto-3);
   transition: color 0.15s;
 }
 .movil-barra button i { font-size: 22px; }
@@ -110,7 +113,7 @@
   border-radius: 16px;
   display: flex; align-items: center; justify-content: center;
   font-size: 25px;
-  color: var(--fondo-2);
+  color: var(--sobre-boton);
   background: var(--texto-1);
   box-shadow: var(--sombra);
 }
@@ -135,7 +138,7 @@
   border-bottom: 1px solid var(--borde);
 }
 .movil .fila:last-child { border-bottom: none; }
-.movil .fila:active { background: var(--fondo-2); }
+.movil .fila:active { background: var(--barra); }
 .movil .fila .crece { flex: 1; min-width: 0; }
 .movil .clave { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--texto-3); }
 .movil .nombre { font-size: 14px; font-weight: 500; line-height: 1.3; }
@@ -191,7 +194,7 @@
   font-size: 15px;
   font-weight: 600;
   background: var(--texto-1);
-  color: var(--fondo-2);
+  color: var(--sobre-boton);
 }
 .movil .boton.suave   { background: var(--tarjeta); color: var(--texto-1); border: 1px solid var(--borde-fuerte); }
 .movil .boton.peligro { background: var(--alerta-suave); color: var(--alerta); border: 1px solid var(--alerta); }
@@ -216,7 +219,7 @@
 .movil-telon { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(3px); }
 .movil-hoja {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
-  background: var(--fondo-2);
+  background: var(--barra);
   color: var(--texto-1);
   border-radius: 20px 20px 0 0;
   border-top: 1px solid var(--borde);
@@ -245,9 +248,22 @@
   padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
   color: #fff;
 }
-.movil-escaner .arriba .icono-btn { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.25); color: #fff; }
-.movil-escaner .arriba .cuenta { font-size: 14px; font-weight: 600; }
-.movil-escaner .arriba .cuenta span { display: block; font-size: 11.5px; font-weight: 400; opacity: 0.75; }
+/* Los controles del escáner siguen el tema, no un blanco y negro aparte: en
+   claro van claros y en oscuro oscuros, para que no salga la equis negra
+   junto a un botón blanco. */
+.movil-escaner .arriba .icono-btn {
+  margin-left: auto;                  /* la equis, arriba a la derecha */
+  background: var(--campo);
+  border-color: var(--borde-fuerte);
+  color: var(--texto-1);
+}
+.movil-escaner .arriba .cuenta {
+  font-size: 14px; font-weight: 600;
+  padding: 8px 12px; border-radius: 11px;
+  background: var(--campo); color: var(--texto-1);
+  border: 1px solid var(--borde);
+}
+.movil-escaner .arriba .cuenta span { display: block; font-size: 11.5px; font-weight: 400; color: var(--texto-3); }
 .movil-escaner .abajo {
   position: relative; z-index: 2;
   padding: 16px 16px calc(22px + env(safe-area-inset-bottom));
@@ -274,16 +290,17 @@
   flex: 1; min-width: 0;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  border: 1px solid var(--borde-fuerte);
+  background: var(--campo);
+  color: var(--texto-1);
   font-size: 16px;
+  text-align: center;
   outline: none;
 }
-.movil-escaner .manual input::placeholder { color: rgba(255, 255, 255, 0.55); }
+.movil-escaner .manual input::placeholder { color: var(--texto-4); text-align: center; }
 .movil-escaner .manual button {
   padding: 12px 16px; border-radius: 12px;
-  background: #fff; color: #111; font-weight: 600;
+  background: var(--texto-1); color: var(--sobre-boton); font-weight: 600;
 }
 
 /* Tarjeta de confirmación del escáner: qué bien se leyó, con Cancelar y OK.
