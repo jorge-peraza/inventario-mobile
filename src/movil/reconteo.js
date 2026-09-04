@@ -130,10 +130,29 @@ export function marcar(id, claveCruda, metodo = 'qr', observacion = '') {
       ...c.encontrados,
       // La observación se anota junto al bien y viaja al historial: es lo que
       // se vio en el momento (dañado, sin etiqueta, en otra oficina).
-      [clave]: { fecha: new Date().toISOString(), metodo, observacion: observacion || '' },
+      // `subida` dice si ya alcanzó a escribirse en el inventario; sin señal se
+      // queda en false y se reintenta después, sin frenar el conteo.
+      [clave]: { fecha: new Date().toISOString(), metodo, observacion: observacion || '', subida: !observacion },
     }
   })
   return { estado: 'ok', clave, bien: esperado }
+}
+
+// ── Observaciones que todavía no llegan al inventario ────────────────────────
+// En una bodega la señal va y viene. La observación se guarda siempre en el
+// teléfono; si la escritura en la base falla, queda pendiente y se reintenta.
+export function pendientes(r) {
+  if (!r) return []
+  return Object.entries(r.encontrados || {})
+    .filter(([, v]) => v.observacion && !v.subida)
+    .map(([clave, v]) => ({ clave, ...v, bien: r.esperados.find(e => e.clave === clave) }))
+}
+
+export function marcarSubida(id, clave) {
+  return conReconteo(id, c => {
+    const previo = c.encontrados[clave]
+    if (previo) c.encontrados = { ...c.encontrados, [clave]: { ...previo, subida: true } }
+  })
 }
 
 export function desmarcar(id, clave) {

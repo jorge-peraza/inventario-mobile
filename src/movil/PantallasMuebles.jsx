@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { irA, volver } from '../rutas'
-import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien } from './datos'
+import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
-  cerrarReconteo, borrarReconteo, resumen, fechaCorta,
+  cerrarReconteo, borrarReconteo, resumen, fechaCorta, pendientes, marcarSubida,
 } from './reconteo'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
@@ -519,11 +519,36 @@ export function ListaReconteo({ idarea, usuario }) {
   }
 
   const s = resumen(rc)
+  const sinSubir = pendientes(rc)
+
+  // Reintenta escribir en el inventario las observaciones que no alcanzaron a
+  // subir por falta de señal. Se dispara al recuperar conexión y con el botón.
+  const [subiendo, setSubiendo] = useState(false)
+  async function subirPendientes() {
+    if (!rc || subiendo) return
+    setSubiendo(true)
+    for (const p of pendientes(reconteo(rc.id))) {
+      if (!p.bien?.idbien) continue
+      try {
+        await anotarObservacionEnBien(p.bien.idbien, p.observacion, new Date(p.fecha))
+        marcarSubida(rc.id, p.clave)
+      } catch { /* sigue pendiente */ }
+    }
+    setRc(reconteoAbierto(idarea))
+    setSubiendo(false)
+  }
+
+  useEffect(() => {
+    if (sinSubir.length === 0) return
+    window.addEventListener('online', subirPendientes)
+    return () => window.removeEventListener('online', subirPendientes)
+  }, [sinSubir.length, rc?.id])
+
   const lista = useMemo(() => {
     if (!rc) return []
     const q = texto.trim().toUpperCase()
     return rc.esperados
-      .map(e => ({ ...e, verificado: !!rc.encontrados[e.clave] }))
+      .map(e => ({ ...e, verificado: !!rc.encontrados[e.clave], nota: rc.encontrados[e.clave]?.observacion || '' }))
       .filter(e => (pestana === 'todos' ? true : pestana === 'ok' ? e.verificado : !e.verificado))
       .filter(e => !q || e.clave.includes(q) || (e.nombre || '').toUpperCase().includes(q))
   }, [rc, pestana, texto])
@@ -616,6 +641,21 @@ export function ListaReconteo({ idarea, usuario }) {
           </div>
         )}
 
+        {/* Observaciones que se anotaron sin señal y no llegaron al inventario */}
+        {sinSubir.length > 0 && (
+          <div className="tarjeta" style={{ borderColor: 'var(--alerta)' }}>
+            <p className="nombre" style={{ color: 'var(--alerta)' }}>
+              {sinSubir.length} observación{sinSubir.length !== 1 ? 'es' : ''} sin guardar en el inventario
+            </p>
+            <p className="detalle">Se anotaron en el conteo pero no alcanzaron a subir. Se reintenta solo al recuperar señal.</p>
+            <button className="boton suave" style={{ marginTop: '10px' }} onClick={subirPendientes} disabled={subiendo}>
+              {subiendo
+                ? <><i className="ti ti-loader-2 gira" style={{ fontSize: '17px' }} />Subiendo…</>
+                : <><i className="ti ti-cloud-upload" style={{ fontSize: '17px' }} />Reintentar</>}
+            </button>
+          </div>
+        )}
+
         <div className="buscador">
           <i className="ti ti-search" />
           <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="characters" />
@@ -641,6 +681,9 @@ export function ListaReconteo({ idarea, usuario }) {
                     <p className="clave">{e.clave}</p>
                     <p className="nombre">{e.nombre}</p>
                     {e.resguardante && e.resguardante !== '—' && <p className="detalle">{e.resguardante}</p>}
+                    {e.nota && <p className="detalle" style={{ color: 'var(--falta)' }}>
+                      <i className="ti ti-message-2" style={{ marginRight: '4px' }} />{e.nota}
+                    </p>}
                   </button>
                 </div>
               ))}
@@ -696,6 +739,11 @@ export function HistorialReconteos() {
         {lista.map(r => {
           const s = resumen(r)
           const faltantes = r.esperados.filter(e => !r.encontrados[e.clave])
+          // Los que se verificaron con una nota: es lo que hay que revisar
+          // después, y por eso van juntos y arriba de los faltantes.
+          const conNota = r.esperados
+            .map(e => ({ ...e, nota: r.encontrados[e.clave]?.observacion || '' }))
+            .filter(e => e.nota)
           const abiertaEsta = abierto === r.id
           return (
             <div key={r.id} className="tarjeta plana">
@@ -706,6 +754,7 @@ export function HistorialReconteos() {
                   <p className="detalle" style={{ marginTop: '5px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <span className="chip ok">{s.encontrados} encontrados</span>
                     {s.faltan > 0 && <span className="chip falta">{s.faltan} faltaron</span>}
+                    {conNota.length > 0 && <span className="chip falta">{conNota.length} con observación</span>}
                   </p>
                 </div>
                 <i className={`ti ti-chevron-${abiertaEsta ? 'up' : 'down'} flecha`} />
@@ -713,6 +762,26 @@ export function HistorialReconteos() {
 
               {abiertaEsta && (
                 <>
+                  {conNota.length > 0 && (
+                    <>
+                      <div className="fila" style={{ paddingBottom: '4px' }}>
+                        <span className="etiqueta">Con observación</span>
+                      </div>
+                      {conNota.map(e => (
+                        <button key={'n' + e.clave} className="fila" style={{ paddingLeft: '28px' }} onClick={() => irA('b', e.clave)}>
+                          <span className="marca ok"><i className="ti ti-message-2" /></span>
+                          <div className="crece">
+                            <p className="clave">{e.clave}</p>
+                            <p className="nombre" style={{ fontWeight: 400 }}>{e.nombre}</p>
+                            <p className="detalle" style={{ color: 'var(--falta)' }}>{e.nota}</p>
+                          </div>
+                        </button>
+                      ))}
+                      <div className="fila" style={{ paddingBottom: '4px' }}>
+                        <span className="etiqueta">No se encontraron</span>
+                      </div>
+                    </>
+                  )}
                   {faltantes.length === 0
                     ? <div className="fila"><span className="detalle">Aparecieron todos los bienes del área.</span></div>
                     : faltantes.map(e => (

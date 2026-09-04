@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { volver, irA } from '../rutas'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
-import { reconteoAbierto, reconteo, revisar, marcar, resumen, normalizarClave, fechaCorta } from './reconteo'
-import { bienPorClave } from './datos'
+import { reconteoAbierto, reconteo, revisar, marcar, marcarSubida, resumen, normalizarClave, fechaCorta } from './reconteo'
+import { bienPorClave, anotarObservacionEnBien } from './datos'
 
 // ── Escáner del reconteo ──────────────────────────────────────────────────────
 // Pantalla completa con la cámara detrás. Cada lectura se resuelve contra la
@@ -93,6 +93,15 @@ export function Escaner({ idarea }) {
     if (actual && lectura?.estado === 'nuevo') {
       marcar(actual.id, lectura.clave, lectura.metodo || 'qr', observacion)
       setRc(reconteo(actual.id))
+
+      // La observación se escribe también en el bien, para que quede en el
+      // inventario y no solo en el conteo. Va en segundo plano: si no hay
+      // señal se queda pendiente y se reintenta, sin frenar el escaneo.
+      if (observacion && lectura.bien?.idbien) {
+        anotarObservacionEnBien(lectura.bien.idbien, observacion)
+          .then(() => { marcarSubida(actual.id, lectura.clave); setRc(reconteo(actual.id)) })
+          .catch(() => { /* queda pendiente; se reintenta desde la lista */ })
+      }
     }
     cerrarLectura()
   }

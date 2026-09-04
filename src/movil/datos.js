@@ -93,6 +93,28 @@ const ESTADOS = {
   papelera:   ['PAPELERA'],
 }
 
+// Escribe en el bien la observación que se anotó al verificarlo en un reconteo.
+// No reemplaza lo que ya decía: se agrega al final separado por "|", que es
+// como la base guarda la historia del bien (las altas y los traspasos se
+// anotan igual). Así el dato queda en el inventario y no solo en el conteo.
+export async function anotarObservacionEnBien(idbien, nota, cuando = new Date()) {
+  const texto = String(nota || '').trim()
+  if (!texto) return null
+
+  const { data, error } = await supabase
+    .from('bienes').select('observaciones').eq('idbien', idbien).maybeSingle()
+  if (error) throw error
+
+  const fecha = cuando.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase()
+  const linea = `RECONTEO ${fecha}: ${texto.toUpperCase()}`
+  const previo = (data?.observaciones || '').trim()
+  const nuevo = previo ? `${previo} | ${linea}` : linea
+
+  const { error: e2 } = await supabase.from('bienes').update({ observaciones: nuevo }).eq('idbien', idbien)
+  if (e2) throw e2
+  return nuevo
+}
+
 // Guarda los datos del bien que se pueden corregir desde el celular. La factura,
 // el área y el resguardo se quedan para la computadora: mueven consecutivos,
 // claves y catálogos, y eso no se hace de paso en un pasillo.
