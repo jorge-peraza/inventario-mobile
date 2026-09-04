@@ -71,6 +71,9 @@ export function abrirReconteo({ idarea, nombrearea, dependencia, bienes, usuario
       serie:  b.serie,
       resguardante: b.resguardante,
       area:   b.area,
+      // La observación que tenía al abrir el conteo: el escáner la muestra
+      // para poder corregirla en vez de escribir encima sin verla.
+      observaciones: b.observaciones,
     })),
     // clave → { fecha, metodo: 'qr' | 'manual' }
     encontrados: {},

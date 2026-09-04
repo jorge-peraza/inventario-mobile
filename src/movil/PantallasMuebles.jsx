@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Cabecera } from './AppMovil'
+import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
-import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien } from './datos'
+import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien, resumenInventario, TIPOS } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
   cerrarReconteo, borrarReconteo, resumen, fechaCorta, pendientes, marcarSubida,
 } from './reconteo'
+import { subirReconteo, subirPendientes, hayTablas } from './sincronizar'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
 
@@ -38,9 +40,64 @@ function Confirmar({ titulo, detalle, textoOk, peligro, onOk, onCerrar }) {
   )
 }
 
+// ── Dona de bienes por tipo ──────────────────────────────────────────────────
+// La misma de la computadora, en el tamaño que cabe en un celular. Se dibuja
+// con arcos SVG y no con una gráfica de librería: son nueve valores.
+function arcoDona(cx, cy, rOut, rIn, a0, a1) {
+  const p = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+  const grande = (a1 - a0) > Math.PI ? 1 : 0
+  const [x0, y0] = p(rOut, a0)
+  const [x1, y1] = p(rOut, a1)
+  const [x2, y2] = p(rIn, a1)
+  const [x3, y3] = p(rIn, a0)
+  return `M${x0} ${y0} A${rOut} ${rOut} 0 ${grande} 1 ${x1} ${y1} L${x2} ${y2} A${rIn} ${rIn} 0 ${grande} 0 ${x3} ${y3} Z`
+}
+
+const TONOS = {
+  claro: ['#3a3a3c', '#5c5c5f', '#7c7c80', '#9a9a9d', '#b4b4b7', '#c6c6c9', '#d4d4d7', '#dedee1', '#e6e6e9'],
+  oscuro: ['#f0f0f0', '#d2d2d4', '#bcbcbe', '#a2a2a4', '#88888a', '#727274', '#5a5a5c', '#4a4a4c', '#3c3c3e'],
+}
+
+function Dona({ tipos, total, oscuro }) {
+  const paleta = oscuro ? TONOS.oscuro : TONOS.claro
+  const suma = tipos.reduce((s, t) => s + t.total, 0) || 1
+  let angulo = -Math.PI / 2
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      <svg viewBox="0 0 120 120" style={{ width: '124px', height: '124px', flexShrink: 0 }}>
+        {tipos.map((t, i) => {
+          if (!t.total) return null
+          const a0 = angulo
+          const a1 = angulo + (t.total / suma) * Math.PI * 2
+          angulo = a1
+          return <path key={t.id} d={arcoDona(60, 60, 56, 36, a0, a1 - 0.012)} fill={paleta[i % paleta.length]} />
+        })}
+        <text x="60" y="57" textAnchor="middle" style={{ fontSize: '19px', fontWeight: 600, fill: 'var(--texto-1)' }}>
+          {total.toLocaleString()}
+        </text>
+        <text x="60" y="72" textAnchor="middle" style={{ fontSize: '9px', fill: 'var(--texto-3)' }}>BIENES</text>
+      </svg>
+
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+        {tipos.filter(t => t.total > 0).slice(0, 6).map((t, i) => (
+          <button key={t.id} onClick={() => irA('m', 'bienes', t.id)}
+            style={{ display: 'flex', alignItems: 'center', gap: '7px', width: '100%', textAlign: 'left', padding: 0 }}>
+            <span style={{ width: '9px', height: '9px', borderRadius: '3px', flexShrink: 0, background: paleta[i % paleta.length] }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--texto-2)' }}>{t.total.toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Inicio ───────────────────────────────────────────────────────────────────
 export function InicioMuebles({ user }) {
   const [abiertos, setAbiertos] = useState(() => listaReconteos().filter(r => !r.fin))
+  const [resumenInv, setResumenInv] = useState(null)
+  const { dark: oscuro } = useTheme()
 
   useEffect(() => {
     const alCambiar = () => setAbiertos(listaReconteos().filter(r => !r.fin))
@@ -48,10 +105,37 @@ export function InicioMuebles({ user }) {
     return () => window.removeEventListener('reconteo-cambiado', alCambiar)
   }, [])
 
+  useEffect(() => { resumenInventario().then(setResumenInv).catch(console.error) }, [])
+
+  const kpis = resumenInv ? [
+    { label: 'Buen estado',   valor: resumenInv.bueno,        color: 'var(--ok)',     icono: 'ti-circle-check' },
+    { label: 'Deteriorados',  valor: resumenInv.deteriorado,  color: 'var(--alerta)', icono: 'ti-alert-triangle' },
+    { label: 'No verificados', valor: resumenInv.noVerificado, color: 'var(--falta)',  icono: 'ti-help-circle' },
+  ] : []
+
   return (
     <>
       <Cabecera titulo="Bienes Muebles" sub={`Inventario Municipal · ${user?.nombre || ''}`} />
       <div className="contenido">
+        {/* Resumen: el mismo que abre la computadora, en tarjetas */}
+        <div className="tarjeta">
+          {!resumenInv
+            ? <Cargando texto="Leyendo el inventario…" />
+            : <Dona tipos={resumenInv.porTipo} total={resumenInv.total} oscuro={oscuro} />}
+        </div>
+
+        {resumenInv && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            {kpis.map(k => (
+              <div key={k.label} className="tarjeta" style={{ padding: '11px' }}>
+                <i className={`ti ${k.icono}`} style={{ fontSize: '17px', color: k.color }} />
+                <p style={{ fontSize: '18px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{k.valor.toLocaleString()}</p>
+                <p style={{ fontSize: '10.5px', color: 'var(--texto-3)', lineHeight: 1.25 }}>{k.label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {abiertos.length > 0 && (
           <>
             <p className="etiqueta">Reconteo en curso</p>
@@ -128,27 +212,30 @@ function guardarFiltro(lista, filtro) {
   try { localStorage.setItem('filtro-' + lista, JSON.stringify(filtro)) } catch { /* modo privado */ }
 }
 
-export function BuscarBienes({ lista = 'inventario' }) {
+export function BuscarBienes({ lista = 'inventario', tipoInicial = '' }) {
   const guardado = filtroGuardado(lista)
   const [texto, setTexto] = useState(guardado.texto || '')
   const [areas, setAreas] = useState([])
   const [areaSel, setAreaSel] = useState(guardado.areaSel || [])   // idarea marcadas
+  const [tipo, setTipo] = useState(tipoInicial || guardado.tipo || '')
   const [hojaAreas, setHojaAreas] = useState(false)
+  const [hojaTipos, setHojaTipos] = useState(false)
   const [datos, setDatos] = useState([])
   const [cargando, setCargando] = useState(false)
 
   useEffect(() => { areasConDependencia().then(setAreas).catch(console.error) }, [])
-  useEffect(() => { guardarFiltro(lista, { texto, areaSel }) }, [lista, texto, areaSel])
+  useEffect(() => { guardarFiltro(lista, { texto, areaSel, tipo }) }, [lista, texto, areaSel, tipo])
+  useEffect(() => { if (tipoInicial) setTipo(tipoInicial) }, [tipoInicial])
 
   useEffect(() => {
-    if (!texto.trim() && areaSel.length === 0) { setDatos([]); return }
+    if (!texto.trim() && areaSel.length === 0 && !tipo) { setDatos([]); return }
     setCargando(true)
     const tm = setTimeout(() => {
-      buscarBienes(texto, { lista, areaIds: areaSel })
+      buscarBienes(texto, { lista, areaIds: areaSel, tipo })
         .then(setDatos).catch(console.error).finally(() => setCargando(false))
     }, 400)
     return () => clearTimeout(tm)
-  }, [texto, areaSel, lista])
+  }, [texto, areaSel, tipo, lista])
 
   const cab = TITULOS[lista] || TITULOS.inventario
   const nombreArea = areaSel.length === 1
@@ -166,22 +253,36 @@ export function BuscarBienes({ lista = 'inventario' }) {
           {texto && <button onClick={() => setTexto('')}><i className="ti ti-x" style={{ color: 'var(--texto-4)' }} /></button>}
         </div>
 
-        {/* Mismo filtro de dependencia y área que en la computadora */}
-        <button className="buscador" onClick={() => setHojaAreas(true)} style={{ textAlign: 'left' }}>
-          <i className="ti ti-building" />
-          <span style={{ flex: 1, color: areaSel.length ? 'var(--texto-1)' : 'var(--texto-4)' }}>
-            {areaSel.length === 0 ? 'Todas las dependencias' : nombreArea}
-          </span>
-          {areaSel.length > 0
-            ? <i className="ti ti-x" onClick={e => { e.stopPropagation(); setAreaSel([]) }} style={{ color: 'var(--texto-4)' }} />
-            : <i className="ti ti-chevron-down" style={{ color: 'var(--texto-4)' }} />}
-        </button>
+        {/* Los mismos filtros de la computadora: tipo de bien y dependencia */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          <button className="buscador" onClick={() => setHojaTipos(true)} style={{ textAlign: 'left', minWidth: 0 }}>
+            <i className={`ti ${TIPOS.find(x => x.id === tipo)?.icon || 'ti-category'}`} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: tipo ? 'var(--texto-1)' : 'var(--texto-4)' }}>
+              {TIPOS.find(x => x.id === tipo)?.label || 'Todo tipo'}
+            </span>
+            {tipo
+              ? <i className="ti ti-x" onClick={e => { e.stopPropagation(); setTipo('') }} style={{ color: 'var(--texto-4)' }} />
+              : <i className="ti ti-chevron-down" style={{ color: 'var(--texto-4)' }} />}
+          </button>
+
+          <button className="buscador" onClick={() => setHojaAreas(true)} style={{ textAlign: 'left', minWidth: 0 }}>
+            <i className="ti ti-building" />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: areaSel.length ? 'var(--texto-1)' : 'var(--texto-4)' }}>
+              {areaSel.length === 0 ? 'Dependencia' : nombreArea}
+            </span>
+            {areaSel.length > 0
+              ? <i className="ti ti-x" onClick={e => { e.stopPropagation(); setAreaSel([]) }} style={{ color: 'var(--texto-4)' }} />
+              : <i className="ti ti-chevron-down" style={{ color: 'var(--texto-4)' }} />}
+          </button>
+        </div>
 
         {cargando && <Cargando texto="Buscando…" />}
-        {!cargando && !texto.trim() && areaSel.length === 0 && (
-          <Vacio icono="ti-search" texto="Busca por texto o elige una dependencia" />
+        {!cargando && !texto.trim() && areaSel.length === 0 && !tipo && (
+          <Vacio icono="ti-search" texto="Busca por texto, tipo o dependencia" />
         )}
-        {!cargando && (texto.trim() || areaSel.length > 0) && datos.length === 0 && <Vacio texto="Sin resultados" />}
+        {!cargando && (texto.trim() || areaSel.length > 0 || tipo) && datos.length === 0 && <Vacio texto="Sin resultados" />}
 
         {datos.length > 0 && (
           <div className="tarjeta plana">
@@ -204,6 +305,30 @@ export function BuscarBienes({ lista = 'inventario' }) {
         <HojaAreas areas={areas} seleccion={areaSel}
           onElegir={ids => { setAreaSel(ids); setHojaAreas(false) }}
           onCerrar={() => setHojaAreas(false)} />
+      )}
+
+      {hojaTipos && (
+        <>
+          <div className="movil-telon" onClick={() => setHojaTipos(false)} />
+          <div className="movil-hoja">
+            <div className="asa" />
+            <div style={{ padding: '0 16px 8px' }}>
+              <p style={{ fontSize: '16px', fontWeight: 600 }}>Tipo de bien</p>
+            </div>
+            <button className="fila" onClick={() => { setTipo(''); setHojaTipos(false) }}>
+              <i className="ti ti-category" style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
+              <span className="crece nombre">Todo tipo</span>
+              {!tipo && <i className="ti ti-check" style={{ color: 'var(--texto-1)' }} />}
+            </button>
+            {TIPOS.map(x => (
+              <button key={x.id} className="fila" onClick={() => { setTipo(x.id); setHojaTipos(false) }}>
+                <i className={`ti ${x.icon}`} style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
+                <span className="crece nombre">{x.label}</span>
+                {tipo === x.id && <i className="ti ti-check" style={{ color: 'var(--texto-1)' }} />}
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </>
   )
@@ -524,7 +649,7 @@ export function ListaReconteo({ idarea, usuario }) {
   // Reintenta escribir en el inventario las observaciones que no alcanzaron a
   // subir por falta de señal. Se dispara al recuperar conexión y con el botón.
   const [subiendo, setSubiendo] = useState(false)
-  async function subirPendientes() {
+  async function subirObservaciones() {
     if (!rc || subiendo) return
     setSubiendo(true)
     for (const p of pendientes(reconteo(rc.id))) {
@@ -540,8 +665,8 @@ export function ListaReconteo({ idarea, usuario }) {
 
   useEffect(() => {
     if (sinSubir.length === 0) return
-    window.addEventListener('online', subirPendientes)
-    return () => window.removeEventListener('online', subirPendientes)
+    window.addEventListener('online', subirObservaciones)
+    return () => window.removeEventListener('online', subirObservaciones)
   }, [sinSubir.length, rc?.id])
 
   const lista = useMemo(() => {
@@ -648,7 +773,7 @@ export function ListaReconteo({ idarea, usuario }) {
               {sinSubir.length} observación{sinSubir.length !== 1 ? 'es' : ''} sin guardar en el inventario
             </p>
             <p className="detalle">Se anotaron en el conteo pero no alcanzaron a subir. Se reintenta solo al recuperar señal.</p>
-            <button className="boton suave" style={{ marginTop: '10px' }} onClick={subirPendientes} disabled={subiendo}>
+            <button className="boton suave" style={{ marginTop: '10px' }} onClick={subirObservaciones} disabled={subiendo}>
               {subiendo
                 ? <><i className="ti ti-loader-2 gira" style={{ fontSize: '17px' }} />Subiendo…</>
                 : <><i className="ti ti-cloud-upload" style={{ fontSize: '17px' }} />Reintentar</>}
@@ -703,7 +828,14 @@ export function ListaReconteo({ idarea, usuario }) {
           titulo="¿Terminar el reconteo?"
           detalle={`Se cierra con ${s.encontrados} de ${s.total} verificados${s.faltan > 0 ? ` y ${s.faltan} sin encontrar` : ''}. Queda guardado en el historial y ya no se podrá seguir escaneando.`}
           textoOk="Sí, terminar"
-          onOk={() => { cerrarReconteo(rc.id); irA('m', 'historial') }}
+          onOk={() => {
+            const cerrado = cerrarReconteo(rc.id)
+            // Al cerrarlo se sube a la base para que quede en el historial
+            // compartido. Si no hay señal o las tablas no están, se reintenta
+            // desde el historial: el conteo ya está guardado en el teléfono.
+            subirReconteo(cerrado).catch(() => {})
+            irA('m', 'historial')
+          }}
           onCerrar={() => setConfirma(null)} />
       )}
       {confirma === 'cancelar' && (
@@ -723,6 +855,7 @@ export function HistorialReconteos() {
   const [lista, setLista] = useState(() => listaReconteos())
   const [abierto, setAbierto] = useState('')
   const [borrar, setBorrar] = useState(null)
+  const [enLaBase, setEnLaBase] = useState(null)   // null = todavía no se sabe
 
   useEffect(() => {
     const alCambiar = () => setLista(listaReconteos())
@@ -730,9 +863,21 @@ export function HistorialReconteos() {
     return () => window.removeEventListener('reconteo-cambiado', alCambiar)
   }, [])
 
+  // Al abrir el historial se suben los conteos terminados que no alcanzaron a
+  // subir, y se pregunta si las tablas ya existen para poder decirlo en claro.
+  useEffect(() => {
+    hayTablas()
+      .then(async hay => {
+        setEnLaBase(hay)
+        if (hay) await subirPendientes()
+      })
+      .catch(() => setEnLaBase(false))
+  }, [])
+
   return (
     <>
-      <Cabecera titulo="Historial" sub="Reconteos levantados en este equipo" />
+      <Cabecera titulo="Historial"
+        sub={enLaBase === false ? 'Guardado solo en este equipo' : 'Reconteos del inventario'} />
       <div className="contenido">
         {lista.length === 0 && <Vacio icono="ti-history" texto="Todavía no hay reconteos" />}
 

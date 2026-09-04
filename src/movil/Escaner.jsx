@@ -147,61 +147,70 @@ export function Escaner({ idarea }) {
 // Lo que se leyó, con sus datos, antes de darlo por verificado
 function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
   const { estado, clave, bien, cuando, observacion, ajeno, buscado } = lectura
-  const [nota, setNota] = useState('')
+  // El campo llega con la observación que ya tenía el bien: así se ve lo que
+  // hay antes de cambiarlo, y guardar no borra nada a ciegas.
+  const [nota, setNota] = useState(bien?.observaciones || '')
 
-  const encabezado = estado === 'nuevo'
-    ? { color: 'var(--ok)',     icono: 'ti-qrcode',       texto: '¿Es este el bien?' }
+  const cab = estado === 'nuevo'
+    ? { color: 'var(--ok)',     fondo: 'var(--ok-suave)',     icono: 'ti-qrcode',       texto: 'Bien encontrado' }
     : estado === 'repetido'
-      ? { color: 'var(--falta)', icono: 'ti-checks',      texto: 'Este mueble ya está verificado' }
-      : { color: 'var(--alerta)', icono: 'ti-alert-circle', texto: 'No es de esta área' }
+      ? { color: 'var(--falta)',  fondo: 'var(--falta-suave)',  icono: 'ti-checks',       texto: 'Ya está verificado' }
+      : { color: 'var(--alerta)', fondo: 'var(--alerta-suave)', icono: 'ti-alert-circle', texto: 'No es de esta área' }
 
   const dato = (etq, valor) => (
-    <div key={etq}>
+    <div key={etq} style={{ minWidth: 0 }}>
       <p className="etiqueta">{etq}</p>
-      <p style={{ fontSize: '13px' }}>{valor || '—'}</p>
+      <p style={{ fontSize: '13.5px', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{valor || '—'}</p>
     </div>
   )
 
   return (
     <div className="confirma">
-      <p style={{ display: 'flex', alignItems: 'center', gap: '7px', color: encabezado.color, fontWeight: 600, fontSize: '13.5px' }}>
-        <i className={`ti ${encabezado.icono}`} style={{ fontSize: '17px' }} />{encabezado.texto}
-      </p>
-
-      <p className="clave" style={{ marginTop: '8px' }}>{clave}</p>
+      {/* Encabezado con el estado de la lectura, del ancho de la tarjeta */}
+      <div className="cabeza" style={{ background: cab.fondo, color: cab.color }}>
+        <i className={`ti ${cab.icono}`} />
+        <span>{cab.texto}</span>
+        <span className="clave-cab">{clave}</span>
+      </div>
 
       {bien ? (
-        <>
-          <p className="nombre" style={{ fontSize: '15px' }}>{bien.nombre}</p>
+        <div className="cuerpo">
+          <p className="titulo">{bien.nombre}</p>
+          {bien.area && <p className="detalle">{bien.area}</p>}
+
           <div className="campos">
             {dato('Marca', bien.marca)}
             {dato('Modelo', bien.modelo)}
             {dato('Serie', bien.serie)}
             {dato('Resguardo', bien.resguardante)}
           </div>
+
           {estado === 'repetido' && (
-            <>
-              <p className="detalle" style={{ marginTop: '8px' }}>Se verificó el {fechaCorta(cuando)}.</p>
-              {observacion && <p className="detalle">Observación: {observacion}</p>}
-            </>
+            <div className="aviso-linea">
+              <i className="ti ti-clock" />
+              <span>Verificado el {fechaCorta(cuando)}{observacion ? ` · ${observacion}` : ''}</span>
+            </div>
           )}
-          {/* La observación queda guardada con el bien en el historial: sirve
-              para anotar en el momento lo que se vio —está dañado, no tiene
-              etiqueta, está en otra oficina— sin cortar el escaneo. */}
+
           {estado === 'nuevo' && (
-            <input value={nota} onChange={e => setNota(e.target.value)}
-              placeholder="Observación (opcional)"
-              style={{ width: '100%', marginTop: '10px', padding: '10px 12px', borderRadius: '10px',
-                background: 'var(--campo)', border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)',
-                fontSize: '14px', outline: 'none' }} />
+            <div style={{ marginTop: '12px' }}>
+              <p className="etiqueta" style={{ marginBottom: '6px' }}>Observaciones</p>
+              <textarea value={nota} onChange={e => setNota(e.target.value)} rows={2}
+                placeholder="Agregar Comentarios."
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '11px',
+                  background: 'var(--campo)', border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)',
+                  fontSize: '14px', outline: 'none', resize: 'none', lineHeight: 1.4 }} />
+            </div>
           )}
-        </>
+        </div>
       ) : (
-        <p className="detalle" style={{ marginTop: '4px' }}>
-          {!buscado ? 'Buscando en el inventario…'
-            : ajeno ? <>{ajeno.nombre}<br />Está asignado a <b>{ajeno.area}</b>.</>
-            : 'Esta clave no existe en el inventario.'}
-        </p>
+        <div className="cuerpo">
+          <p className="detalle">
+            {!buscado ? 'Buscando en el inventario…'
+              : ajeno ? <>{ajeno.nombre}<br />Está asignado a <b>{ajeno.area}</b>.</>
+              : 'Esta clave no existe en el inventario.'}
+          </p>
+        </div>
       )}
 
       <div className="botones">
@@ -210,7 +219,7 @@ function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
         </button>
         {estado === 'nuevo' && (
           <button className="boton" onClick={() => onConfirmar(nota.trim())}>
-            <i className="ti ti-check" style={{ fontSize: '17px' }} />OK
+            <i className="ti ti-check" style={{ fontSize: '17px' }} />Verificar
           </button>
         )}
       </div>

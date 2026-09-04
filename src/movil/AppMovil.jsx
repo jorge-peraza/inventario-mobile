@@ -54,6 +54,16 @@ export default function AppMovil({ user, onSalir }) {
     if (!ruta.pagina) reemplazarRuta(...raiz.split('/'))
   }, [ruta.pagina, raiz])
 
+  // Cada pantalla empieza arriba. El navegador recuerda dónde iba el scroll y,
+  // como el contenido llega después de la consulta, la pantalla nueva aparecía
+  // ya recorrida: el encabezado quedaba fuera de vista y había que subir a mano.
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'
+  }, [])
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [ruta.pagina, ruta.params[0], ruta.params[1]])
+
   const seccion = ruta.pagina                       // 'm' | 'i' | 'b'
   const sub     = ruta.params[0] || ''              // 'inicio' | 'bienes' | …
   const arg     = ruta.params[1] || ''              // idarea, clave, idcategoria
@@ -80,7 +90,7 @@ export default function AppMovil({ user, onSalir }) {
     }
 
     switch (sub) {
-      case 'bienes':    return <BuscarBienes />
+      case 'bienes':    return <BuscarBienes tipoInicial={arg} />
       case 'editar':    return <EditarBien clave={arg} />
       case 'traspasos': return <BuscarBienes lista="traspasos" />
       case 'papelera':  return <BuscarBienes lista="papelera" />
@@ -155,14 +165,24 @@ export function Cabecera({ titulo, sub, atras = false, accion = null }) {
 // Pantalla completa: quita la barra del navegador y se siente aplicación. En
 // Android lo hace la API de fullscreen; en iPhone Safari no la permite, ahí el
 // camino es "Añadir a pantalla de inicio", que el manifiesto ya deja lista.
+//
+// Ojo con la cámara: al pedir el permiso, Android sale de pantalla completa. Se
+// vuelve a entrar desde el menú; por eso el estado se lee del documento cada
+// vez y no se guarda, que era lo que dejaba el botón diciendo "salir" cuando ya
+// se había salido solo.
 function pantallaCompletaDisponible() {
-  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+  const r = document.documentElement
+  return !!(r.requestFullscreen || r.webkitRequestFullscreen)
+}
+
+function enPantallaCompleta() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement)
 }
 
 async function alternarPantallaCompleta() {
   const raiz = document.documentElement
   try {
-    if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (enPantallaCompleta()) {
       await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.())
     } else {
       await (raiz.requestFullscreen?.({ navigationUI: 'hide' }) ?? raiz.webkitRequestFullscreen?.())
@@ -174,13 +194,18 @@ async function alternarPantallaCompleta() {
 // Son las mismas opciones del menú lateral del escritorio, en una hoja.
 function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
   const { toggle } = useTheme()
-  const [completa, setCompleta] = useState(() => !!document.fullscreenElement)
+  const [completa, setCompleta] = useState(enPantallaCompleta)
   const ir = (...r) => { onCerrar(); irA(...r) }
 
   useEffect(() => {
-    const alCambiar = () => setCompleta(!!document.fullscreenElement)
+    const alCambiar = () => setCompleta(enPantallaCompleta())
+    alCambiar()
     document.addEventListener('fullscreenchange', alCambiar)
-    return () => document.removeEventListener('fullscreenchange', alCambiar)
+    document.addEventListener('webkitfullscreenchange', alCambiar)
+    return () => {
+      document.removeEventListener('fullscreenchange', alCambiar)
+      document.removeEventListener('webkitfullscreenchange', alCambiar)
+    }
   }, [])
 
   const opciones = inmuebles

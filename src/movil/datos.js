@@ -93,26 +93,57 @@ const ESTADOS = {
   papelera:   ['PAPELERA'],
 }
 
-// Escribe en el bien la observación que se anotó al verificarlo en un reconteo.
-// No reemplaza lo que ya decía: se agrega al final separado por "|", que es
-// como la base guarda la historia del bien (las altas y los traspasos se
-// anotan igual). Así el dato queda en el inventario y no solo en el conteo.
-export async function anotarObservacionEnBien(idbien, nota, cuando = new Date()) {
+// Guarda la observación del bien tal como se escribió, sin agregarle nada.
+// En el escáner el campo llega con lo que ya decía, así que lo que se ve es lo
+// que queda: se corrige o se completa, no se pisa a ciegas.
+export async function anotarObservacionEnBien(idbien, nota) {
   const texto = String(nota || '').trim()
-  if (!texto) return null
-
-  const { data, error } = await supabase
-    .from('bienes').select('observaciones').eq('idbien', idbien).maybeSingle()
+  const { error } = await supabase
+    .from('bienes').update({ observaciones: texto || null }).eq('idbien', idbien)
   if (error) throw error
+  return texto
+}
 
-  const fecha = cuando.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase()
-  const linea = `RECONTEO ${fecha}: ${texto.toUpperCase()}`
-  const previo = (data?.observaciones || '').trim()
-  const nuevo = previo ? `${previo} | ${linea}` : linea
+// ── Tipos de bien ─────────────────────────────────────────────────────────────
+// Los mismos de la computadora, con las mismas categorías detrás: si aquí
+// faltara una, los totales no cuadrarían con los de allá.
+export const TIPOS = [
+  { id: 'mobiliario',        label: 'Mobiliario',          icon: 'ti-armchair',      cats: ['MOBILIARIO'] },
+  { id: 'computo',           label: 'Cómputo',             icon: 'ti-device-laptop', cats: ['EQUIPO DE COMPUTO', 'EQUIPO'] },
+  { id: 'defensa',           label: 'Defensa y Seguridad', icon: 'ti-shield',        cats: ['MAQUINARIA Y EQUIPO DE DEFENSA Y SEGURIDAD PUBLICA'] },
+  { id: 'maquinaria',        label: 'Maquinaria',          icon: 'ti-bulldozer',     cats: ['MAQUINARIA'] },
+  { id: 'vehiculos',         label: 'Vehículos',           icon: 'ti-car',           cats: ['VEHICULAR', 'VEHICULAR-MAQUINARIA', 'VEHICULAR-REMOLQUES-CARROCERIAS'] },
+  { id: 'radiocomunicacion', label: 'Radiocomunicaciones', icon: 'ti-phone',         cats: ['RADIOCOMUNICACION'] },
+  { id: 'parquimetros',      label: 'Parquímetros',        icon: 'ti-clock',         cats: ['EQUIPO DE CONTROL TIEMPO PARQUI'] },
+  { id: 'senalizaciones',    label: 'Señalizaciones',      icon: 'ti-road-sign',     cats: ['SEÑALIZACIONES'] },
+  { id: 'arbolesplantas',    label: 'Árboles y Plantas',   icon: 'ti-tree',          cats: ['ARBOLES Y PLANTAS'] },
+]
 
-  const { error: e2 } = await supabase.from('bienes').update({ observaciones: nuevo }).eq('idbien', idbien)
-  if (e2) throw e2
-  return nuevo
+// Números para la pantalla de inicio. En la computadora se descargan los 13,000
+// bienes y se cuentan aquí; en el celular eso es media pantalla de espera y
+// datos móviles de más, así que se piden solo los conteos.
+export async function resumenInventario() {
+  const contar = async armar => {
+    const { count, error } = await armar(
+      supabase.from('bienes').select('idbien', { count: 'exact', head: true }).eq('estadobien', 'ACTIVO'))
+    if (error) throw error
+    return count || 0
+  }
+
+  const [total, deteriorado, noVerificado, ...porTipo] = await Promise.all([
+    contar(q => q),
+    contar(q => q.or('observaciones.ilike.%deteriorado%,observaciones.ilike.%quebrado%')),
+    contar(q => q.ilike('observaciones', '%no verificado%')),
+    ...TIPOS.map(t => contar(q => q.in('categoriainventario', t.cats))),
+  ])
+
+  return {
+    total,
+    deteriorado,
+    noVerificado,
+    bueno: Math.max(0, total - deteriorado - noVerificado),
+    porTipo: TIPOS.map((t, i) => ({ ...t, total: porTipo[i] })),
+  }
 }
 
 // Guarda los datos del bien que se pueden corregir desde el celular. La factura,
@@ -131,7 +162,7 @@ export async function actualizarBien(idbien, campos) {
   return parche
 }
 
-export async function buscarBienes(texto, { lista = 'inventario', areaIds = [], limite = 40 } = {}) {
+export async function buscarBienes(texto, { lista = 'inventario', areaIds = [], tipo = '', limite = 40 } = {}) {
   const q = String(texto || '').trim()
   let consulta = supabase.from('bienes').select(SELECT)
     .in('estadobien', ESTADOS[lista] || VIGENTES)
@@ -140,6 +171,9 @@ export async function buscarBienes(texto, { lista = 'inventario', areaIds = [], 
 
   if (q) consulta = consulta.or(`nombrebien.ilike.%${q}%,claveinventario.ilike.%${q}%,serie.ilike.%${q}%,marca.ilike.%${q}%`)
   if (areaIds && areaIds.length) consulta = consulta.in('idarea', areaIds)
+  // Tipo de bien: cómputo, vehículos, mobiliario… igual que en la computadora
+  const cats = TIPOS.find(t => t.id === tipo)?.cats
+  if (cats) consulta = consulta.in('categoriainventario', cats)
 
   const { data, error } = await consulta
   if (error) throw error
