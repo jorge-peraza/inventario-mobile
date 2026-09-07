@@ -175,6 +175,24 @@ export function borrarReconteo(id) {
   guardarTodo(leerTodo().filter(r => r.id !== id))
 }
 
+// Deja constancia de que este conteo ya llegó a la base. Sirve para saber, si
+// después desaparece de allá, que alguien lo borró —desde la computadora o
+// desde otro teléfono— y que este equipo no debe volver a subirlo.
+export function marcarEnLaBase(id) {
+  return conReconteo(id, c => { c.enLaBase = true })
+}
+
+// Quita del teléfono los conteos que ya estuvieron en la base y ya no están.
+// Sin esto, un conteo abierto que se borró desde la computadora volvía a
+// subirse en la siguiente sincronización y reaparecía en el historial.
+export function depurarBorrados(idsEnLaBase) {
+  const vivos = new Set(idsEnLaBase)
+  const lista = leerTodo()
+  const quedan = lista.filter(r => !(r.enLaBase && !vivos.has(r.id)))
+  if (quedan.length !== lista.length) { guardarTodo(quedan); return lista.length - quedan.length }
+  return 0
+}
+
 export function resumen(r) {
   if (!r) return { total: 0, encontrados: 0, faltan: 0, ajenos: 0 }
   const encontrados = Object.keys(r.encontrados || {}).length

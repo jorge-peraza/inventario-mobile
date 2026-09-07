@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { listaReconteos, resumen, borrarReconteo } from './reconteo'
+import { listaReconteos, resumen, borrarReconteo, marcarEnLaBase, depurarBorrados } from './reconteo'
 
 // ── El reconteo en la base ────────────────────────────────────────────────────
 // Mientras se cuenta manda el teléfono: la lista y las marcas viven ahí, que es
@@ -86,6 +86,7 @@ export async function subirAvance(r, claves) {
     inicio: r.inicio, fin: r.fin, esperados: s.total, encontrados: s.encontrados,
   })
   if (error) { if (noHayTablas(error)) return false; throw error }
+  marcarEnLaBase(r.id)
 
   const nuevas = (claves || []).filter(c => r.encontrados[c])
   if (nuevas.length) {
@@ -135,6 +136,14 @@ export async function historialRemoto({ limite = 60, idarea = null } = {}) {
     throw error
   }
   return data || []
+}
+
+// Pone al teléfono al día con la base: lo que ya no está allá se borra de aquí,
+// para que no vuelva a subirse ni reaparezca en el historial.
+export async function sincronizarBorrados() {
+  const { data, error } = await supabase.from('reconteos').select('idreconteo')
+  if (error) return 0
+  return depurarBorrados((data || []).map(r => r.idreconteo))
 }
 
 // Los renglones de un reconteo. Se pagina porque un área grande pasa del tope

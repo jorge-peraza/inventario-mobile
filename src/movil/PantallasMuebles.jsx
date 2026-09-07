@@ -8,7 +8,7 @@ import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
   cerrarReconteo, borrarReconteo, resumen, fechaCorta, pendientes, marcarSubida,
 } from './reconteo'
-import { subirReconteo, subirAvance, subirPendientes, hayTablas, historialRemoto, detalleRemoto, ajenosRemotos, borrarRemoto } from './sincronizar'
+import { subirReconteo, subirAvance, subirPendientes, hayTablas, historialRemoto, detalleRemoto, ajenosRemotos, borrarRemoto, sincronizarBorrados } from './sincronizar'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
 
@@ -901,8 +901,13 @@ export function HistorialReconteos() {
     try {
       const hay = await hayTablas()
       setEnLaBase(hay)
-      // Antes de leer se suben los conteos terminados que quedaron sin señal
-      if (hay) await subirPendientes()
+      if (hay) {
+        // Primero se quitan del teléfono los que ya se borraron en la base
+        // —si no, se volverían a subir aquí abajo y reaparecerían—, y después
+        // se suben los conteos terminados que quedaron sin señal.
+        await sincronizarBorrados()
+        await subirPendientes()
+      }
       const remoto = hay ? await historialRemoto({}) : null
       // Sin tablas o sin señal se enseña lo que hay en el teléfono, con la misma
       // forma que traen las filas de la base
@@ -1004,8 +1009,8 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
 
   return (
     <div className="tarjeta plana">
-      <button className="fila" onClick={onAbrir}>
-        <div className="crece">
+      <div className="fila">
+        <button className="crece" style={{ textAlign: 'left', padding: 0 }} onClick={onAbrir}>
           <p className="nombre">{r.nombrearea}</p>
           <p className="detalle">{r.dependencia || '—'}</p>
           <p className="detalle">{fechaCorta(r.inicio)}{r.fin ? '' : ' · en curso'}{r.usuario ? ` · ${r.usuario}` : ''}</p>
@@ -1014,9 +1019,15 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
             {faltan > 0 && <span className="chip falta">{faltan} faltan</span>}
             {conNota > 0 && <span className="chip falta">{conNota} con observación</span>}
           </p>
-        </div>
-        <i className={`ti ti-chevron-${abierta ? 'up' : 'down'} flecha`} />
-      </button>
+        </button>
+        {/* Ver y borrar a la mano, sin tener que bajar toda la lista de bienes */}
+        <button className="icono-btn" onClick={onAbrir} aria-label={abierta ? 'Cerrar' : 'Ver el detalle'}>
+          <i className={`ti ti-chevron-${abierta ? 'up' : 'down'}`} />
+        </button>
+        <button className="icono-btn peligro" onClick={onBorrar} aria-label="Borrar del historial">
+          <i className="ti ti-trash" />
+        </button>
+      </div>
 
       {abierta && (
         <>
@@ -1073,10 +1084,6 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
                   <span className="crece nombre">Continuar este reconteo</span>
                 </button>
               )}
-              <button className="fila" onClick={onBorrar}>
-                <i className="ti ti-trash" style={{ color: 'var(--alerta)' }} />
-                <span className="crece nombre" style={{ color: 'var(--alerta)' }}>Borrar del historial</span>
-              </button>
             </>
           )}
         </>

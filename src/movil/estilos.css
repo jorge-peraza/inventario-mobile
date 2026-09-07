@@ -76,6 +76,11 @@
   border: 1px solid var(--borde);
 }
 .movil .icono-btn:active { opacity: 0.55; }
+.movil .icono-btn.peligro {
+  color: var(--alerta);
+  background: var(--alerta-suave);
+  border-color: var(--alerta);
+}
 
 .movil .contenido {
   flex: 1;
