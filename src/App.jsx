@@ -9,7 +9,10 @@ import BienesInmuebles from './pages/BienesInmuebles'
 import Reportes from './pages/Reportes'
 import ReportesInmuebles from './pages/ReportesInmuebles'
 import Dependencias from './pages/Dependencias'
+import Usuarios from './pages/Usuarios'
+import Reconteo from './pages/Reconteo'
 import AppMovil from './movil/AppMovil'
+import { supabase } from './supabase'
 import { useEsMovil } from './movil/useEsMovil'
 import { useRuta, irA, reemplazarRuta } from './rutas'
 import { PAGINAS_POR_ROL, paginaInicio, cerrarSesion, sesionActual } from './auth'
@@ -23,6 +26,18 @@ function App() {
   const [recarga, setRecarga] = useState(0)
   const esMovil = useEsMovil()
   const ruta = useRuta()
+  // Áreas de la dependencia del usuario: es el corte que se aplica a todas sus
+  // consultas. Mientras se leen, la lista va vacía y no se muestra nada ajeno.
+  const [areasDeDependencia, setAreasDeDependencia] = useState([])
+  const esDependencia = user?.rol === 'dependencia'
+
+  useEffect(() => {
+    if (!esDependencia || !user?.iddependencia) { setAreasDeDependencia([]); return }
+    let vivo = true
+    supabase.from('areas').select('idarea').eq('iddependencia', user.iddependencia)
+      .then(({ data }) => { if (vivo) setAreasDeDependencia((data || []).map(a => a.idarea)) })
+    return () => { vivo = false }
+  }, [esDependencia, user?.iddependencia])
 
   // Al abrir/recargar la página, restaura la sesión guardada en el navegador
   useEffect(() => {
@@ -75,11 +90,18 @@ function App() {
   if (restaurando)                    return <ThemeProvider><div style={{ minHeight: '100vh' }} /></ThemeProvider>
   if (!user || page === 'login')      return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>
   // En el celular manda la vista móvil: barra de navegación abajo, tarjetas en
-  // vez de tablas y el reconteo con la cámara.
-  if (esMovil)                        return <ThemeProvider><AppMovil user={user} onSalir={() => navigate('login')} /></ThemeProvider>
+  // vez de tablas y el reconteo con la cámara. Las dependencias todavía no
+  // entran ahí: sus consultas van acotadas a sus áreas y esa vista aún no
+  // aplica el corte, así que se quedan con la pantalla de escritorio.
+  if (esMovil && !esDependencia)      return <ThemeProvider><AppMovil user={user} onSalir={() => navigate('login')} /></ThemeProvider>
   if (page === 'dashboard')           return <ThemeProvider><Dashboard key={recarga}          user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'index-dep')           return <ThemeProvider><IndexDependencia key={recarga}   user={user} onNavigate={navigate} /></ThemeProvider>
-  if (page === 'bienes')              return <ThemeProvider><BienesMuebles key={recarga}      user={user} onNavigate={navigate} initialModo={navState.modo || 'mobiliario'} initialAreaFilter={navState.areaIds || []} initialEstado={navState.estado || 'Todos'} initialBusqueda={navState.busqueda || ''} /></ThemeProvider>
+  // Una dependencia entra al mismo inventario, pero acotado a sus áreas y sin
+  // poder tocar nada: consulta y descarga sus reportes.
+  if (page === 'bienes')              return <ThemeProvider><BienesMuebles key={recarga}      user={user} onNavigate={navigate} initialModo={navState.modo || 'mobiliario'} initialAreaFilter={navState.areaIds || []} initialEstado={navState.estado || 'Todos'} initialBusqueda={navState.busqueda || ''} soloLectura={esDependencia}
+    /* Mientras cargan las áreas se manda una imposible: así no alcanza a verse
+       ni un renglón de otra dependencia. */
+    areasPermitidas={esDependencia ? (areasDeDependencia.length ? areasDeDependencia : [-1]) : null} /></ThemeProvider>
   if (page === 'dashboard-inmuebles') return <ThemeProvider><DashboardInmuebles key={recarga} user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'inmuebles')           return <ThemeProvider><BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo} abrirReporte={!!navState.abrirReporte} /></ThemeProvider>
   if (page === 'reportes')            return <ThemeProvider>{user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />}</ThemeProvider>
@@ -88,6 +110,9 @@ function App() {
   if (page === 'papelera')            return <ThemeProvider><BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera /></ThemeProvider>
   if (page === 'traspasos')           return <ThemeProvider><BienesMuebles key={`traspasos-${recarga}`} user={user} onNavigate={navigate} traspasos /></ThemeProvider>
   if (page === 'dependencias')        return <ThemeProvider><Dependencias key={recarga}       user={user} onNavigate={navigate} /></ThemeProvider>
+  if (page === 'usuarios')            return <ThemeProvider><Usuarios key={recarga}           user={user} onNavigate={navigate} /></ThemeProvider>
+  // El reconteo se levanta desde el celular; aquí se consulta el historial
+  if (page === 'reconteo')            return <ThemeProvider><Reconteo key={recarga}           user={user} onNavigate={navigate} /></ThemeProvider>
 
   return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>
 }

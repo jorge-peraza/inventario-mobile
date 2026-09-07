@@ -9,8 +9,8 @@ const NAV_MUEBLES = [
   // basta con descomentar esta línea para volver a mostrarla en el menú.
   // { icon:'ti-building-bank',    label:'Dependencias',   id:'dependencias', page:'dependencias' },
   { icon:'ti-trash',            label:'Papelera',       id:'papelera',  page:'papelera' },
-  { icon:'ti-refresh',          label:'Reconteo',       id:'reconteo',  page:'reconteo',  disabled:true },
-  { icon:'ti-users',            label:'Usuarios',       id:'usuarios',  page:'usuarios',  disabled:true },
+  { icon:'ti-refresh',          label:'Reconteo',       id:'reconteo',  page:'reconteo' },
+  { icon:'ti-users',            label:'Usuarios',       id:'usuarios',  page:'usuarios' },
 ]
 
 const NAV_INMUEBLES = [
@@ -20,13 +20,21 @@ const NAV_INMUEBLES = [
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 
+// Una dependencia solo consulta lo suyo: su inicio y el inventario que le toca
+const NAV_DEPENDENCIA = [
+  { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio', page:'index-dep' },
+  { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes', page:'bienes' },
+]
+
 const W_OPEN   = 230
 const W_CLOSED = 72
 
 export default function Sidebar({ user, active = 'inicio', onNavigate }) {
   const { dark, t, sidebarOpen, toggleSidebar } = useTheme()
   const w = sidebarOpen ? W_OPEN : W_CLOSED
-  const navItems = user?.rol === 'admin_inmuebles' ? NAV_INMUEBLES : NAV_MUEBLES
+  const navItems = user?.rol === 'admin_inmuebles' ? NAV_INMUEBLES
+    : user?.rol === 'dependencia' ? NAV_DEPENDENCIA
+    : NAV_MUEBLES
 
   return (
     <aside style={{ width: w, height:'100vh', flexShrink:0, display:'flex', flexDirection:'column', position:'fixed', top:0, left:0, zIndex:100, overflow:'hidden', background:t.sidebarBg, borderRight:`1px solid ${t.sidebarBorder}`, backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)', transition:'width 0.25s cubic-bezier(0.4,0,0.2,1)' }}>

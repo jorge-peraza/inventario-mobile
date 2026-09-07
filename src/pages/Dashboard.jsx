@@ -66,7 +66,17 @@ function useFecha() {
   return fecha
 }
 
-export default function Dashboard({ user, onNavigate }) {
+// El mismo tablero sirve para el administrador y para una dependencia: lo único
+// que cambia es el corte de los datos (`areaIds`), el encabezado y qué accesos
+// rápidos se ofrecen —una dependencia no da de alta.
+export default function Dashboard({
+  user, onNavigate,
+  areaIds = null,              // null = todo el inventario
+  esperando = false,           // true mientras se resuelven las áreas: no consulta
+  titulo = 'Dashboard',
+  subtitulo = 'Resumen general del sistema · Bienes Muebles',
+  acciones: accionesProp = null,
+}) {
   const { dark, t, sidebarOpen } = useTheme()
   const fecha = useFecha()
 
@@ -76,6 +86,9 @@ export default function Dashboard({ user, onNavigate }) {
   const [hoverTipo, setHoverTipo] = useState(null)
 
   useEffect(() => {
+    // Mientras no se sepan las áreas de la dependencia no se consulta nada: así
+    // no alcanza a verse ni un número del inventario de otra.
+    if (esperando) { setLoading(true); return }
     async function cargar() {
       setLoading(true)
       try {
@@ -84,11 +97,12 @@ export default function Dashboard({ user, onNavigate }) {
         // Una sola pasada paginada sobre bienes activos
         let todos = [], desde = 0
         while (true) {
-          const { data, error } = await supabase
+          let q = supabase
             .from('bienes')
             .select('categoriainventario, observaciones, facturas ( costoinicial )')
             .eq('estadobien', 'ACTIVO')
-            .range(desde, desde + BATCH - 1)
+          if (areaIds) q = q.in('idarea', areaIds.length ? areaIds : [-1])
+          const { data, error } = await q.range(desde, desde + BATCH - 1)
           if (error || !data || data.length === 0) break
           todos = [...todos, ...data]
           if (data.length < BATCH) break
@@ -120,7 +134,7 @@ export default function Dashboard({ user, onNavigate }) {
       }
     }
     cargar()
-  }, [])
+  }, [esperando, areaIds ? areaIds.join(',') : ''])
 
   const card = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
@@ -138,11 +152,18 @@ export default function Dashboard({ user, onNavigate }) {
     { label: 'Sin verificar', icon: 'ti-clock',         iconColor: t.colorYellow, value: loading ? '…' : stats?.noverificado.toLocaleString() ?? '—', hint: 'pendientes de revisión',  estado: 'No verificado' },
   ]
 
-  const acciones = [
+  const acciones = accionesProp || [
     { icon: 'ti-circle-plus', label: 'Dar de alta un bien', desc: 'Registrar nuevo bien mueble', go: () => onNavigate('bienes') },
     { icon: 'ti-table',       label: 'Ver inventario',      desc: 'Tabla completa de bienes',    go: () => onNavigate('bienes') },
     { icon: 'ti-file-export', label: 'Exportar reporte',    desc: 'PDF o Excel del inventario',  go: () => onNavigate('bienes') },
   ]
+
+  // Fecha del día y cambio de tema: van juntos, arriba
+  const chipFecha = (
+    <span style={{ fontSize: '13px', color: t.text3, background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '9px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '7px', backdropFilter: 'blur(10px)' }}>
+      <i className="ti ti-calendar" style={{ fontSize: '16px' }} />{fecha}
+    </span>
+  )
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: dark ? darkBg : lightBg, transition: 'background 0.3s' }}>
@@ -151,15 +172,13 @@ export default function Dashboard({ user, onNavigate }) {
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.75rem', gap: '12px', flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Dashboard</h1>
-            <p style={{ fontSize: '14px', color: t.text3 }}>Resumen general del sistema · Bienes Muebles</p>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{titulo}</h1>
+            <p style={{ fontSize: '14px', color: t.text3 }}>{subtitulo}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: t.text3, background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '9px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '7px', backdropFilter: 'blur(10px)' }}>
-              <i className="ti ti-calendar" style={{ fontSize: '16px' }} />{fecha}
-            </span>
+            {chipFecha}
             <ThemeToggle />
           </div>
         </div>
@@ -185,7 +204,7 @@ export default function Dashboard({ user, onNavigate }) {
         {/* Acciones rápidas */}
         <div style={{ marginBottom: '1.25rem' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: '10px' }}>Acciones rápidas</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${acciones.length}, minmax(0, 1fr))`, gap: '10px' }}>
             {acciones.map((a, i) => (
               <button key={i} onClick={a.go}
                 style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', cursor: 'pointer', textAlign: 'left', transition: 'opacity 0.15s' }}

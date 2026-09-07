@@ -14,26 +14,89 @@ export const CATS_SALIDA = [ID_PROCESO, ID_DESINC]
 // inmueble sigue siendo del Ayuntamiento.
 export const CATS_FUERA  = [ID_COMODATO, ID_DESINC]
 
-// Fecha/observaciones/categoría original se guardan localmente (la BD no tiene esas columnas)
-// mapa: { [idinmueble]: { catOriginal, fechaProceso, obsProceso, fechaDesinc, obsDesinc } }
+// ── Datos del trámite de desincorporación ────────────────────────────────────
+// La categoría original (para poder cancelar el trámite), las fechas y las
+// observaciones viven en columnas de bienesinmuebles. La base ya las tiene
+// (supabase/persistencia-inmuebles.sql, aplicado), así que se leen y se
+// escriben siempre contra la base.
+//
+// Lo único que queda del navegador es el RESCATE del final del bloque: los
+// trámites capturados antes de la migración siguen en el equipo donde se
+// hicieron y se suben solos al abrir inmuebles. Cuando ya no quede ninguno
+// pendiente, ese bloque se puede borrar.
+const COLS_TRAMITE = 'categoria_original, fecha_proceso, obs_proceso, fecha_desinc, obs_desinc, comentarios'
+
+// Traduce las columnas de la fila al objeto que usan las pantallas
+export function tramiteDe(fila) {
+  if (!fila) return {}
+  return {
+    catOriginal:  fila.categoria_original ?? undefined,
+    fechaProceso: fila.fecha_proceso  || undefined,
+    obsProceso:   fila.obs_proceso    || undefined,
+    fechaDesinc:  fila.fecha_desinc   || undefined,
+    obsDesinc:    fila.obs_desinc     || undefined,
+  }
+}
+
+const A_COLUMNA = {
+  catOriginal:  'categoria_original',
+  fechaProceso: 'fecha_proceso',
+  obsProceso:   'obs_proceso',
+  fechaDesinc:  'fecha_desinc',
+  obsDesinc:    'obs_desinc',
+}
+
+export async function setDesinc(ids, data) {
+  const parche = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (A_COLUMNA[k]) parche[A_COLUMNA[k]] = v === '' ? null : v
+  }
+  if (!Object.keys(parche).length) return
+  const { error } = await supabase.from('bienesinmuebles').update(parche).in('idinmueble', ids)
+  if (error) throw error
+}
+
+// Al cancelar el trámite el inmueble regresa limpio a su categoría
+export async function quitarDesinc(ids) {
+  const { error } = await supabase.from('bienesinmuebles').update({
+    categoria_original: null, fecha_proceso: null, obs_proceso: null,
+    fecha_desinc: null, obs_desinc: null,
+  }).in('idinmueble', ids)
+  if (error) throw error
+}
+
+// ── Rescate de lo capturado antes de la migración ───────────────────────────
 const LS = 'desincorporaciones'
-export function getDesinc() {
-  try { return JSON.parse(localStorage.getItem(LS) || '{}') } catch { return {} }
+
+export async function subirTramitesPendientes() {
+  let m
+  try { m = JSON.parse(localStorage.getItem(LS) || '{}') } catch { return 0 }
+  const ids = Object.keys(m)
+  if (!ids.length) return 0
+
+  let subidos = 0
+  for (const id of ids) {
+    const d = m[id] || {}
+    const { error } = await supabase.from('bienesinmuebles').update({
+      categoria_original: d.catOriginal ?? null,
+      fecha_proceso: d.fechaProceso || null,
+      obs_proceso:   d.obsProceso   || null,
+      fecha_desinc:  d.fechaDesinc  || null,
+      obs_desinc:    d.obsDesinc    || null,
+    }).eq('idinmueble', Number(id))
+    if (error) continue        // se reintenta la próxima vez que se abra
+    delete m[id]; subidos++
+  }
+  try {
+    if (Object.keys(m).length) localStorage.setItem(LS, JSON.stringify(m))
+    else localStorage.removeItem(LS)
+  } catch { /* modo privado */ }
+  return subidos
 }
-function guardar(m) { localStorage.setItem(LS, JSON.stringify(m)) }
-export function setDesinc(ids, data) {
-  const m = getDesinc()
-  for (const id of ids) m[id] = { ...m[id], ...data }
-  guardar(m)
-}
-export function quitarDesinc(ids) {
-  const m = getDesinc()
-  for (const id of ids) delete m[id]
-  guardar(m)
-}
+
 export function hoyISO() { return new Date().toISOString().slice(0, 10) }
 
-const SELECT_INM = 'idinmueble, consecutivo, idcategoria, claveinmueble, nombreinmueble, clavecatastral, superficiem2, ubicacion, valorcatastral, documentopropiedad, expediente, adquisicion, fecha_enajenacion, afavorde, tipo_enajenacion'
+const SELECT_INM = `idinmueble, consecutivo, idcategoria, claveinmueble, nombreinmueble, clavecatastral, superficiem2, ubicacion, valorcatastral, documentopropiedad, expediente, adquisicion, fecha_enajenacion, afavorde, tipo_enajenacion, ${COLS_TRAMITE}`
 
 export async function fetchInmueblesPorIds(ids) {
   if (!ids.length) return []

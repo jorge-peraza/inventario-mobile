@@ -3,18 +3,13 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
-import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, getFechasBajas, setFechaBaja, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
-import { guardarPreferencia, metadataUsuario } from '../auth'
+import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, fechasDeBaja, setFechaBaja, subirFechasBajasPendientes, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { sesionActual } from '../auth'
+import { listarReportes, guardarReporteRemoto, borrarReporteRemoto, getLocales } from '../reportesPersonalizados'
 
-// Los reportes personalizados se guardan en la CUENTA del usuario (user_metadata
-// de Supabase) para que lo sigan en cualquier dispositivo; localStorage queda
-// solo como caché local para que la vista cargue al instante.
-const LS_RP = 'reportes_personalizados'
-function getReportes() { try { return JSON.parse(localStorage.getItem(LS_RP) || '[]') } catch { return [] } }
-function saveReportes(arr) {
-  try { localStorage.setItem(LS_RP, JSON.stringify(arr)) } catch { /* noop */ }
-  guardarPreferencia('reportes_personalizados', arr)
-}
+// Los reportes personalizados se guardan en la tabla reportes_personalizados.
+// Si la base todavía no la tiene, el módulo cae solo a la cuenta / navegador,
+// que es como funcionaba antes.
 const MODOS_RP = [
   { id: 'mobiliario', label: 'Mobiliario' }, { id: 'computo', label: 'Cómputo' }, { id: 'maquinaria', label: 'Maquinaria' }, { id: 'vehiculos', label: 'Vehículos' }, { id: 'radiocomunicacion', label: 'Radiocomunicaciones' },
 ]
@@ -528,7 +523,6 @@ export default function Reportes({ user, onNavigate }) {
   const [areasSelec, setAreasSelec] = useState([])
   const [allAreas, setAllAreas]   = useState([])
   const [conteos, setConteos] = useState({ solicitud: null, baja: null })
-  const [fechas, setFechas]   = useState(() => getFechasBajas())
   const [pagina, setPagina]   = useState(0)
   const [porPagina, setPorPagina] = useState(20)
   const OPCIONES_POR_PAGINA = [10, 15, 20]
@@ -539,36 +533,38 @@ export default function Reportes({ user, onNavigate }) {
   const [modalAltas, setModalAltas] = useState(false)
   const [modalPeriodo, setModalPeriodo]             = useState(null)   // 'mensual'|'trimestral'|'anual'|null
   const [conteoPeriodo, setConteoPeriodo] = useState({ mensual: null, trimestral: null, anual: null })
-  const [reportes, setReportes] = useState(() => getReportes())
+  // Se muestra al instante lo último que se vio en este equipo y enseguida se
+  // reemplaza por lo que diga la base, que es la fuente de verdad.
+  const [reportes, setReportes] = useState(() => getLocales())
+  const [usuario, setUsuario]   = useState(null)
 
-  // Sincroniza los reportes con la cuenta del usuario (Supabase):
-  //  - si la cuenta ya tiene reportes → son la fuente de verdad
-  //  - si la cuenta no tiene pero este dispositivo sí (guardados antes de la
-  //    sincronización) → se migran automáticamente a la cuenta
   useEffect(() => {
     let vivo = true
-    metadataUsuario().then(m => {
+    ;(async () => {
+      const perfil = await sesionActual().catch(() => null)
       if (!vivo) return
-      const cuenta = Array.isArray(m.reportes_personalizados) ? m.reportes_personalizados : null
-      if (cuenta) {
-        setReportes(cuenta)
-        try { localStorage.setItem(LS_RP, JSON.stringify(cuenta)) } catch { /* noop */ }
-      } else {
-        const locales = getReportes()
-        if (locales.length > 0) guardarPreferencia('reportes_personalizados', locales)
-      }
-    })
+      const quien = perfil?.usuario || perfil?.email || null
+      setUsuario(quien)
+      try {
+        const lista = await listarReportes(quien)
+        if (vivo) setReportes(lista)
+      } catch (e) { console.error(e) }
+      // Sube a la base las fechas de baja que hubieran quedado en el navegador
+      subirFechasBajasPendientes().catch(() => {})
+    })()
     return () => { vivo = false }
   }, [])
   const [modalConfig, setModalConfig] = useState(null)   // config | 'nuevo' | null
   const [modalPreview, setModalPreview] = useState(null) // config | null
 
-  function guardarReporte(cfg) {
-    setReportes(prev => { const sinEste = prev.filter(r => r.id !== cfg.id); const next = [...sinEste, cfg]; saveReportes(next); return next })
+  async function guardarReporte(cfg) {
+    setReportes([...reportes.filter(r => r.id !== cfg.id), cfg])
     setModalConfig(null)
+    await guardarReporteRemoto(cfg, usuario).catch(console.error)
   }
-  function borrarReporte(id) {
-    setReportes(prev => { const next = prev.filter(r => r.id !== id); saveReportes(next); return next })
+  async function borrarReporte(id) {
+    setReportes(reportes.filter(r => r.id !== id))
+    await borrarReporteRemoto(id).catch(console.error)
   }
 
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
@@ -900,7 +896,7 @@ export default function Reportes({ user, onNavigate }) {
                               <td style={{ ...tdBase(), maxWidth: '170px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2 }}>{b.area || '—'}</span></td>
                               <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2, fontWeight: 500 }}>{fmt(b.costoinicial)}</span></td>
                               <td style={tdBase()}><span style={{ color: t.text3, fontSize: '11px' }}>{b.numerofactura && b.numerofactura !== 'SIN FACTURA' ? b.numerofactura : 'SIN FACTURA'}</span></td>
-                              <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '12px' }}>{fmtFecha(esConfirmadas ? fechas[b.idbien]?.confirmacion : fechas[b.idbien]?.solicitud)}</span></td>
+                              <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '12px' }}>{fmtFecha(esConfirmadas ? fechasDeBaja(b).confirmacion : fechasDeBaja(b).solicitud)}</span></td>
                               <td style={tdBase()}>
                                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
                                   <button onClick={(e) => { e.stopPropagation(); setPanelBien(b) }} title="Consultar"
@@ -976,8 +972,7 @@ export default function Reportes({ user, onNavigate }) {
         <ModalBaja bien={modalConfirmar} onClose={() => setModalConfirmar(null)} dark={dark} t={t} titulo="Confirmar Baja"
           onConfirm={async () => {
             await actualizarEstadoBienes([modalConfirmar.idbien], 'BAJA')
-            setFechaBaja([modalConfirmar.idbien], 'confirmacion', hoyISO())
-            setFechas(getFechasBajas())
+            await setFechaBaja([modalConfirmar.idbien], 'confirmacion', hoyISO())
             await cargar('SOLICITUD BAJA')
             cargarConteos()
           }} />

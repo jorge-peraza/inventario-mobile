@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
@@ -7,7 +7,7 @@ import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
   cerrarReconteo, borrarReconteo, resumen, fechaCorta, pendientes, marcarSubida,
 } from './reconteo'
-import { subirReconteo, subirPendientes, hayTablas } from './sincronizar'
+import { subirReconteo, subirAvance, subirPendientes, hayTablas } from './sincronizar'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
 
@@ -124,8 +124,10 @@ export function InicioMuebles({ user }) {
             : <Dona tipos={resumenInv.porTipo} total={resumenInv.total} oscuro={oscuro} />}
         </div>
 
+        {/* minmax(0,1fr) y no 1fr: con 1fr la columna no baja del ancho de su
+            texto —"No verificados"— y las tarjetas se salían de la pantalla */}
         {resumenInv && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
             {kpis.map(k => (
               <div key={k.label} className="tarjeta" style={{ padding: '11px' }}>
                 <i className={`ti ${k.icono}`} style={{ fontSize: '17px', color: k.color }} />
@@ -254,7 +256,7 @@ export function BuscarBienes({ lista = 'inventario', tipoInicial = '' }) {
         </div>
 
         {/* Los mismos filtros de la computadora: tipo de bien y dependencia */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '8px' }}>
           <button className="buscador" onClick={() => setHojaTipos(true)} style={{ textAlign: 'left', minWidth: 0 }}>
             <i className={`ti ${TIPOS.find(x => x.id === tipo)?.icon || 'ti-category'}`} />
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -628,6 +630,19 @@ export function ListaReconteo({ idarea, usuario }) {
     window.addEventListener('reconteo-cambiado', alCambiar)
     return () => window.removeEventListener('reconteo-cambiado', alCambiar)
   }, [idarea])
+
+  // Lo contado se va guardando en la base conforme avanza, no solo al cerrar:
+  // el teléfono queda como respaldo para poder seguir sin señal.
+  const yaSubidas = useRef(new Set())
+  useEffect(() => {
+    if (!rc) return
+    const nuevas = Object.keys(rc.encontrados || {}).filter(c => !yaSubidas.current.has(c))
+    const t = setTimeout(() => {
+      subirAvance(rc, nuevas).then(ok => { if (ok) nuevas.forEach(c => yaSubidas.current.add(c)) })
+        .catch(() => {})
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [rc])
 
   async function iniciar() {
     setIniciando(true); setError(null)

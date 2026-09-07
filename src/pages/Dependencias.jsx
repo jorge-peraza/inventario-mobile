@@ -4,7 +4,7 @@ import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle, iStyle, panelStyle, tituloSec } from './BienesMuebles'
-import { fetchDependencias, fetchAreasPorDependencia, fetchResguardos, guardarEncargado, soportaColumnas } from '../encargados'
+import { fetchDependencias, fetchAreasPorDependencia, fetchResguardos, guardarEncargado } from '../encargados'
 
 const POR_PAGINA = [15, 25, 50, 100]
 
@@ -130,7 +130,6 @@ export default function Dependencias({ user, onNavigate }) {
   const [resguardos, setResguardos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
-  const [enSupabase, setEnSupabase] = useState(true)
 
   const [busqueda, setBusqueda]   = useState('')
   const [pagina, setPagina]       = useState(0)
@@ -144,8 +143,7 @@ export default function Dependencias({ user, onNavigate }) {
       const [lista, res, cat] = await Promise.all([
         fetchDependencias(), fetchAreasPorDependencia(), fetchResguardos(),
       ])
-      // soportaColumnas() ya quedó resuelto por fetchDependencias
-      setDeps(lista); setResumen(res); setResguardos(cat); setEnSupabase(soportaColumnas())
+      setDeps(lista); setResumen(res); setResguardos(cat)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -220,15 +218,6 @@ export default function Dependencias({ user, onNavigate }) {
             Actualizar
           </button>
         </div>
-
-        {!loading && !enSupabase && (
-          <div style={{ ...cardTabla, padding:'11px 14px', marginBottom:'1rem', display:'flex', alignItems:'center', gap:'9px' }}>
-            <i className="ti ti-device-laptop" style={{ fontSize:'16px', color:t.text4, flexShrink:0 }} />
-            <p style={{ fontSize:'12px', color:t.text3 }}>
-              Los encargados se guardan en este equipo. Para compartirlos entre computadoras hay que agregar las columnas <code>encargado</code> y <code>puesto_encargado</code> a la tabla <code>dependencias</code>.
-            </p>
-          </div>
-        )}
 
         {error && (
           <div style={{ ...cardTabla, padding:'11px 14px', marginBottom:'1rem' }}>

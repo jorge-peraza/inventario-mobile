@@ -7,10 +7,10 @@ import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
- import { getComentario, setComentario } from '../comentarios'
+ import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { barraSticky, btnBarra, MenuFila } from './BienesMuebles'
 import { PaginaEvidencias } from './ArmarReporteInmuebles'
-import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, subirTramitesPendientes, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
 const POR_PAGINA_OPTS = [10, 15, 20]
 
@@ -84,7 +84,7 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
 
   // El comentario va arriba y resaltado: al fondo de la lista quedaba fuera de
   // la vista y parecía que no se guardaba.
-  const comentario = getComentario(inmueble.idinmueble)
+  const comentario = comentarioDe(inmueble)
 
   return createPortal(
     <>
@@ -333,14 +333,14 @@ export function ModalEditar({ inmueble, onClose, dark, t, onSaved, categorias = 
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState(null)
   const [saved, setSaved] = useState(false)
-  const [comentario, setComentarioTxt] = useState(() => getComentario(inmueble.idinmueble))
+  const [comentario, setComentarioTxt] = useState(() => comentarioDe(inmueble))
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
   async function guardar() {
     setSaving(true); setSaveErr(null)
     try {
-      setComentario(inmueble.idinmueble, comentario)
+      await setComentario(inmueble.idinmueble, comentario)
       await actualizarInmueble(inmueble.idinmueble, form)
       setSaved(true)
       setTimeout(() => { onSaved?.(); close() }, 800)
@@ -1659,7 +1659,7 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
       }).select('idinmueble').maybeSingle()
       if (error) throw error
       // El comentario vive aparte, igual que en modificar
-      if (data?.idinmueble && comentario.trim()) setComentario(data.idinmueble, comentario)
+      if (data?.idinmueble && comentario.trim()) await setComentario(data.idinmueble, comentario)
       onCreated()
       onClose()
     } catch (e) { setErr(e.message); setGuardando(false) }
@@ -1778,6 +1778,10 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
   useEffect(() => {
     fetchCategorias().then(setCategorias).catch(console.error)
+    // Lo que se haya quedado guardado en este navegador de antes se sube a la
+    // base una sola vez; si las columnas todavía no existen, no hace nada.
+    subirComentariosPendientes().catch(() => {})
+    subirTramitesPendientes().catch(() => {})
   }, [])
 
   const cargar = useCallback((pag, params = {}) => {
@@ -1886,7 +1890,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
     const catMap = {}
     rows.forEach(r => { catMap[r.idinmueble] = r.idcategoria })
     for (const id of ids)
-      setDesinc([id], { catOriginal: catMap[id], fechaProceso: fecha, obsProceso: (obsPorId?.[id] ?? obs) || '' })
+      await setDesinc([id], { catOriginal: catMap[id], fechaProceso: fecha, obsProceso: (obsPorId?.[id] ?? obs) || '' })
     await cambiarCategoria(ids, ID_PROCESO)   // pasa a "EN PROCESO DE DESINCORPORACION"
     setSeleccionados(new Set())
     setModoSeleccion(false)

@@ -5,9 +5,9 @@ import { useTheme } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
 import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
 import { barraSticky, btnBarra, sStyle, MenuFila } from './BienesMuebles'
-import { getComentario, setComentario } from '../comentarios'
+import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { siguienteClaveInmueble } from './BienesInmuebles'
-import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, getDesinc, setDesinc, quitarDesinc, hoyISO } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 function mesAnioActual() { const d = new Date(); return `${MESES[d.getMonth()]} ${d.getFullYear()}` }
@@ -94,7 +94,7 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
   // Los desincorporados de antes no guardan de qué categoría salieron: ahí se pregunta
   const deLaClave = catOriginal ?? categoriaDesdeClave(inm.claveinmueble, categorias)
   const [idcat, setIdcat] = useState(deLaClave ?? '')
-  const [comentario, setComentarioTxt] = useState(() => getComentario(inm.idinmueble))
+  const [comentario, setComentarioTxt] = useState(() => comentarioDe(inm))
 
   // Clave que tomaría al regresar. Se consulta a la base al elegir categoría,
   // igual que en el alta de un inmueble nuevo.
@@ -131,7 +131,7 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
   async function confirmar() {
     if (pideCategoria && !idcat) { setErr('Elige la categoría a la que regresa'); return }
     setGuardando(true); setErr(null)
-    try { setComentario(inm.idinmueble, comentario); await onConfirm(pideCategoria ? Number(idcat) : deLaClave); onClose() } catch (e) { setErr(e.message); setGuardando(false) }
+    try { await setComentario(inm.idinmueble, comentario); await onConfirm(pideCategoria ? Number(idcat) : deLaClave); onClose() } catch (e) { setErr(e.message); setGuardando(false) }
   }
 
   const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
@@ -256,14 +256,18 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   useEffect(() => {
     supabaseInmuebles.from('categoriasinmuebles').select('idcategoria, nombrecategoria, clavecategoria')
       .then(({ data }) => setCategorias(data || [])).catch(console.error)
+    // Sube a la base lo que hubiera quedado guardado en este navegador
+    subirTramitesPendientes().catch(() => {})
+    subirComentariosPendientes().catch(() => {})
   }, [])
 
   const cargar = useCallback(async (idcat) => {
     setLoading(true)
     try {
       const rows = await fetchInmueblesPorCategoria(idcat)
-      const m = getDesinc()
-      setDatos(rows.map(r => ({ ...r, _d: m[r.idinmueble] || {} })))
+      // El trámite viene en la propia fila; si la base aún no tiene las
+      // columnas, tramiteDe() se apoya en lo que quedó en el navegador.
+      setDatos(rows.map(r => ({ ...r, _d: tramiteDe(r) })))
     } catch (e) { console.error(e); setDatos([]) }
     finally { setLoading(false) }
   }, [])
@@ -271,7 +275,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   useEffect(() => { if (vista !== 'inicio') cargar(idCatActual) }, [vista, idCatActual, cargar])
 
   async function desincorporar(b, { obs, fecha }) {
-    setDesinc([b.idinmueble], { fechaDesinc: fecha, obsDesinc: obs })
+    await setDesinc([b.idinmueble], { fechaDesinc: fecha, obsDesinc: obs })
     await cambiarCategoria([b.idinmueble], ID_DESINC)   // pasa a "DESINCORPORADO DEL HAN"
     setModalDesinc(null)
     await cargar(ID_PROCESO)
@@ -285,10 +289,10 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   // disparan desde el modal de confirmación, nunca de un solo clic.
   async function moverInmueble(b, accion, categoriaDestino) {
     if (accion === 'alInventario') {
-      const cat = categoriaDestino || getDesinc()[b.idinmueble]?.catOriginal
+      const cat = categoriaDestino || b._d?.catOriginal
       if (!cat) throw new Error('Falta indicar la categoría a la que regresa')
       await cambiarCategoria([b.idinmueble], cat)   // regresa a su categoría original
-      quitarDesinc([b.idinmueble])
+      await quitarDesinc([b.idinmueble])
 
       // Con clave provisional (PEND-3) se le da la que le toca en la categoría
       // elegida; si ya trae clave normal se respeta.

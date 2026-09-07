@@ -1,65 +1,57 @@
-// Encargado de cada dependencia.
+// Encargado (titular) de cada dependencia.
 //
-// La tabla `dependencias` solo trae iddependencia, nombredependencia y orden.
-// Para que el dato se comparta entre equipos basta con agregar dos columnas:
+// Vive en las columnas `encargado` y `puesto_encargado` de `dependencias`, ya
+// creadas (supabase/persistencia-muebles.sql). Se lee y se escribe contra la
+// base, así que el titular es el mismo en todos los equipos.
 //
-//   alter table dependencias add column encargado text;
-//   alter table dependencias add column puesto_encargado text;
-//
-// Este módulo las detecta solas: si existen guarda y lee de Supabase, y si no
-// se apoya en el navegador —igual que los comentarios de inmuebles— para que la
-// pantalla funcione sin tocar la base de datos.
+// Lo único que queda del navegador es el RESCATE: los titulares capturados
+// antes de la migración siguen en el equipo donde se pusieron y se suben solos
+// la primera vez que ahí se abre la pantalla de dependencias.
 
 import { supabase } from './supabase'
 
 const LS = 'encargados_dependencias'
 
-// Se resuelve con la primera consulta real, sin gastar una petición extra
-let hayColumnas = null   // null = sin comprobar todavía
-
-export function soportaColumnas() {
-  return hayColumnas === true
-}
-
-function leerLocal() {
-  try { return JSON.parse(localStorage.getItem(LS) || '{}') } catch { return {} }
-}
-
-function guardarLocal(mapa) {
-  try { localStorage.setItem(LS, JSON.stringify(mapa)) } catch { /* noop */ }
-}
-
 // Devuelve las dependencias con su encargado, ordenadas por nombre.
-// Se pide primero con las columnas nuevas: si la base todavía no las tiene,
-// Postgrest responde error y se repite sin ellas. Así la detección no cuesta
-// una petición aparte.
 export async function fetchDependencias() {
-  let conColumnas = hayColumnas !== false
-  let data, error
+  const { data, error } = await supabase.from('dependencias')
+    .select('iddependencia, nombredependencia, orden, encargado, puesto_encargado')
+  if (error) throw error
 
-  if (conColumnas) {
-    ({ data, error } = await supabase.from('dependencias')
-      .select('iddependencia, nombredependencia, orden, encargado, puesto_encargado'))
-    if (error) { conColumnas = false; hayColumnas = false }
-    else hayColumnas = true
-  }
-  if (!conColumnas) {
-    ({ data, error } = await supabase.from('dependencias')
-      .select('iddependencia, nombredependencia, orden'))
-    if (error) throw error
-  }
-
-  const local = conColumnas ? {} : leerLocal()
+  const rescatados = await subirEncargadosPendientes()
   return (data || [])
     .map(d => {
-      const guardado = local[d.iddependencia] || {}
+      const subido = rescatados[d.iddependencia] || {}
       return {
         ...d,
-        encargado: (conColumnas ? d.encargado : guardado.encargado) || '',
-        puesto_encargado: (conColumnas ? d.puesto_encargado : guardado.puesto) || '',
+        encargado:        d.encargado        || subido.encargado || '',
+        puesto_encargado: d.puesto_encargado || subido.puesto    || '',
       }
     })
     .sort((a, b) => String(a.nombredependencia || '').localeCompare(String(b.nombredependencia || ''), 'es'))
+}
+
+// ── Rescate de lo capturado antes de la migración ───────────────────────────
+async function subirEncargadosPendientes() {
+  let m
+  try { m = JSON.parse(localStorage.getItem(LS) || '{}') } catch { return {} }
+  const ids = Object.keys(m)
+  if (!ids.length) return {}
+
+  const subidos = {}
+  for (const id of ids) {
+    const { encargado, puesto } = m[id] || {}
+    const { error } = await supabase.from('dependencias')
+      .update({ encargado: encargado || null, puesto_encargado: puesto || null })
+      .eq('iddependencia', Number(id))
+    if (error) continue        // se reintenta la próxima vez que se abra
+    subidos[id] = m[id]; delete m[id]
+  }
+  try {
+    if (Object.keys(m).length) localStorage.setItem(LS, JSON.stringify(m))
+    else localStorage.removeItem(LS)
+  } catch { /* modo privado */ }
+  return subidos
 }
 
 // Áreas de cada dependencia, con su conteo de bienes (vista areas_activas)
@@ -112,18 +104,9 @@ export async function fetchResguardos() {
 export async function guardarEncargado(iddependencia, { encargado, puesto }) {
   const nombre = String(encargado || '').trim()
   const cargo  = String(puesto || '').trim()
-
-  if (soportaColumnas()) {
-    const { error } = await supabase
-      .from('dependencias')
-      .update({ encargado: nombre || null, puesto_encargado: cargo || null })
-      .eq('iddependencia', iddependencia)
-    if (error) throw error
-    return
-  }
-
-  const mapa = leerLocal()
-  if (nombre || cargo) mapa[iddependencia] = { encargado: nombre, puesto: cargo }
-  else delete mapa[iddependencia]
-  guardarLocal(mapa)
+  const { error } = await supabase
+    .from('dependencias')
+    .update({ encargado: nombre || null, puesto_encargado: cargo || null })
+    .eq('iddependencia', iddependencia)
+  if (error) throw error
 }

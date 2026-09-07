@@ -1,27 +1,49 @@
 // Comentarios internos por inmueble.
 //
-// La tabla bienesinmuebles no tiene una columna para esto, así que se guardan en
-// el navegador —igual que las fechas de desincorporación—. Solo se ven en el
-// formulario de modificar y en el panel de consulta; no salen en los reportes.
+// Viven en la columna `comentarios` de bienesinmuebles. La base ya la tiene
+// (supabase/persistencia-inmuebles.sql, aplicado), así que se lee y se escribe
+// siempre contra la base: se puede ver desde cualquier equipo y sale en las
+// exportaciones.
 //
-// Para que se compartan entre equipos basta con agregar la columna en Supabase:
-//   alter table bienesinmuebles add column comentarios text;
-// y cambiar estas dos funciones por un select/update normal.
+// Lo único que queda del navegador es el RESCATE de más abajo: los comentarios
+// escritos antes de la migración siguen en el equipo donde se capturaron y se
+// suben solos la primera vez que esa persona abre inmuebles. Cuando ya no quede
+// ninguno pendiente en ningún equipo, se puede borrar ese bloque y este módulo
+// se queda sin una sola línea de localStorage.
 
+import { supabaseInmuebles as supabase } from './supabaseInmuebles'
+
+// El comentario del inmueble: viene en la propia fila.
+export function comentarioDe(inmueble) {
+  return inmueble?.comentarios || ''
+}
+
+export async function setComentario(idinmueble, texto) {
+  const valor = (texto || '').trim()
+  const { error } = await supabase.from('bienesinmuebles')
+    .update({ comentarios: valor || null }).eq('idinmueble', idinmueble)
+  if (error) throw error
+}
+
+// ── Rescate de lo capturado antes de la migración ───────────────────────────
 const LS = 'comentarios_inmuebles'
 
-function leer() {
-  try { return JSON.parse(localStorage.getItem(LS) || '{}') } catch { return {} }
-}
+export async function subirComentariosPendientes() {
+  let m
+  try { m = JSON.parse(localStorage.getItem(LS) || '{}') } catch { return 0 }
+  const ids = Object.keys(m)
+  if (!ids.length) return 0
 
-export function getComentario(idinmueble) {
-  return leer()[idinmueble] || ''
-}
-
-export function setComentario(idinmueble, texto) {
-  const m = leer()
-  const t = String(texto || '').trim()
-  if (t) m[idinmueble] = t
-  else delete m[idinmueble]
-  try { localStorage.setItem(LS, JSON.stringify(m)) } catch { /* noop */ }
+  let subidos = 0
+  for (const id of ids) {
+    const { error } = await supabase.from('bienesinmuebles')
+      .update({ comentarios: m[id] || null }).eq('idinmueble', Number(id))
+    if (error) continue        // se reintenta la próxima vez que se abra
+    delete m[id]; subidos++
+  }
+  try {
+    if (Object.keys(m).length) localStorage.setItem(LS, JSON.stringify(m))
+    else localStorage.removeItem(LS)
+  } catch { /* modo privado */ }
+  return subidos
 }

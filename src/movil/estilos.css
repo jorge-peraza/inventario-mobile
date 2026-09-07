@@ -91,7 +91,7 @@
   left: 0; right: 0; bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: end;
   padding: 7px 4px calc(7px + env(safe-area-inset-bottom));
   background: var(--barra);
@@ -167,7 +167,7 @@
 
 .movil .pestanas {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border-radius: 13px;
@@ -327,11 +327,14 @@
 .movil-escaner .confirma .titulo { font-size: 15px; font-weight: 600; line-height: 1.3; }
 .movil-escaner .confirma .campos {
   margin-top: 11px;
-  display: grid; grid-template-columns: 1fr 1fr;
+  /* minmax(0,1fr) y no 1fr: con 1fr un nombre largo —"ING. MARTÍN ELÍAS
+     ORTEGA LÓPEZ"— empuja la columna y la tarjeta se sale de la pantalla. */
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px 12px;
   padding-top: 11px;
   border-top: 1px solid var(--borde);
 }
+.movil-escaner .confirma .campos p { overflow-wrap: anywhere; }
 .movil-escaner .confirma .aviso-linea {
   display: flex; align-items: flex-start; gap: 7px;
   margin-top: 11px; padding-top: 10px;
