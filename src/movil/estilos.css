@@ -76,6 +76,20 @@
   border: 1px solid var(--borde);
 }
 .movil .icono-btn:active { opacity: 0.55; }
+
+/* Filtro en línea: se ve como un campo y abre una hoja */
+.movil .chip-filtro {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--campo);
+  border: 1px solid var(--borde-fuerte);
+  color: var(--texto-1);
+  font-size: 15px;
+  text-align: left;
+}
+.movil .chip-filtro i { color: var(--texto-4); font-size: 17px; flex-shrink: 0; }
+.movil .chip-filtro .crece { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .movil .icono-btn.peligro {
   color: var(--alerta);
   background: var(--alerta-suave);

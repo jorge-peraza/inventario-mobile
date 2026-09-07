@@ -6,7 +6,7 @@ import { useBloquearScroll } from './useBloquearScroll'
 import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
 import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
 import { Escaner } from './Escaner'
-import { InicioInmuebles, BuscarInmuebles, FichaInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
+import { InicioInmuebles, BuscarInmuebles, FichaInmueble, EditarInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
 
 // ── Armazón de la vista móvil ─────────────────────────────────────────────────
 // Una sola pantalla a la vez, barra de navegación abajo y un botón "Más" para
@@ -86,6 +86,7 @@ export default function AppMovil({ user, onSalir }) {
       switch (sub) {
         case 'inmuebles': return <BuscarInmuebles />
         case 'cat':       return <BuscarInmuebles idcategoria={arg} />
+        case 'editar':    return <EditarInmueble clave={arg} />
         case 'reportes':  return <ReportesInmueblesMovil />
         default:          return <InicioInmuebles user={user} />
       }
