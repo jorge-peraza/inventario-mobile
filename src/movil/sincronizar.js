@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { listaReconteos, resumen, borrarReconteo, marcarEnLaBase, depurarBorrados } from './reconteo'
+import { listaReconteos, reconteo, resumen, borrarReconteo, marcarEnLaBase, marcarListaEnLaBase, depurarBorrados } from './reconteo'
 
 // ── El reconteo en la base ────────────────────────────────────────────────────
 // Mientras se cuenta manda el teléfono: la lista y las marcas viven ahí, que es
@@ -88,24 +88,33 @@ export async function subirAvance(r, claves) {
   if (error) { if (noHayTablas(error)) return false; throw error }
   marcarEnLaBase(r.id)
 
-  const nuevas = (claves || []).filter(c => r.encontrados[c])
-  if (nuevas.length) {
-    const filas = nuevas.map(clave => {
-      const e = r.esperados.find(x => x.clave === clave) || {}
-      const h = r.encontrados[clave]
-      return {
-        idreconteo: r.id, idbien: e.idbien, clave, nombre: e.nombre,
-        resguardante: e.resguardante, encontrado: true,
-        metodo: h.metodo || null, fecha: h.fecha || null,
-        observacion: h.observacion || null,
-      }
-    }).filter(f => f.idbien != null)
-    for (let i = 0; i < filas.length; i += LOTE) {
-      const { error: e2 } = await supabase.from('reconteo_bienes').upsert(filas.slice(i, i + LOTE))
-      if (e2) throw e2
-    }
+  // La primera vez se manda el área completa —los bienes que se esperan, todos
+  // sin verificar— y no solo lo escaneado. Si no, mientras el conteo estuviera
+  // en curso la computadora veía "2 de 2" en un área de 152: solo llegaban los
+  // verificados y los faltantes no existían para nadie más que el teléfono.
+  const primeraVez = !reconteo(r.id)?.listaEnLaBase
+  const filas = primeraVez
+    ? r.esperados.map(e => fila(r, e))
+    : (claves || []).filter(c => r.encontrados[c])
+        .map(c => fila(r, r.esperados.find(x => x.clave === c) || { clave: c }))
+
+  const buenas = filas.filter(f => f.idbien != null)
+  for (let i = 0; i < buenas.length; i += LOTE) {
+    const { error: e2 } = await supabase.from('reconteo_bienes').upsert(buenas.slice(i, i + LOTE))
+    if (e2) throw e2
   }
+  if (primeraVez) marcarListaEnLaBase(r.id)
   return true
+}
+
+// Un renglón de reconteo_bienes a partir del bien esperado y de si se encontró
+function fila(r, e) {
+  const h = r.encontrados[e.clave]
+  return {
+    idreconteo: r.id, idbien: e.idbien, clave: e.clave, nombre: e.nombre,
+    resguardante: e.resguardante, encontrado: !!h,
+    metodo: h?.metodo || null, fecha: h?.fecha || null, observacion: h?.observacion || null,
+  }
 }
 
 // Sube los reconteos terminados que todavía no están en la base y, en cuanto

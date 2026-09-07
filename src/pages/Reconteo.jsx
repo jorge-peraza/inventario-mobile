@@ -106,8 +106,14 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
   }, [reconteo.idreconteo])
 
   const encontrados = bienes.filter(b => b.encontrado).length
-  const faltan      = bienes.length - encontrados
   const conNota     = bienes.filter(b => b.observacion).length
+  // El total del área es el que se guardó al abrir el conteo. Se toma de ahí y
+  // no del número de renglones porque un conteo en curso puede tener todavía
+  // bienes sin subir desde el celular; así el resumen nunca dice "2 de 2" en un
+  // área de 152.
+  const totalArea   = Math.max(reconteo.esperados || 0, bienes.length)
+  const faltan      = totalArea - encontrados
+  const sinSubir    = Math.max(0, totalArea - bienes.length)
 
   const lista = useMemo(() => {
     const q = busqueda.trim().toUpperCase()
@@ -117,7 +123,7 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
         (b.resguardante || '').toUpperCase().includes(q) || (b.observacion || '').toUpperCase().includes(q))
   }, [bienes, pestana, busqueda])
 
-  const opciones = PESTANAS.map(p => ({ ...p, total: p.id === 'todos' ? bienes.length : p.id === 'ok' ? encontrados : faltan }))
+  const opciones = PESTANAS.map(p => ({ ...p, total: p.id === 'todos' ? totalArea : p.id === 'ok' ? encontrados : faltan }))
 
   // Al cambiar de estado o de búsqueda se vuelve a la primera página
   useEffect(() => { setPagina(0) }, [pestana, busqueda, porPagina])
@@ -149,7 +155,7 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
       {/* Resumen del conteo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: '12px', marginBottom: '1rem' }}>
         {[
-          { label: 'Bienes del área',    valor: bienes.length, icon: 'ti-box',            color: t.text1 },
+          { label: 'Bienes del área',    valor: totalArea,     icon: 'ti-box',            color: t.text1 },
           { label: 'Verificados',        valor: encontrados,   icon: 'ti-circle-check',   color: dark ? '#7ee8a2' : '#1e7e4a' },
           { label: 'No encontrados',     valor: faltan,        icon: 'ti-question-mark',  color: dark ? '#ffd580' : '#b7790a' },
           { label: 'Con observación',    valor: conNota,       icon: 'ti-message-2',      color: dark ? '#a8c5f8' : '#2563eb' },
@@ -178,6 +184,16 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
       {error && (
         <div style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', color: dark ? '#f4a1a1' : '#c0392b', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <i className="ti ti-alert-circle" style={{ fontSize: '18px' }} />{error}
+        </div>
+      )}
+
+      {!cargando && sinSubir > 0 && (
+        <div style={{ ...card, padding: '0.85rem 1.15rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '9px' }}>
+          <i className="ti ti-cloud-upload" style={{ fontSize: '17px', color: dark ? '#ffd580' : '#b7790a', flexShrink: 0 }} />
+          <p style={{ fontSize: '13px', color: t.text3 }}>
+            {sinSubir.toLocaleString()} bien{sinSubir !== 1 ? 'es' : ''} del área todavía no llegan del celular.
+            Aparecen en cuanto ese equipo vuelva a tener señal.
+          </p>
         </div>
       )}
 

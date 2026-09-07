@@ -335,9 +335,37 @@ function ordenarPorFactura(rows) {
 // columna: se lee del texto de observaciones, que es donde Oficialía la escribe
 // ("ALTA POR OFICIO OM/436/2025 10-JUNIO-2025"). Por eso el modal avisa cuántos
 // bienes del mes no traen esa fecha y quedarían fuera.
+// El corte de altas no es el mes natural: arranca el 27 de un mes y cierra el 26
+// del siguiente, la víspera del corte que sigue. Así los periodos quedan pegados
+// sin encimarse y ningún bien sale en dos reportes seguidos.
+// Las dos fechas quedan editables porque el corte se recorre cuando el 27 cae en
+// fin de semana o día festivo.
+const DIA_CORTE = 27
+const isoLocal = f => `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`
+
+function periodoDeCorte(hoy = new Date()) {
+  const y = hoy.getFullYear(), m = hoy.getMonth()
+  // Si ya pasó el 27, el periodo corriente arranca este mes; si no, el anterior
+  const yaPaso = hoy.getDate() >= DIA_CORTE
+  return {
+    desde: isoLocal(new Date(y, yaPaso ? m : m - 1, DIA_CORTE)),
+    hasta: isoLocal(new Date(y, yaPaso ? m + 1 : m, DIA_CORTE - 1)),
+  }
+}
+
+function textoPeriodo(desde, hasta) {
+  const arma = s => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '')
+    return m ? `${Number(m[3])} DE ${MESES[Number(m[2]) - 1] || ''} DE ${m[1]}` : ''
+  }
+  const a = arma(desde), b = arma(hasta)
+  return a && b ? `DEL ${a} AL ${b}`.toUpperCase() : ''
+}
+
 function ModalReporteAltas({ allAreas, onClose, dark, t }) {
-  const hoy = new Date()
-  const [mes, setMes] = useState(`${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`)
+  const inicial = periodoDeCorte()
+  const [desde, setDesde] = useState(inicial.desde)
+  const [hasta, setHasta] = useState(inicial.hasta)
   const [areasSelec, setAreasSelec] = useState([])
   const [titulo, setTitulo] = useState('')
   const [generando, setGenerando] = useState(null)
@@ -355,25 +383,25 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
     return () => { vivo = false }
   }, [])
 
+  // Las dos fechas entran en el periodo: del 27 al 27, ambos incluidos.
   const delMes = useMemo(() => {
     const enArea = areasSelec.length ? todas.filter(b => areasSelec.includes(b.idarea)) : todas
-    return enArea.filter(b => b.fechaalta && b.fechaalta.slice(0, 7) === mes)
+    return enArea.filter(b => b.fechaalta && (!desde || b.fechaalta >= desde) && (!hasta || b.fechaalta <= hasta))
       .sort((a, b) => (a.fechaalta || '').localeCompare(b.fechaalta || '') ||
         String(a.claveinventario || '').localeCompare(String(b.claveinventario || ''), 'es', { numeric: true }))
-  }, [todas, mes, areasSelec])
+  }, [todas, desde, hasta, areasSelec])
 
   const importeMes = delMes.reduce((s, b) => s + (Number(b.costoinicial) || 0), 0)
-  const nombreMes = (() => {
-    const [a, m] = mes.split('-')
-    return `${MESES[Number(m) - 1] || ''} ${a}`.toUpperCase()
-  })()
+  const nombreMes = textoPeriodo(desde, hasta)
+  const rangoMal = desde && hasta && desde > hasta
 
-  useEffect(() => { setTitulo(`REPORTE MENSUAL DE ALTAS BIENES MUEBLES ${nombreMes}`) }, [nombreMes])
+  useEffect(() => { setTitulo(`REPORTE DE ALTAS BIENES MUEBLES ${nombreMes}`) }, [nombreMes])
 
   async function generar(formato) {
     setGenerando(formato); setErr(null)
     try {
-      if (!delMes.length) { setErr('No hay altas registradas en ese mes'); setGenerando(null); return }
+      if (rangoMal) { setErr('La fecha de inicio es posterior a la de término'); setGenerando(null); return }
+      if (!delMes.length) { setErr('No hay altas registradas en ese periodo'); setGenerando(null); return }
       const rows = delMes.map((b, i) => ({ ...b, no: i + 1 }))
       if (formato === 'excel') await exportarExcelMuebles(rows, COLS_ALTAS, titulo.trim())
       else                     await exportarPDFMuebles(rows, COLS_ALTAS, titulo.trim())
@@ -403,7 +431,10 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
           </button>
         </div>
         <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
-          <div><p style={lbl}>Mes</p><input type="month" value={mes} onChange={e => setMes(e.target.value)} style={inputStyle} /></div>
+          <div style={{ display:'flex', gap:'10px' }}>
+            <div style={{ flex:1 }}><p style={lbl}>Del</p><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></div>
+            <div style={{ flex:1 }}><p style={lbl}>Al</p><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></div>
+          </div>
           <div><p style={lbl}>Dependencias</p><GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} /></div>
           <div><p style={lbl}>Título del documento</p><input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} style={inputStyle} /></div>
 
@@ -412,7 +443,8 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
           {!cargando && (
             <div style={{ padding:'11px 13px', borderRadius:'10px', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}` }}>
               <p style={{ fontSize:'13px', color:t.text1, fontWeight:600 }}>
-                {delMes.length} {delMes.length === 1 ? 'alta' : 'altas'} en {nombreMes}
+                {rangoMal ? 'La fecha de inicio es posterior a la de término'
+                  : `${delMes.length} ${delMes.length === 1 ? 'alta' : 'altas'} ${nombreMes.toLowerCase()}`}
               </p>
               {delMes.length > 0 && <p style={{ fontSize:'12px', color:t.text3, marginTop:'3px' }}>
                 Importe: {fmt(importeMes)}

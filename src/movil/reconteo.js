@@ -175,6 +175,12 @@ export function borrarReconteo(id) {
   guardarTodo(leerTodo().filter(r => r.id !== id))
 }
 
+// Deja constancia de que la lista completa del área ya está en la base: la
+// primera subida manda los bienes esperados, las siguientes solo lo que cambia.
+export function marcarListaEnLaBase(id) {
+  return conReconteo(id, c => { c.listaEnLaBase = true })
+}
+
 // Deja constancia de que este conteo ya llegó a la base. Sirve para saber, si
 // después desaparece de allá, que alguien lo borró —desde la computadora o
 // desde otro teléfono— y que este equipo no debe volver a subirlo.

@@ -1486,6 +1486,29 @@ async function paginaDeBien(bien, filtros) {
   return Math.floor((count || 0) / porPagina)
 }
 
+// El nombre oficial de varias dependencias trae el periodo, la lista de sus
+// subáreas o un apellido entre paréntesis, y en la columna de adscripción eso
+// estorba. Se recorta a lo que de verdad la identifica:
+//   "OFICIALIA MAYOR, SUBOF, R.H., BIENES Y SERV., RASTRO, TALLER" → OFICIALIA MAYOR
+//   "CONTRALORIA 2024-2027 (OCEGAN)"                               → CONTRALORIA
+// Solo Centros Comunitarios necesita excepción: su nombre no dice de quién
+// depende y el área lo reporta como Bienestar Social.
+const DEPENDENCIA_CORTA = {
+  'CENTROS COMUNITARIOS (BIENESTAR SOCIAL)': 'BIENESTAR SOCIAL',
+}
+export function dependenciaCorta(nombre) {
+  let s = String(nombre || '').replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  // Fuera el periodo: "2024-2027" y también "2018 2021"
+  s = s.replace(/\s*(19|20)\d{2}\s*[-–—]\s*(19|20)\d{2}/g, '')
+       .replace(/\s*\b(19|20)\d{2}\s+(19|20)\d{2}\b/g, '')
+       .replace(/\s{2,}/g, ' ').trim()
+  const conParentesis = s.toUpperCase()
+  if (DEPENDENCIA_CORTA[conParentesis]) return DEPENDENCIA_CORTA[conParentesis]
+  // Fuera el paréntesis final y todo lo que siga a la primera coma
+  return s.replace(/\s*\([^)]*\)\s*$/, '').split(',')[0].trim()
+}
+
 async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera, traspasos, areasPermitidas }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
@@ -1497,7 +1520,7 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
     .select(`
       idbien, idarea, idfactura, nombrebien, marca, tipo, serie, observaciones,
       claveinventario, categoriainventario, estadobien, anio, partida,
-      areas ( nombrearea ),
+      areas ( nombrearea, dependencias ( nombredependencia ) ),
       resguardos ( nombre, puesto ),
       facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )
     `, { count: 'exact' })
@@ -1521,6 +1544,7 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
     data: data.map(b => ({
       ...b,
       area:           b.areas?.nombrearea                      || '—',
+      dependencia:    dependenciaCorta(b.areas?.dependencias?.nombredependencia),
       resguardatario: b.resguardos?.nombre                     || '—',
       puesto:         b.resguardos?.puesto                     || '—',
       numerofactura:  b.facturas?.numerofactura                || 'SIN FACTURA',
@@ -1681,7 +1705,125 @@ async function actualizarBien(idbien, campos) {
 // ── CAMBIO 2: genera HTML del resguardo con factura, proveedor, importe, fecha ─
 // Contenido de UNA hoja de resguardo. El documento que la envuelve puede llevar
 // una sola o varias, una por bien, cada una en su propia página.
+// Los vehículos llevan su propio formato de resguardo, distinto al de mobiliario:
+// lo firma el Síndico con fundamento en el artículo 70 de la Ley de Gobierno y
+// Administración Municipal, y lleva el inventario de accesorios de la unidad.
+function esVehicular(bien) {
+  return (CATS_BY_MODO.vehiculos || []).includes(String(bien.categoriainventario || '').toUpperCase())
+}
+
+// El listado de accesorios del formato impreso. Se marcan a mano al entregar la
+// unidad, así que van con el paréntesis vacío.
+const ACCESORIOS_VEHICULO = [
+  'TAPETES', 'ESPEJOS', 'PARABRISAS /LIMPIADORES', 'TAPONES', 'RADIO AM FM CD',
+  'BOTONES DE RADIO', 'RADIO', 'GATO', 'LLANTA DE REFACC.', 'CANDADO DE EXTRA',
+  'HERRAMIENTAS', 'CABLES P/CORRIENTE', 'PÓLIZA DE SEGURO', 'PÓLIZA Y MANUAL',
+  'AIRE ACONDICIONADO', 'DUPLICADO LLAVES', 'MOLDURAS COMPLETAS', 'EXTINTOR',
+  'ANTENA', 'PARRILLA', 'BOCINA DE CLAXON', 'BATERÍA', 'TAPÓN DE ACEITE',
+  'VARILLA DE ACEITE', 'INTERMITENTES', 'LUCES TRASERAS', 'LUCES DELANTERAS',
+  'RINES 15 DE ALUMINIO', 'CINTURONES DE SEGURIDAD', 'AMORTIGUADORES P/TRAB. PESADO',
+  'BASTÓN P/ VOLANTE',
+]
+
+function cuerpoResguardoVehiculo(bien) {
+  const meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
+  const hoy = new Date()
+  const nombre = (bien.resguardatario  || '').toUpperCase()
+  const area   = (bien.area            || '').toUpperCase()
+  const marca  = (bien.marca           || '').toUpperCase()
+  const tipo   = (bien.tipo            || '').toUpperCase()
+  const serie  = (bien.serie           || '').toUpperCase()
+  const desc   = (bien.nombrebien      || '').toUpperCase()
+  const clave  = (bien.claveinventario || '')
+  const anio   = (bien.anio            || '')
+  const obs    = (bien.observaciones   || '')
+  const base   = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '')
+
+  const accesorios = ACCESORIOS_VEHICULO
+    .map(a => `${a}&nbsp;(&nbsp;&nbsp;&nbsp;)`).join('&nbsp;&nbsp; ')
+
+  return `<div class="hoja veh">
+
+<div class="veh-logos">
+  <div class="vl"><img src="${base}/escudo-mexico.png" alt="" /></div>
+  <div class="vl"><img src="${base}/escudo-nogales.png" alt="" /></div>
+  <div class="vl"><img class="ancho" src="${base}/logo-ayuntamiento.png" alt="" /></div>
+</div>
+
+<div class="veh-enc">
+  <div class="veh-mun">MUNICIPIO DE NOGALES<br>ESTADO DE SONORA</div>
+  <div class="veh-tit">
+    H. AYUNTAMIENTO DE NOGALES, SONORA<br>
+    SINDICATURA MUNICIPAL<br>
+    RESGUARDO DEL VEHICULO
+  </div>
+  <div class="veh-per">2024-2027</div>
+</div>
+
+<p class="veh-legal">EL S&Iacute;NDICO MUNICIPAL EN EJERCICIO DE LAS FACULTADES QUE LE CONFIERE EL ART&Iacute;CULO 70 FRACCI&Oacute;N VII DE LA LEY DE GOBIERNO Y ADMINISTRACI&Oacute;N MUNICIPAL, HA TENIDO A BIEN ASIGNAR A PETICI&Oacute;N DEL TITULAR DE LA DEPENDENCIA EL VEHICULO PROPIEDAD DEL H. AYUNTAMIENTO DE NOGALES, SONORA, QUE ADELANTE SE DESCRIBE, A EL: <b>ASIGNADO A: ${nombre || '_______________________________'}</b> DE <b>${area || '_______________________________'}</b> PARA SU USO OFICIAL &Uacute;NICA Y EXCLUSIVAMENTE.</p>
+
+<div class="veh-sub">CARACTERISTICAS DEL VEHICULO:</div>
+
+<table class="veh-datos">
+  <tr>
+    <td><span class="k">MARCA:</span> ${marca}</td>
+    <td><span class="k">COLOR:</span> </td>
+    <td><span class="k">NO. DE INVENTARIO:</span> ${clave}</td>
+  </tr>
+  <tr>
+    <td><span class="k">LINEA:</span> ${desc}</td>
+    <td><span class="k">SERIE:</span> ${serie}</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td><span class="k">MODELO:</span> ${anio}</td>
+    <td><span class="k">NO. ECONOMICO:</span> </td>
+    <td></td>
+  </tr>
+  <tr>
+    <td><span class="k">TIPO:</span> ${tipo}</td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+<p class="veh-acc">${accesorios}</p>
+
+<p class="veh-cond"><b>CONDICIONES:</b> POR MEDIO DE ESTE CONDUCTO RECIBO DE CONFORMIDAD EL VEHICULO HACIENDOME RESPONSABLE DE CUALQUIER DESPERFECTO QUE POR NEGLIGENCIA O MAL USO SUFRA EL MISMO. AS&Iacute; COMO DE SUPERVISAR LOS SERVICIOS DE MANTENIMIENTO Y CORRECTIVO SE REALICEN EN LOS TIEMPOS ADECUADOS A FIN DE MANTENERLO EN OPTIMAS CONDICIONES DE FUNCIONAMIENTO. AS&Iacute; MISMO ME COMPROMETO A RESPETAR LA NORMATIVIDAD VIGENTE SOBRE EL USO Y ASIGNACION DE VEHICULOS OFICIALES. ME COMPROMETO A GENERAR UN DOCUMENTO DE RESGUARDO EN CADA OCASI&Oacute;N QUE EL VEHICULO SE ASIGNE PARA UN ELEMENTO DE SEGURIDAD O EMPLEADO DE LA DEPENDENCIA EN EL ENTENDIDO QUE EN EL RESGUARDO SE DESCRIBA LA INFORMACION FISICA EN EL QUE SE RECIBE EL VEHICULO.</p>
+
+<p class="veh-cond"><b>OBSERVACIONES:</b> ${obs}</p>
+
+<p class="veh-cond">EL SERVIDOR P&Uacute;BLICO RECIBI&Oacute; EL BIEN MUEBLE DESCRITO CON ANTERIORIDAD Y SE OBLIGA A CUBRIR POR SU CUENTA LA TOTALIDAD DE LOS DA&Ntilde;OS QUE SE CAUSEN AL VEH&Iacute;CULO OFICIAL O A TERCEROS EN SUS PERSONAS O EN BIENES COMO CONSECUENCIA DEL MAL USO DE LA UNIDAD A SU CARGO, IGUALMENTE PAGAR LOS DESPERFECTOS MEC&Aacute;NICOS OCASIONADOS POR NEGLIGENCIA O FALTA DE MANTENIMIENTO DEL AUTOMOTOR. POR OTRA PARTE QUEDA APERCIBIDO DE QUE DEBER&Aacute; ENTREGAR EL BIEN QUE SE LE ASIGNE AL MOMENTO DE RENUNCIAR A SU CARGO O CUANDO SE LE REQUIERA POR EL TITULAR DE SINDICATURA MUNICIPAL, EN CASO CONTRARIO SE HAR&Aacute; ACREEDOR A LAS SANCIONES QUE PREVEA LA LEGISLACI&Oacute;N PARA LAS INFRACCIONES COMETIDAS POR SERVIDORES P&Uacute;BLICOS.</p>
+
+<div class="veh-fecha">H. NOGALES, SONORA a ${hoy.getDate()} de ${meses[hoy.getMonth()]} del ${hoy.getFullYear()}.</div>
+
+<div class="veh-firmas veh-firmas1">
+  <div class="fb">
+    <div class="fl"></div>
+    <div class="fn">${nombre}</div>
+    <div class="fr">TITULAR DEL RESGUARDO</div>
+  </div>
+</div>
+
+<div class="veh-firmas veh-firmas2">
+  <div class="fb">
+    <div class="fl"></div>
+    <div class="fn">MTRA. EDNA ELINORA SOTO GRACIA</div>
+    <div class="fr">SINDICO MUNICIPAL</div>
+  </div>
+  <div class="fb">
+    <div class="fl"></div>
+    <div class="fn">C. ELSA MONICA LOPEZ LEYVA</div>
+    <div class="fr">ASISTENTE ADMINISTRATIVO</div>
+  </div>
+</div>
+
+</div>`
+}
+
 function cuerpoResguardo(bien) {
+  if (esVehicular(bien)) return cuerpoResguardoVehiculo(bien)
+
   const meses  = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
   const hoy    = new Date()
   const mesStr = meses[hoy.getMonth()]
@@ -1826,6 +1968,43 @@ td{border:1.5px solid #000;padding:6px 10px;vertical-align:top}
 .el{border-top:1.5px solid #000;width:200px;margin:0 auto 5px}
 @page{size:Letter;margin:14mm 18mm}
 @media print{.hoja{padding:0}}
+
+/* ── Resguardo de vehículos ─────────────────────────────────────────────────
+   Formato aparte: el de Sindicatura, con los tres logos, el inventario de
+   accesorios y las cuatro firmas. Cabe en una sola hoja carta, así que la
+   letra va más chica que en el de mobiliario. */
+.hoja.veh{font-size:8pt;line-height:1.25}
+.veh-logos{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+.veh-logos .vl{flex:1;text-align:center}
+.veh-logos img{height:52px;object-fit:contain}
+.veh-logos img.ancho{height:44px}
+/* Tres columnas en vez de posicion absoluta: asi el "MUNICIPIO DE NOGALES" y el
+   periodo nunca se enciman con el titulo, por angosta que quede la hoja. */
+.veh-enc{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px}
+.veh-mun{flex:0 0 90px;font-size:6pt;font-weight:700;line-height:1.3;text-align:center;padding-top:6px}
+.veh-per{flex:0 0 70px;font-size:8.5pt;font-weight:700;text-align:right;padding-top:6px}
+.veh-tit{flex:1;text-align:center;font-size:10pt;font-weight:700;line-height:1.45}
+.veh-legal{text-align:justify;font-weight:700;margin-bottom:9px;line-height:1.35}
+.veh-sub{font-weight:700;margin-bottom:5px}
+table.veh-datos{width:100%;border-collapse:collapse;margin-bottom:9px}
+table.veh-datos td{border:none;padding:1px 0;vertical-align:top;width:33.33%}
+table.veh-datos .k{font-weight:700}
+.veh-acc{text-align:justify;line-height:1.9;margin-bottom:9px}
+.veh-cond{text-align:justify;margin-bottom:8px;line-height:1.32}
+.veh-fecha{text-align:right;margin:10px 0 30px;font-weight:700}
+.veh-firmas{display:flex;justify-content:space-between;gap:26px}
+/* La primera fila lleva una sola firma, la del titular del resguardo: se centra
+   y se le da el mismo ancho que cada una de las dos de abajo (media hoja menos
+   medio hueco), para que las tres rayas queden del mismo largo. Las dos reglas
+   van con doble clase para ganarle en especificidad a las de .veh-firmas, que
+   se declaran mas abajo y si no las pisarian. */
+.veh-firmas.veh-firmas1{justify-content:center}
+.veh-firmas.veh-firmas1 .fb{flex:0 0 calc(50% - 13px)}
+.veh-firmas2{margin-top:34px}
+.veh-firmas .fb{flex:1;text-align:center}
+.veh-firmas .fl{border-top:1px solid #000;margin:0 auto 4px;width:88%}
+.veh-firmas .fn{font-size:8pt;font-weight:700;font-style:italic}
+.veh-firmas .fr{font-size:7.5pt;font-weight:700;font-style:italic}
 `
 
 function envolverResguardos(titulo, cuerpos) {
@@ -1895,12 +2074,13 @@ const FRANJA      = 'F2F2F2'
 
 // idfactura hace falta para poder editar la factura del bien: sin él la
 // pantalla de modificar creaba una factura nueva en vez de actualizar la suya.
-const SELECT_BIENES = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+const SELECT_BIENES = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea, dependencias ( nombredependencia ) ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
 
 function mapBien(b) {
   return {
     ...b,
     area:           b.areas?.nombrearea                      || '—',
+    dependencia:    dependenciaCorta(b.areas?.dependencias?.nombredependencia),
     resguardatario: b.resguardos?.nombre                     || '—',
     puesto:         b.resguardos?.puesto                     || '—',
     numerofactura:  b.facturas?.numerofactura                || 'SIN FACTURA',
@@ -1912,7 +2092,7 @@ function mapBien(b) {
 
 // Trae bienes cuya FECHA DE FACTURA cae en el rango (para reportes por periodo)
 export async function fetchPorFechaFactura({ desde, hasta, areaIds }) {
-  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas!inner ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea, dependencias ( nombredependencia ) ), resguardos ( nombre, puesto ), facturas!inner ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
   const BATCH = 1000
   let todos = [], d = 0
   while (true) {
@@ -1933,7 +2113,7 @@ export async function fetchPorFechaFactura({ desde, hasta, areaIds }) {
 
 // Trae TODOS los bienes con factura, filtro opcional por anio del bien
 export async function fetchAdquisiciones({ anio, areaIds }) {
-  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
+  const SEL = `idbien, idfactura, nombrebien, marca, tipo, serie, observaciones, claveinventario, categoriainventario, estadobien, anio, partida, idarea, areas ( nombrearea, dependencias ( nombredependencia ) ), resguardos ( nombre, puesto ), facturas ( numerofactura, fechafactura, costoinicial, proveedores ( nombreproveedor ) )`
   const BATCH = 1000
   let todos = [], d = 0
   while (true) {
@@ -1997,7 +2177,9 @@ export function colsReporte(modo, traspasos) {
   return [
     { key: 'claveinventario', label: 'CLAVE DE INVENTARIO', m: 'Clave de inventario', w: 16, noWrap: true },
     ...desc.map(c => ({ ...c, grupo: 'DESCRIPCIÓN' })),
-    { key: 'area',          label: 'ÁREA DE ADSCRIPCIÓN',  m: 'Área de adscripción',  w: 30 },
+    // Lleva clave propia porque imprime "DEPENDENCIA / ÁREA"; las demás columnas
+    // que usan 'area' (ubicación, área de origen) siguen mostrando solo el área.
+    { key: 'areaadscripcion', label: 'ÁREA DE ADSCRIPCIÓN', m: 'Área de adscripción', w: 30, align: 'left' },
     { key: 'resguardo',     label: 'RESGUARDO A CARGO DE', m: 'Resguardo a cargo de', w: 26 },
     { key: 'observaciones', label: 'OBSERVACIONES',        m: 'Observaciones',        w: 34, align: 'left' },
     { key: 'importe',       label: 'IMPORTE',              m: 'Importe',              w: 16 },
@@ -2034,6 +2216,14 @@ export function valorMueble(col, b) {
       const n = b.resguardatario && b.resguardatario !== '—' ? b.resguardatario : ''
       const p = b.puesto && b.puesto !== '—' ? b.puesto : ''
       return n ? (p ? `${n} (${p})` : n) : (p || '')
+    }
+    // "DEPENDENCIA / ÁREA", como lo escriben los inventarios de cada dependencia.
+    // Si el área se llama igual que su dependencia se deja solo una vez.
+    case 'areaadscripcion': {
+      const a = b.area && b.area !== '—' ? String(b.area) : ''
+      const d = b.dependencia ? String(b.dependencia) : ''
+      if (!d || d.toUpperCase() === a.toUpperCase()) return a
+      return a ? `${d} / ${a}` : d
     }
     case 'oficiotraspaso':
       return oficioDeTraspaso(b.observaciones)
@@ -2167,15 +2357,21 @@ export async function fetchBienesConAlta({ areaIds } = {}) {
     desde += BATCH
   }
 
+  // Manda la fecha del oficio, no la de captura. El corte de altas corre del 27
+  // al 27 y se define por la fecha del oficio de Oficialía; si mandara la
+  // columna, un lote autorizado el 27 de agosto pero tecleado el 1 de septiembre
+  // se iría al periodo equivocado. La columna queda de respaldo para los bienes
+  // cuyo texto todavía no trae la fecha del alta.
   return todos.map(b => ({
     ...b,
-    fechaalta: b.fechaalta || fechaDeAlta(b.observaciones),
+    fechaalta: fechaDeAlta(b.observaciones) || b.fechaalta,
     oficioalta: oficioDeAlta(b.observaciones),
   }))
 }
 
-// Columnas del reporte de altas: como las del reporte de bienes, pero la fecha
-// que manda es la del alta, no la de la factura, y se agrega el oficio.
+// Columnas del reporte de altas. La fecha y el oficio del alta ya no se
+// imprimen: el periodo va en el título del documento y el oficio venía con
+// erratas de captura. La fecha se sigue usando para filtrar el periodo.
 export const COLS_ALTAS = [
   { key: 'no',              label: 'NO.',                 m: 'No.',                 w: 6,  noWrap: true },
   { key: 'claveinventario', label: 'INVENTARIO',          m: 'Inventario',          w: 22, noWrap: true },
@@ -2184,8 +2380,6 @@ export const COLS_ALTAS = [
   { key: 'marca',           label: 'MARCA',               m: 'Marca',               w: 13 },
   { key: 'tipo',            label: 'MODELO',              m: 'Modelo',              w: 13 },
   { key: 'serie',           label: 'SERIE',               m: 'Serie',               w: 16 },
-  { key: 'fechaalta',       label: 'FECHA DE ALTA',       m: 'Fecha de alta',       w: 12, noWrap: true },
-  { key: 'oficioalta',      label: 'OFICIO DE ALTA',      m: 'Oficio de alta',      w: 15, noWrap: true },
   { key: 'numerofactura',   label: 'FACTURA',             m: 'Factura',             w: 14 },
   { key: 'importe',         label: 'IMPORTE',             m: 'Importe',             w: 14 },
   { key: 'area',            label: 'UBICACIÓN',           m: 'Ubicación',           w: 24, align: 'left' },
@@ -2703,8 +2897,10 @@ export async function exportarExcelMuebles(rows, cols, titulo = '') {
     ws.getColumn(impIdx + 1).width = maxImp + 3
   }
 
-  // Combina celdas repetidas consecutivas en ÁREA DE ADSCRIPCIÓN y NÚMERO DE OFICIO
-  const areaIdx = cols.findIndex(c => c.key === 'area')
+  // Combina celdas repetidas consecutivas en ÁREA DE ADSCRIPCIÓN y NÚMERO DE OFICIO.
+  // Se aceptan las dos claves: 'areaadscripcion' es la columna que imprime
+  // "DEPENDENCIA / ÁREA" y 'area' la de los reportes que solo llevan el área.
+  const areaIdx = cols.findIndex(c => c.key === 'areaadscripcion' || c.key === 'area')
   const oficioIdx = cols.findIndex(c => c.key === 'numero_oficio')
   if (areaIdx >= 0 && filaFinDatos >= filaInicioDatos) {
     let r = filaInicioDatos
@@ -4879,7 +5075,14 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                                 <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.serie || '—'}</span></td>
                               </>
                           }
-                          <td style={{ ...tdBase(), width: '160px', maxWidth: '160px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2, lineHeight: 1.3, display: 'block' }}>{b.area}</span></td>
+                          {/* Área y, debajo, la dependencia a la que pertenece. Se omite
+                              cuando ambas se llaman igual, para no repetir el texto. */}
+                          <td style={{ ...tdBase(), width: '160px', maxWidth: '160px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                            <span style={{ color: t.text2, lineHeight: 1.3, display: 'block' }}>{b.area}</span>
+                            {b.dependencia && b.dependencia.toUpperCase() !== String(b.area || '').toUpperCase() && (
+                              <span style={{ color: t.text4, fontSize: '11px', lineHeight: 1.3, display: 'block', marginTop: '2px' }}>{b.dependencia}</span>
+                            )}
+                          </td>
                           <td style={{ ...tdBase(), width: '160px', maxWidth: '160px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             <p style={{ color: t.text2 }}>{b.resguardatario}</p>
                             <p style={{ color: t.text4, fontSize: '11px', marginTop: '2px' }}>{b.puesto}</p>
