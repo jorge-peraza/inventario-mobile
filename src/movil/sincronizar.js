@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { listaReconteos, reconteo, resumen, borrarReconteo, marcarEnLaBase, marcarListaEnLaBase, depurarBorrados } from './reconteo'
+import { listaReconteos, resumen, borrarReconteo, marcarEnLaBase, depurarBorrados } from './reconteo'
 
 // ── El reconteo en la base ────────────────────────────────────────────────────
 // Mientras se cuenta manda el teléfono: la lista y las marcas viven ahí, que es
@@ -88,22 +88,17 @@ export async function subirAvance(r, claves) {
   if (error) { if (noHayTablas(error)) return false; throw error }
   marcarEnLaBase(r.id)
 
-  // La primera vez se manda el área completa —los bienes que se esperan, todos
-  // sin verificar— y no solo lo escaneado. Si no, mientras el conteo estuviera
-  // en curso la computadora veía "2 de 2" en un área de 152: solo llegaban los
-  // verificados y los faltantes no existían para nadie más que el teléfono.
-  const primeraVez = !reconteo(r.id)?.listaEnLaBase
-  const filas = primeraVez
-    ? r.esperados.map(e => fila(r, e))
-    : (claves || []).filter(c => r.encontrados[c])
-        .map(c => fila(r, r.esperados.find(x => x.clave === c) || { clave: c }))
-
-  const buenas = filas.filter(f => f.idbien != null)
+  // Solo viaja lo que se acaba de escanear. Los bienes que faltan no hace falta
+  // mandarlos: la lista del área ya está en la base y quien consulte el conteo
+  // la cruza con lo verificado. Menos datos desde el celular y nada que se
+  // pueda quedar a medias.
+  const buenas = (claves || []).filter(c => r.encontrados[c])
+    .map(c => fila(r, r.esperados.find(x => x.clave === c) || { clave: c }))
+    .filter(f => f.idbien != null)
   for (let i = 0; i < buenas.length; i += LOTE) {
     const { error: e2 } = await supabase.from('reconteo_bienes').upsert(buenas.slice(i, i + LOTE))
     if (e2) throw e2
   }
-  if (primeraVez) marcarListaEnLaBase(r.id)
   return true
 }
 

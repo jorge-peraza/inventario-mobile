@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../supabase'
 import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './BienesMuebles'
+import { bienesDeArea } from '../movil/datos'
 
 // ── Reconteo (escritorio) ────────────────────────────────────────────────────
 // El conteo físico se levanta desde el celular; aquí se consulta lo que quedó.
@@ -95,9 +96,31 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
           if (data.length < PAGINA) break
           desde += PAGINA
         }
+        // Los bienes del área salen de la base, no de lo que haya subido el
+        // celular: así la lista está completa desde el primer escaneo y el
+        // conteo no depende de que ese teléfono termine de sincronizar. De los
+        // renglones del reconteo se toma lo que solo ellos saben: si el bien
+        // apareció, cuándo, cómo y con qué observación.
+        const verificados = new Map(filas.map(f => [f.idbien, f]))
+        const delArea = await bienesDeArea(reconteo.idarea)
+        const completa = delArea.map(b => {
+          const v = verificados.get(b.idbien)
+          verificados.delete(b.idbien)
+          return {
+            idbien: b.idbien, clave: b.clave, nombre: b.nombre, resguardante: b.resguardante,
+            encontrado: !!v?.encontrado, metodo: v?.metodo || null, fecha: v?.fecha || null,
+            // La del conteo y la que ya traía el bien se guardan aparte: solo la
+            // primera cuenta como "con observación" del reconteo.
+            observacion: v?.observacion || null, obsBien: b.observaciones || null,
+          }
+        })
+        // Lo que se contó y ya no está en el área (se traspasó o se dio de baja
+        // después del conteo) no se pierde: se queda al final de la lista.
+        const fuera = [...verificados.values()]
+
         const a = await supabase.from('reconteo_ajenos').select('*').eq('idreconteo', reconteo.idreconteo)
         if (!vivo) return
-        setBienes(filas)
+        setBienes([...completa, ...fuera])
         setAjenos(a.error ? [] : (a.data || []))
       } catch (e) { if (vivo) setError(e.message) }
       finally { if (vivo) setCargando(false) }
@@ -106,21 +129,18 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
   }, [reconteo.idreconteo])
 
   const encontrados = bienes.filter(b => b.encontrado).length
-  const conNota     = bienes.filter(b => b.observacion).length
-  // El total del área es el que se guardó al abrir el conteo. Se toma de ahí y
-  // no del número de renglones porque un conteo en curso puede tener todavía
-  // bienes sin subir desde el celular; así el resumen nunca dice "2 de 2" en un
-  // área de 152.
-  const totalArea   = Math.max(reconteo.esperados || 0, bienes.length)
+  const conNota     = bienes.filter(b => b.observacion).length   // anotadas durante el conteo
+  // El total sale de los bienes que la base dice que tiene el área hoy
+  const totalArea   = bienes.length
   const faltan      = totalArea - encontrados
-  const sinSubir    = Math.max(0, totalArea - bienes.length)
 
   const lista = useMemo(() => {
     const q = busqueda.trim().toUpperCase()
     return bienes
       .filter(b => (pestana === 'todos' ? true : pestana === 'ok' ? b.encontrado : !b.encontrado))
       .filter(b => !q || (b.clave || '').includes(q) || (b.nombre || '').toUpperCase().includes(q) ||
-        (b.resguardante || '').toUpperCase().includes(q) || (b.observacion || '').toUpperCase().includes(q))
+        (b.resguardante || '').toUpperCase().includes(q) ||
+        (b.observacion || '').toUpperCase().includes(q) || (b.obsBien || '').toUpperCase().includes(q))
   }, [bienes, pestana, busqueda])
 
   const opciones = PESTANAS.map(p => ({ ...p, total: p.id === 'todos' ? totalArea : p.id === 'ok' ? encontrados : faltan }))
@@ -187,16 +207,6 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
         </div>
       )}
 
-      {!cargando && sinSubir > 0 && (
-        <div style={{ ...card, padding: '0.85rem 1.15rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '9px' }}>
-          <i className="ti ti-cloud-upload" style={{ fontSize: '17px', color: dark ? '#ffd580' : '#b7790a', flexShrink: 0 }} />
-          <p style={{ fontSize: '13px', color: t.text3 }}>
-            {sinSubir.toLocaleString()} bien{sinSubir !== 1 ? 'es' : ''} del área todavía no llegan del celular.
-            Aparecen en cuanto ese equipo vuelva a tener señal.
-          </p>
-        </div>
-      )}
-
       {/* Bienes del reconteo */}
       <div style={{ ...card, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
@@ -249,8 +259,10 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
                           </td>
                           <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3 }}>{b.fecha ? fmtFechaHora(b.fecha) : '—'}</span></td>
                           <td style={{ ...tdBase(), width: '260px', maxWidth: '260px', overflowWrap: 'anywhere' }}>
-                            <p title={b.observacion || ''} style={{ fontSize: '11px', color: b.observacion ? t.text2 : t.text4, lineHeight: 1.35 }}>
-                              {b.observacion || '—'}
+                            {/* La anotada en el conteo va en negro; si no hubo,
+                                se enseña en gris la que ya tenía el bien. */}
+                            <p title={b.observacion || b.obsBien || ''} style={{ fontSize: '11px', color: b.observacion ? t.text2 : t.text4, lineHeight: 1.35 }}>
+                              {b.observacion || b.obsBien || '—'}
                             </p>
                           </td>
                         </tr>

@@ -1014,7 +1014,24 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
     ;(async () => {
       const filas = await detalleRemoto(r.idreconteo).catch(() => null)
       if (!vivo) return
-      if (filas) { setBienes(filas); ajenosRemotos(r.idreconteo).then(a => vivo && setAjenos(a)) ; return }
+      if (filas) {
+        // Los bienes del área se piden a la base y se marcan con lo que dice el
+        // reconteo. Así la lista está completa aunque el teléfono que contó no
+        // haya subido más que lo escaneado.
+        const verificados = new Map(filas.map(f => [f.idbien, f]))
+        const delArea = await bienesDeArea(r.idarea).catch(() => [])
+        if (!vivo) return
+        const completa = delArea.map(b => {
+          const v = verificados.get(b.idbien)
+          verificados.delete(b.idbien)
+          return { idbien: b.idbien, clave: b.clave, nombre: b.nombre, resguardante: b.resguardante,
+            encontrado: !!v?.encontrado, metodo: v?.metodo || null, fecha: v?.fecha || null,
+            observacion: v?.observacion || null, obsBien: b.observaciones || null }
+        })
+        setBienes(completa.length ? [...completa, ...verificados.values()] : filas)
+        ajenosRemotos(r.idreconteo).then(a => vivo && setAjenos(a))
+        return
+      }
       // Sin tablas: se arma con lo que tenga el teléfono
       const local = listaReconteos().find(x => x.id === r.idreconteo)
       setBienes(local ? local.esperados.map(e => ({
