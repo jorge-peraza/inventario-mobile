@@ -250,8 +250,8 @@
 }
 /* Sobre el video mandan los controles claros, no el tema: la cámara siempre es
    oscura y un botón claro se ve encima de cualquier imagen. */
+.movil-escaner .arriba .cuenta { margin-right: auto; }
 .movil-escaner .arriba .icono-btn {
-  margin-left: auto;                  /* la equis, arriba a la derecha */
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.25);
   color: #fff;

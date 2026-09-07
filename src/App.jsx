@@ -90,10 +90,11 @@ function App() {
   if (restaurando)                    return <ThemeProvider><div style={{ minHeight: '100vh' }} /></ThemeProvider>
   if (!user || page === 'login')      return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>
   // En el celular manda la vista móvil: barra de navegación abajo, tarjetas en
-  // vez de tablas y el reconteo con la cámara. Las dependencias todavía no
-  // entran ahí: sus consultas van acotadas a sus áreas y esa vista aún no
-  // aplica el corte, así que se quedan con la pantalla de escritorio.
-  if (esMovil && !esDependencia)      return <ThemeProvider><AppMovil user={user} onSalir={() => navigate('login')} /></ThemeProvider>
+  // vez de tablas y el reconteo con la cámara. Es la herramienta de quien
+  // administra el inventario, no de quien solo lo consulta: una dependencia no
+  // entra ahí y se le dice por qué.
+  if (esMovil && esDependencia)       return <ThemeProvider><SoloEscritorio user={user} onSalir={() => navigate('login')} /></ThemeProvider>
+  if (esMovil)                        return <ThemeProvider><AppMovil user={user} onSalir={() => navigate('login')} /></ThemeProvider>
   if (page === 'dashboard')           return <ThemeProvider><Dashboard key={recarga}          user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'index-dep')           return <ThemeProvider><IndexDependencia key={recarga}   user={user} onNavigate={navigate} /></ThemeProvider>
   // Una dependencia entra al mismo inventario, pero acotado a sus áreas y sin
@@ -115,6 +116,33 @@ function App() {
   if (page === 'reconteo')            return <ThemeProvider><Reconteo key={recarga}           user={user} onNavigate={navigate} /></ThemeProvider>
 
   return <ThemeProvider><Login onLogin={handleLogin} /></ThemeProvider>
+}
+
+// Aviso para las cuentas de dependencia que abren el sistema desde un celular
+function SoloEscritorio({ user, onSalir }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem',
+      background: 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)', fontFamily: 'inherit' }}>
+      <div style={{ maxWidth: '380px', textAlign: 'center', background: '#fff', border: '1px solid rgba(0,0,0,0.08)',
+        borderRadius: '16px', padding: '2rem 1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.08)' }}>
+        <div style={{ width: '52px', height: '52px', margin: '0 auto 1rem', borderRadius: '14px', background: 'rgba(0,0,0,0.05)',
+          border: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <i className="ti ti-device-desktop" style={{ fontSize: '26px', color: '#333' }} />
+        </div>
+        <p style={{ fontSize: '17px', fontWeight: 600, color: '#111', marginBottom: '8px' }}>Entra desde una computadora</p>
+        <p style={{ fontSize: '13.5px', color: 'rgba(0,0,0,0.55)', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+          La consulta del inventario de {user?.dependencia || 'tu dependencia'} y la descarga de reportes están
+          hechas para pantalla grande. La versión de celular es para el personal que levanta el inventario.
+        </p>
+        <button onClick={onSalir}
+          style={{ width: '100%', padding: '11px', borderRadius: '10px', background: 'rgba(0,0,0,0.04)',
+            border: '1px solid rgba(0,0,0,0.1)', fontSize: '14px', fontWeight: 500, color: '#333',
+            fontFamily: 'inherit', cursor: 'pointer' }}>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default App

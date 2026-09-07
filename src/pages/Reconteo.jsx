@@ -72,19 +72,32 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
   const [error, setError]     = useState(null)
   const [pestana, setPestana] = useState('todos')
   const [busqueda, setBusqueda] = useState('')
+  const [pagina, setPagina]     = useState(0)
+  const [porPagina, setPorPagina] = useState(20)
+  const OPCIONES_POR_PAGINA = [10, 15, 20, 50]
 
   useEffect(() => {
     let vivo = true
     setCargando(true); setError(null)
     ;(async () => {
       try {
-        const [b, a] = await Promise.all([
-          supabase.from('reconteo_bienes').select('*').eq('idreconteo', reconteo.idreconteo).order('clave'),
-          supabase.from('reconteo_ajenos').select('*').eq('idreconteo', reconteo.idreconteo),
-        ])
-        if (b.error) throw b.error
+        // Se pagina la consulta: un área grande pasa del tope de filas que la
+        // base devuelve de una vez, y entonces faltaban bienes en la lista.
+        const PAGINA = 1000
+        let filas = [], desde = 0
+        while (true) {
+          const { data, error } = await supabase.from('reconteo_bienes').select('*')
+            .eq('idreconteo', reconteo.idreconteo).order('clave')
+            .range(desde, desde + PAGINA - 1)
+          if (error) throw error
+          if (!data || data.length === 0) break
+          filas = filas.concat(data)
+          if (data.length < PAGINA) break
+          desde += PAGINA
+        }
+        const a = await supabase.from('reconteo_ajenos').select('*').eq('idreconteo', reconteo.idreconteo)
         if (!vivo) return
-        setBienes(b.data || [])
+        setBienes(filas)
         setAjenos(a.error ? [] : (a.data || []))
       } catch (e) { if (vivo) setError(e.message) }
       finally { if (vivo) setCargando(false) }
@@ -105,6 +118,12 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
   }, [bienes, pestana, busqueda])
 
   const opciones = PESTANAS.map(p => ({ ...p, total: p.id === 'todos' ? bienes.length : p.id === 'ok' ? encontrados : faltan }))
+
+  // Al cambiar de estado o de búsqueda se vuelve a la primera página
+  useEffect(() => { setPagina(0) }, [pestana, busqueda, porPagina])
+  const totalPaginas = Math.max(1, Math.ceil(lista.length / porPagina))
+  const pagActual    = Math.min(pagina, totalPaginas - 1)
+  const visibles     = lista.slice(pagActual * porPagina, (pagActual + 1) * porPagina)
 
   return (
     <>
@@ -193,7 +212,7 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
                       <i className={`ti ${pestana === 'faltan' ? 'ti-circle-check' : 'ti-search-off'}`} style={{ fontSize: '28px', display: 'block', marginBottom: '8px' }} />
                       {pestana === 'faltan' ? 'No falta ningún bien por verificar' : 'Sin resultados'}
                     </td></tr>
-                  : lista.map((b, i) => {
+                  : visibles.map((b, i) => {
                       const chip = chipEstado(dark, b.encontrado ? 'ok' : 'falta')
                       return (
                         <tr key={b.idbien}
@@ -224,6 +243,35 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
             </tbody>
           </table>
         </div>
+
+        <div className="pie-tabla" style={{ padding: '10px 14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <p style={{ fontSize: '12px', color: t.text4 }}>
+              {cargando ? 'Cargando…' : `Mostrando ${lista.length === 0 ? 0 : pagActual * porPagina + 1}–${Math.min((pagActual + 1) * porPagina, lista.length)} de ${lista.length.toLocaleString()}`}
+            </p>
+            <div style={{ display: 'flex', gap: '3px' }}>
+              {OPCIONES_POR_PAGINA.map(n => (
+                <button key={n} onClick={() => setPorPagina(n)}
+                  style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '11.5px', fontFamily: 'inherit', cursor: 'pointer',
+                    background: porPagina === n ? (dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)') : 'transparent',
+                    border: `1px solid ${porPagina === n ? t.cardBorder : 'transparent'}`, color: porPagina === n ? t.text1 : t.text4 }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagActual === 0}
+              style={{ width: '30px', height: '30px', borderRadius: '8px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, cursor: pagActual === 0 ? 'default' : 'pointer', color: t.text2, opacity: pagActual === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className="ti ti-chevron-left" style={{ fontSize: '14px' }} />
+            </button>
+            <span style={{ fontSize: '12px', color: t.text3 }}>{pagActual + 1} de {totalPaginas}</span>
+            <button onClick={() => setPagina(p => Math.min(totalPaginas - 1, p + 1))} disabled={pagActual >= totalPaginas - 1}
+              style={{ width: '30px', height: '30px', borderRadius: '8px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, cursor: pagActual >= totalPaginas - 1 ? 'default' : 'pointer', color: t.text2, opacity: pagActual >= totalPaginas - 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <i className="ti ti-chevron-right" style={{ fontSize: '14px' }} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {ajenos.length > 0 && (
@@ -234,9 +282,6 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
               {ajenos.length} código{ajenos.length !== 1 ? 's' : ''} de otra área
             </p>
           </div>
-          <p style={{ fontSize: '12px', color: t.text3, marginBottom: '10px' }}>
-            Se leyeron durante el conteo pero el bien no pertenece a esta área.
-          </p>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {ajenos.map(a => (
               <span key={a.clave} style={{ fontFamily: 'monospace', fontSize: '11.5px', padding: '4px 9px', borderRadius: '7px', background: dark ? 'rgba(244,161,161,0.12)' : 'rgba(192,57,43,0.06)', border: `1px solid ${dark ? 'rgba(244,161,161,0.3)' : 'rgba(192,57,43,0.25)'}`, color: dark ? '#f4a1a1' : '#c0392b' }}>
@@ -505,10 +550,8 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
               </div>
             </div>
 
-            <p style={{ fontSize: '12.5px', color: t.text4, marginTop: '14px', maxWidth: '80ch', lineHeight: 1.6 }}>
-              Los reconteos se levantan desde el celular escaneando la etiqueta de cada bien. Las observaciones
-              que se anotan durante el conteo se guardan en el bien del inventario y también quedan aquí, para
-              poder revisarlas después.
+            <p style={{ fontSize: '12.5px', color: t.text4, marginTop: '14px', lineHeight: 1.6 }}>
+              Los reconteos se levantan desde el dispositivo movil escaneando la etiqueta de cada bien.
             </p>
           </>
         )}

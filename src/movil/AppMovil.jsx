@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import './estilos.css'
 import { useTheme } from '../context/ThemeContext'
 import { useRuta, irA, reemplazarRuta, volver } from '../rutas'
+import { useBloquearScroll } from './useBloquearScroll'
+import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
 import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
 import { Escaner } from './Escaner'
 import { InicioInmuebles, BuscarInmuebles, FichaInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
@@ -162,37 +164,10 @@ export function Cabecera({ titulo, sub, atras = false, accion = null }) {
   )
 }
 
-// Pantalla completa: quita la barra del navegador y se siente aplicación. En
-// Android lo hace la API de fullscreen; en iPhone Safari no la permite, ahí el
-// camino es "Añadir a pantalla de inicio", que el manifiesto ya deja lista.
-//
-// Ojo con la cámara: al pedir el permiso, Android sale de pantalla completa. Se
-// vuelve a entrar desde el menú; por eso el estado se lee del documento cada
-// vez y no se guarda, que era lo que dejaba el botón diciendo "salir" cuando ya
-// se había salido solo.
-function pantallaCompletaDisponible() {
-  const r = document.documentElement
-  return !!(r.requestFullscreen || r.webkitRequestFullscreen)
-}
-
-function enPantallaCompleta() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement)
-}
-
-async function alternarPantallaCompleta() {
-  const raiz = document.documentElement
-  try {
-    if (enPantallaCompleta()) {
-      await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.())
-    } else {
-      await (raiz.requestFullscreen?.({ navigationUI: 'hide' }) ?? raiz.webkitRequestFullscreen?.())
-    }
-  } catch { /* el navegador puede negarlo */ }
-}
-
 // ── Lo que no cabe en la barra ───────────────────────────────────────────────
 // Son las mismas opciones del menú lateral del escritorio, en una hoja.
 function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
+  useBloquearScroll()
   const { toggle } = useTheme()
   const [completa, setCompleta] = useState(enPantallaCompleta)
   const ir = (...r) => { onCerrar(); irA(...r) }

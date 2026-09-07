@@ -3,6 +3,7 @@ import { volver, irA } from '../rutas'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
 import { reconteoAbierto, reconteo, revisar, marcar, marcarSubida, resumen, normalizarClave, fechaCorta } from './reconteo'
 import { bienPorClave, anotarObservacionEnBien } from './datos'
+import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
 
 // ── Escáner del reconteo ──────────────────────────────────────────────────────
 // Pantalla completa con la cámara detrás. Cada lectura se resuelve contra la
@@ -23,6 +24,20 @@ export function Escaner({ idarea }) {
   const [lectura, setLectura] = useState(null)   // { estado, clave, bien, cuando, ajeno }
   const [error, setError] = useState(null)
   const [manual, setManual] = useState('')
+  // Al conceder el permiso de la cámara, Android saca de pantalla completa. Para
+  // volver a entrar hace falta un toque del usuario —el navegador no deja
+  // hacerlo solo—, así que el botón vive aquí mismo y no en el menú de atrás.
+  const [completa, setCompleta] = useState(enPantallaCompleta)
+
+  useEffect(() => {
+    const alCambiar = () => setCompleta(enPantallaCompleta())
+    document.addEventListener('fullscreenchange', alCambiar)
+    document.addEventListener('webkitfullscreenchange', alCambiar)
+    return () => {
+      document.removeEventListener('fullscreenchange', alCambiar)
+      document.removeEventListener('webkitfullscreenchange', alCambiar)
+    }
+  }, [])
 
   // Cámara: se abre al entrar y se apaga al salir, si no el celular deja la luz
   // de la cámara prendida al regresar a la lista.
@@ -119,6 +134,12 @@ export function Escaner({ idarea }) {
             {s.encontrados} de {s.total}
             <span>{rc?.nombrearea || 'Reconteo'} · faltan {s.faltan}</span>
           </div>
+          {pantallaCompletaDisponible() && (
+            <button className="icono-btn" onClick={alternarPantallaCompleta}
+              aria-label={completa ? 'Salir de pantalla completa' : 'Pantalla completa'}>
+              <i className={`ti ti-${completa ? 'arrows-minimize' : 'arrows-maximize'}`} />
+            </button>
+          )}
           <button className="icono-btn" onClick={volver} aria-label="Cerrar">
             <i className="ti ti-x" />
           </button>

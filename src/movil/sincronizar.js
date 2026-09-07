@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { listaReconteos, resumen } from './reconteo'
+import { listaReconteos, resumen, borrarReconteo } from './reconteo'
 
 // ── El reconteo en la base ────────────────────────────────────────────────────
 // Mientras se cuenta manda el teléfono: la lista y las marcas viven ahí, que es
@@ -107,23 +107,29 @@ export async function subirAvance(r, claves) {
   return true
 }
 
-// Sube los reconteos terminados que todavía no están en la base. Se llama al
-// cerrar uno y al abrir el historial, por si alguno quedó sin señal.
+// Sube los reconteos terminados que todavía no están en la base y, en cuanto
+// están, los quita del teléfono.
+//
+// Esto último es lo que hace que borrar desde la computadora sirva: mientras el
+// conteo terminado siguiera guardado aquí, el teléfono lo volvía a subir en la
+// siguiente sincronización y reaparecía. Terminado y subido, la base manda; el
+// teléfono solo conserva el que se está contando.
 export async function subirPendientes() {
   let subidos = 0
   for (const r of listaReconteos()) {
     if (!r.fin) continue          // los abiertos se suben al terminarlos
-    try { if (await subirReconteo(r)) subidos++ } catch { /* se reintenta luego */ }
+    try {
+      if (await subirReconteo(r)) { borrarReconteo(r.id); subidos++ }
+    } catch { /* se reintenta luego */ }
   }
   return subidos
 }
 
 // El historial de todos los equipos, no solo el de este teléfono.
-export async function historialRemoto(limite = 40) {
-  const { data, error } = await supabase
-    .from('reconteos').select('*')
-    .order('inicio', { ascending: false })
-    .limit(limite)
+export async function historialRemoto({ limite = 60, idarea = null } = {}) {
+  let q = supabase.from('reconteos').select('*').order('inicio', { ascending: false }).limit(limite)
+  if (idarea != null) q = q.eq('idarea', Number(idarea))
+  const { data, error } = await q
   if (error) {
     if (noHayTablas(error)) return null
     throw error
@@ -131,14 +137,38 @@ export async function historialRemoto(limite = 40) {
   return data || []
 }
 
+// Los renglones de un reconteo. Se pagina porque un área grande pasa del tope
+// de filas que devuelve la base de una sola vez.
 export async function detalleRemoto(idreconteo) {
-  const { data, error } = await supabase
-    .from('reconteo_bienes').select('*')
-    .eq('idreconteo', idreconteo)
-    .order('clave', { ascending: true })
-  if (error) {
-    if (noHayTablas(error)) return null
-    throw error
+  const PAGINA = 1000
+  let todos = [], desde = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('reconteo_bienes').select('*')
+      .eq('idreconteo', idreconteo)
+      .order('clave', { ascending: true })
+      .range(desde, desde + PAGINA - 1)
+    if (error) {
+      if (noHayTablas(error)) return null
+      throw error
+    }
+    if (!data || data.length === 0) break
+    todos = todos.concat(data)
+    if (data.length < PAGINA) break
+    desde += PAGINA
   }
+  return todos
+}
+
+export async function ajenosRemotos(idreconteo) {
+  const { data, error } = await supabase.from('reconteo_ajenos').select('*').eq('idreconteo', idreconteo)
+  if (error) return []
   return data || []
+}
+
+// Borra el reconteo de la base y del teléfono, para que no vuelva a subirse
+export async function borrarRemoto(idreconteo) {
+  const { error } = await supabase.from('reconteos').delete().eq('idreconteo', idreconteo)
+  if (error && !noHayTablas(error)) throw error
+  borrarReconteo(idreconteo)
 }

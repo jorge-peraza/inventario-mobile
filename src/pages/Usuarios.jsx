@@ -328,8 +328,6 @@ export default function Usuarios({ user, onNavigate }) {
     })
   }, [usuarios, busqueda, depFiltro])
 
-  const activos = usuarios.filter(u => u.activo).length
-
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
@@ -342,9 +340,7 @@ export default function Usuarios({ user, onNavigate }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Usuarios</h1>
-            <p style={{ fontSize: '14px', color: t.text3 }}>
-              Accesos de consulta por dependencia · {cargando ? 'Cargando…' : `${activos} activo${activos !== 1 ? 's' : ''} de ${usuarios.length}`}
-            </p>
+            <p style={{ fontSize: '14px', color: t.text3 }}>Accesos de consulta por dependencia</p>
           </div>
           <button onClick={() => setModalUsuario('nuevo')}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
@@ -450,10 +446,6 @@ export default function Usuarios({ user, onNavigate }) {
           </div>
         </div>
 
-        <p style={{ fontSize: '12.5px', color: t.text4, marginTop: '14px', maxWidth: '70ch', lineHeight: 1.6 }}>
-          Estos accesos son de consulta: la persona ve el inventario de su dependencia y puede descargar
-          sus reportes, pero no da de alta, no modifica, no traspasa ni da de baja ningún bien.
-        </p>
       </main>
 
       <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }`}</style>
