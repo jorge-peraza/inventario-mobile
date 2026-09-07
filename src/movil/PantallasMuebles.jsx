@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
@@ -97,15 +97,37 @@ function Dona({ tipos, total, oscuro }) {
 
 // ── Inicio ───────────────────────────────────────────────────────────────────
 export function InicioMuebles({ user }) {
-  const [abiertos, setAbiertos] = useState(() => listaReconteos().filter(r => !r.fin))
+  const [abiertos, setAbiertos] = useState([])
   const [resumenInv, setResumenInv] = useState(null)
   const { dark: oscuro } = useTheme()
 
-  useEffect(() => {
-    const alCambiar = () => setAbiertos(listaReconteos().filter(r => !r.fin))
-    window.addEventListener('reconteo-cambiado', alCambiar)
-    return () => window.removeEventListener('reconteo-cambiado', alCambiar)
+  // Los conteos en curso se preguntan a la base, no al teléfono: si alguien lo
+  // borró desde la computadora tiene que desaparecer también de aquí. Lo único
+  // que se toma del teléfono es un conteo recién abierto que todavía no ha
+  // podido subir —sin señal—, para no perderlo de vista.
+  const revisarAbiertos = useCallback(async () => {
+    const sinSubir = () => listaReconteos()
+      .filter(r => !r.fin && !r.enLaBase)
+      .map(r => {
+        const t = resumen(r)
+        return { idreconteo: r.id, idarea: r.idarea, nombrearea: r.nombrearea,
+          inicio: r.inicio, esperados: t.total, encontrados: t.encontrados }
+      })
+    try {
+      await sincronizarBorrados()
+      const remoto = await historialRemoto({})
+      if (!remoto) { setAbiertos(sinSubir()); return }
+      const enCurso = remoto.filter(r => !r.fin)
+      const ids = new Set(enCurso.map(r => r.idreconteo))
+      setAbiertos([...enCurso, ...sinSubir().filter(r => !ids.has(r.idreconteo))])
+    } catch { setAbiertos(sinSubir()) }
   }, [])
+
+  useEffect(() => { revisarAbiertos() }, [revisarAbiertos])
+  useEffect(() => {
+    window.addEventListener('reconteo-cambiado', revisarAbiertos)
+    return () => window.removeEventListener('reconteo-cambiado', revisarAbiertos)
+  }, [revisarAbiertos])
 
   useEffect(() => { resumenInventario().then(setResumenInv).catch(console.error) }, [])
 
@@ -144,18 +166,15 @@ export function InicioMuebles({ user }) {
           <>
             <p className="etiqueta">Reconteo en curso</p>
             <div className="tarjeta plana">
-              {abiertos.map(r => {
-                const s = resumen(r)
-                return (
-                  <button key={r.id} className="fila" onClick={() => irA('m', 'reconteo', r.idarea)}>
-                    <div className="crece">
-                      <p className="nombre">{r.nombrearea}</p>
-                      <p className="detalle">{s.encontrados} de {s.total} verificados · desde {fechaCorta(r.inicio)}</p>
-                    </div>
-                    <i className="ti ti-chevron-right flecha" />
-                  </button>
-                )
-              })}
+              {abiertos.map(r => (
+                <button key={r.idreconteo} className="fila" onClick={() => irA('m', 'reconteo', r.idarea)}>
+                  <div className="crece">
+                    <p className="nombre">{r.nombrearea}</p>
+                    <p className="detalle">{r.encontrados} de {r.esperados} verificados · desde {fechaCorta(r.inicio)}</p>
+                  </div>
+                  <i className="ti ti-chevron-right flecha" />
+                </button>
+              ))}
             </div>
           </>
         )}
@@ -614,6 +633,16 @@ export function ElegirArea() {
 // ── El área: portada o lista, según haya reconteo abierto ────────────────────
 export function ListaReconteo({ idarea, usuario }) {
   const [rc, setRc] = useState(() => reconteoAbierto(idarea))
+
+  // Antes de retomar un conteo se comprueba contra la base que siga existiendo:
+  // si lo borraron desde la computadora, aquí no debe poder continuarse.
+  useEffect(() => {
+    let vivo = true
+    sincronizarBorrados()
+      .then(quitados => { if (vivo && quitados) setRc(reconteoAbierto(idarea)) })
+      .catch(() => {})
+    return () => { vivo = false }
+  }, [idarea])
   const [area, setArea] = useState(null)
   const [iniciando, setIniciando] = useState(false)
   const [error, setError] = useState(null)
