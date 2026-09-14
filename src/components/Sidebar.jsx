@@ -1,4 +1,5 @@
 import { useTheme } from '../context/ThemeContext'
+import { DEPENDENCIA_VE_MOVIMIENTOS } from '../auth'
 
 const NAV_MUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'dashboard' },
@@ -22,13 +23,16 @@ const NAV_INMUEBLES = [
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 
-// Una dependencia consulta lo suyo: el inventario vigente y el histórico de lo
-// que salió, sea por traspaso o por baja. Todo acotado a sus áreas.
+// Una dependencia consulta lo suyo: el inventario vigente y, cuando se abra esa
+// parte, el histórico de lo que salió por traspaso o por baja. Todo acotado a
+// sus áreas.
 const NAV_DEPENDENCIA = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'index-dep' },
   { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
-  { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
-  { icon:'ti-circle-minus',     label:'Bajas',          id:'bajas',     page:'bajas' },
+  ...(DEPENDENCIA_VE_MOVIMIENTOS ? [
+    { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
+    { icon:'ti-circle-minus',     label:'Bajas',          id:'bajas',     page:'bajas' },
+  ] : []),
 ]
 
 const W_OPEN   = 230

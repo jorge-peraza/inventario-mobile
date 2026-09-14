@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Dashboard from './Dashboard'
 import { supabase } from '../supabase'
+import { DEPENDENCIA_VE_MOVIMIENTOS } from '../auth'
 
 // Inicio de una dependencia.
 //
@@ -20,8 +21,12 @@ export default function IndexDependencia({ user, onNavigate }) {
 
   const acciones = [
     { icon: 'ti-table',            label: 'Ver mi inventario', desc: 'Bienes a cargo de la dependencia',  go: () => onNavigate('bienes') },
-    { icon: 'ti-arrows-exchange',  label: 'Mis traspasos',     desc: 'Bienes que salieron por traspaso',  go: () => onNavigate('traspasos') },
-    { icon: 'ti-circle-minus',     label: 'Mis bajas',         desc: 'Bienes dados de baja',              go: () => onNavigate('bajas') },
+    { icon: 'ti-file-export',      label: 'Exportar reporte',  desc: 'PDF o Excel de mi inventario',      go: () => onNavigate('bienes') },
+    // Traspasos y bajas quedan apagados hasta que se abra esa parte
+    ...(DEPENDENCIA_VE_MOVIMIENTOS ? [
+      { icon: 'ti-arrows-exchange',  label: 'Mis traspasos',   desc: 'Bienes que salieron por traspaso',  go: () => onNavigate('traspasos') },
+      { icon: 'ti-circle-minus',     label: 'Mis bajas',       desc: 'Bienes dados de baja',              go: () => onNavigate('bajas') },
+    ] : []),
   ]
 
   return (

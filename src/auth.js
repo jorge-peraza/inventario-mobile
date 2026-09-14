@@ -8,14 +8,19 @@ const CUENTAS = {
   'nogales.eliseo': 'jorgeperaza2828+inmuebles@gmail.com',
 }
 
+// Traspasos y bajas para las dependencias: hecho y probado, pero apagado hasta
+// que se decida abrirlo. En false no queda rastro en ninguna pantalla —ni menú,
+// ni accesos, ni la dirección escrita a mano—; poniéndolo en true vuelve
+// completo, sin tocar nada más.
+export const DEPENDENCIA_VE_MOVIMIENTOS = false
+
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
   admin:           ['dashboard', 'bienes', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
   admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'reportes'],
-  // Una dependencia consulta lo suyo: su inicio, el inventario vigente y el
-  // histórico de lo que salió —traspasos y bajas—, de donde además saca sus
-  // reportes. No entra a papelera, reconteo ni usuarios.
-  dependencia:     ['index-dep', 'bienes', 'traspasos', 'bajas'],
+  // Una dependencia consulta lo suyo: su inicio y el inventario vigente, de
+  // donde además saca sus reportes. No entra a papelera, reconteo ni usuarios.
+  dependencia:     ['index-dep', 'bienes', ...(DEPENDENCIA_VE_MOVIMIENTOS ? ['traspasos', 'bajas'] : [])],
 }
 
 export function paginaInicio(rol) {
