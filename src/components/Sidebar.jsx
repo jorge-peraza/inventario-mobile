@@ -1,5 +1,5 @@
 import { useTheme } from '../context/ThemeContext'
-import { DEPENDENCIA_VE_MOVIMIENTOS } from '../auth'
+import { PAGINAS_POR_ROL } from '../auth'
 
 const NAV_MUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'dashboard' },
@@ -23,16 +23,17 @@ const NAV_INMUEBLES = [
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 
-// Una dependencia consulta lo suyo: el inventario vigente y, cuando se abra esa
-// parte, el histórico de lo que salió por traspaso o por baja. Todo acotado a
-// sus áreas.
+// Una dependencia consulta lo suyo: su inicio y el inventario vigente de sus
+// áreas, de donde además saca sus reportes.
+//
+// Traspasos y bajas se abren después. Las páginas y su corte por dependencia
+// están hechos y siguen en el código —basta con volver a poner estas dos líneas
+// y encender DEPENDENCIA_VE_MOVIMIENTOS en auth.js—, pero aquí no van:
+//   { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
+//   { icon:'ti-circle-minus',     label:'Bajas',          id:'bajas',     page:'bajas' },
 const NAV_DEPENDENCIA = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'index-dep' },
   { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
-  ...(DEPENDENCIA_VE_MOVIMIENTOS ? [
-    { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
-    { icon:'ti-circle-minus',     label:'Bajas',          id:'bajas',     page:'bajas' },
-  ] : []),
 ]
 
 const W_OPEN   = 230
@@ -41,9 +42,14 @@ const W_CLOSED = 72
 export default function Sidebar({ user, active = 'inicio', onNavigate }) {
   const { dark, t, sidebarOpen, toggleSidebar } = useTheme()
   const w = sidebarOpen ? W_OPEN : W_CLOSED
-  const navItems = user?.rol === 'admin_inmuebles' ? NAV_INMUEBLES
+  const menuDelRol = user?.rol === 'admin_inmuebles' ? NAV_INMUEBLES
     : user?.rol === 'dependencia' ? NAV_DEPENDENCIA
     : NAV_MUEBLES
+  // Y por si acaso: en el menú solo se enseña lo que el rol tiene permitido.
+  // Así una entrada suelta no puede colarse aunque alguien la agregue a la
+  // lista de arriba sin darse cuenta.
+  const permitidas = PAGINAS_POR_ROL[user?.rol] || []
+  const navItems = menuDelRol.filter(i => permitidas.includes(i.page))
 
   return (
     <aside style={{ width: w, height:'100vh', flexShrink:0, display:'flex', flexDirection:'column', position:'fixed', top:0, left:0, zIndex:100, overflow:'hidden', background:t.sidebarBg, borderRight:`1px solid ${t.sidebarBorder}`, backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)', transition:'width 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
