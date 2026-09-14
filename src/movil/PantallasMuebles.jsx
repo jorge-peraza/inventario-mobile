@@ -3,6 +3,7 @@ import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
+import { Cargando, Vacio, Confirmar } from './comunes'
 import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien, resumenInventario, TIPOS } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
@@ -12,36 +13,6 @@ import {
 import { subirReconteo, subirAvance, subirPendientes, hayTablas, historialRemoto, detalleRemoto, ajenosRemotos, borrarRemoto, sincronizarBorrados, reconteoAbiertoRemoto, reabrirRemoto, quitarMarca } from './sincronizar'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
-
-function Cargando({ texto = 'Cargando…' }) {
-  return <div className="cargando"><i className="ti ti-loader-2 gira" />{texto}</div>
-}
-
-function Vacio({ icono = 'ti-search-off', texto }) {
-  return <div className="vacio"><i className={`ti ${icono}`} />{texto}</div>
-}
-
-// Pregunta antes de algo que no se puede deshacer. Es la misma idea de los
-// modales de confirmación del escritorio, en hoja.
-function Confirmar({ titulo, detalle, textoOk, peligro, onOk, onCerrar }) {
-  useBloquearScroll()
-  return (
-    <>
-      <div className="movil-telon" onClick={onCerrar} />
-      <div className="movil-hoja">
-        <div className="asa" />
-        <div style={{ padding: '4px 16px 14px' }}>
-          <p style={{ fontSize: '16px', fontWeight: 600 }}>{titulo}</p>
-          {detalle && <p style={{ fontSize: '13px', color: 'var(--texto-3)', marginTop: '6px', lineHeight: 1.5 }}>{detalle}</p>}
-        </div>
-        <div style={{ display: 'flex', gap: '8px', padding: '0 16px' }}>
-          <button className="boton suave" onClick={onCerrar}>Cancelar</button>
-          <button className={`boton${peligro ? ' peligro' : ''}`} onClick={() => { onOk(); onCerrar() }}>{textoOk}</button>
-        </div>
-      </div>
-    </>
-  )
-}
 
 // ── Dona de bienes por tipo ──────────────────────────────────────────────────
 // La misma de la computadora, en el tamaño que cabe en un celular. Se dibuja
@@ -888,6 +859,17 @@ export function ListaReconteo({ idarea, usuario }) {
           <i className="ti ti-scan" style={{ fontSize: '19px' }} />Escanear con la cámara
         </button>
 
+        {/* Terminar va arriba: bajar hasta el final de un área de 150 bienes
+            para cerrarla era una lata. */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="boton suave" onClick={() => setConfirma('terminar')}>
+            <i className="ti ti-flag-check" style={{ fontSize: '18px' }} />Terminar
+          </button>
+          <button className="boton peligro" onClick={() => setConfirma('cancelar')}>
+            <i className="ti ti-trash" style={{ fontSize: '18px' }} />Cancelar
+          </button>
+        </div>
+
         {llegaron > 0 && (
           <div className="tarjeta" style={{ borderColor: 'var(--ok)' }}>
             <p className="nombre" style={{ color: 'var(--ok)' }}>
@@ -955,13 +937,6 @@ export function ListaReconteo({ idarea, usuario }) {
               ))}
             </div>
           )}
-
-        <button className="boton suave" onClick={() => setConfirma('terminar')}>
-          <i className="ti ti-flag-check" style={{ fontSize: '18px' }} />Terminar reconteo
-        </button>
-        <button className="boton peligro" onClick={() => setConfirma('cancelar')}>
-          <i className="ti ti-trash" style={{ fontSize: '18px' }} />Cancelar reconteo
-        </button>
       </div>
 
       {confirma === 'terminar' && (
@@ -995,14 +970,14 @@ export function ListaReconteo({ idarea, usuario }) {
 // Es el mismo historial que se ve en la computadora, porque sale de la misma
 // tabla: lo que se levantó desde cualquier teléfono y lo que se haya borrado
 // desde la PC. El conteo en curso sigue en el teléfono hasta que se termina.
+//
+// La lista solo lista: cada conteo se abre en su propia pantalla. Desplegarlos
+// aquí dentro llenaba la página de cientos de renglones y no se encontraba nada.
 export function HistorialReconteos() {
   const [lista, setLista]     = useState([])
   const [cargando, setCargando] = useState(true)
   const [enLaBase, setEnLaBase] = useState(null)   // null = todavía no se sabe
   const [texto, setTexto]     = useState('')
-  const [abierto, setAbierto] = useState('')
-  const [borrar, setBorrar]   = useState(null)
-  const [reabrir, setReabrir] = useState(null)
 
   async function cargar() {
     setCargando(true)
@@ -1060,59 +1035,65 @@ export function HistorialReconteos() {
           <Vacio icono="ti-history" texto={lista.length === 0 ? 'Todavía no hay reconteos' : 'Sin resultados'} />
         )}
 
-        {!cargando && filtrados.map(r => (
-          <TarjetaReconteo key={r.idreconteo} r={r}
-            abierta={abierto === r.idreconteo}
-            onAbrir={() => setAbierto(abierto === r.idreconteo ? '' : r.idreconteo)}
-            onBorrar={() => setBorrar(r)}
-            onReabrir={() => setReabrir(r)} />
-        ))}
+        {!cargando && filtrados.length > 0 && (
+          <div className="tarjeta plana">
+            {filtrados.map(r => {
+              const faltan = Math.max(0, (r.esperados || 0) - (r.encontrados || 0))
+              return (
+                <button key={r.idreconteo} className="fila" onClick={() => irA('m', 'rc', r.idreconteo)}>
+                  <div className="crece">
+                    <p className="nombre">{r.nombrearea}</p>
+                    <p className="detalle">{r.dependencia || '—'}</p>
+                    <p className="detalle">{fechaCorta(r.inicio)}{r.fin ? '' : ' · en curso'}{r.usuario ? ` · ${r.usuario}` : ''}</p>
+                    <p className="detalle" style={{ marginTop: '5px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <span className="chip ok">{r.encontrados || 0} verificados</span>
+                      {faltan > 0 && <span className="chip falta">{faltan} faltan</span>}
+                    </p>
+                  </div>
+                  <i className="ti ti-chevron-right flecha" />
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
-
-      {reabrir && (
-        <Confirmar
-          titulo="¿Volver a abrir este reconteo?"
-          detalle={`El conteo de ${reabrir.nombrearea} vuelve a quedar en curso para poder registrar un bien que apareció después. Lo que se escanee queda con la fecha de hoy.`}
-          textoOk="Sí, reabrir"
-          onOk={async () => {
-            await reabrirRemoto(reabrir.idreconteo).catch(() => {})
-            reabrirReconteo(reabrir.idreconteo)
-            irA('m', 'reconteo', reabrir.idarea)
-          }}
-          onCerrar={() => setReabrir(null)} />
-      )}
-
-      {borrar && (
-        <Confirmar
-          titulo="¿Borrar este reconteo del historial?"
-          detalle={`Se quita el conteo de ${borrar.nombrearea} del ${fechaCorta(borrar.inicio)}. No se borra ningún bien y las observaciones siguen en el inventario; se pierde el registro del conteo, también para la computadora.`}
-          textoOk="Sí, borrar" peligro
-          onOk={async () => { await borrarRemoto(borrar.idreconteo).catch(() => {}); cargar() }}
-          onCerrar={() => setBorrar(null)} />
-      )}
     </>
   )
 }
 
-// Una tarjeta del historial: el resumen y, al abrirla, los bienes con los mismos
-// tres estados que la computadora.
-function TarjetaReconteo({ r, abierta, onAbrir, onBorrar, onReabrir }) {
+// ── Un reconteo del historial ────────────────────────────────────────────────
+// Su propia pantalla, con los mismos tres estados que la computadora y las
+// acciones arriba, donde se ven sin tener que recorrer toda la lista.
+export function DetalleReconteo({ idreconteo }) {
+  const [cab, setCab] = useState(null)
   const [bienes, setBienes] = useState(null)
   const [ajenos, setAjenos] = useState([])
   const [pestana, setPestana] = useState('todos')
+  const [texto, setTexto] = useState('')
+  const [confirma, setConfirma] = useState(null)   // 'borrar' | 'reabrir'
 
   useEffect(() => {
-    if (!abierta || bienes) return
     let vivo = true
     ;(async () => {
-      const filas = await detalleRemoto(r.idreconteo).catch(() => null)
+      const cabecera = (await historialRemoto({}).catch(() => null) || [])
+        .find(r => r.idreconteo === idreconteo)
+      const local = listaReconteos().find(r => r.id === idreconteo)
+      if (!vivo) return
+      setCab(cabecera || (local ? {
+        idreconteo: local.id, idarea: local.idarea, nombrearea: local.nombrearea,
+        dependencia: local.dependencia, usuario: local.usuario, inicio: local.inicio, fin: local.fin,
+        esperados: local.esperados.length, encontrados: Object.keys(local.encontrados).length,
+      } : null))
+
+      const filas = await detalleRemoto(idreconteo).catch(() => null)
       if (!vivo) return
       if (filas) {
         // Los bienes del área se piden a la base y se marcan con lo que dice el
-        // reconteo. Así la lista está completa aunque el teléfono que contó no
+        // reconteo: así la lista está completa aunque el teléfono que contó no
         // haya subido más que lo escaneado.
         const verificados = new Map(filas.map(f => [f.idbien, f]))
-        const delArea = await bienesDeArea(r.idarea).catch(() => [])
+        const idarea = (cabecera || local)?.idarea
+        const delArea = idarea ? await bienesDeArea(idarea).catch(() => []) : []
         if (!vivo) return
         const completa = delArea.map(b => {
           const v = verificados.get(b.idbien)
@@ -1122,11 +1103,10 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar, onReabrir }) {
             observacion: v?.observacion || null, obsBien: b.observaciones || null }
         })
         setBienes(completa.length ? [...completa, ...verificados.values()] : filas)
-        ajenosRemotos(r.idreconteo).then(a => vivo && setAjenos(a))
+        ajenosRemotos(idreconteo).then(a => vivo && setAjenos(a)).catch(() => {})
         return
       }
       // Sin tablas: se arma con lo que tenga el teléfono
-      const local = listaReconteos().find(x => x.id === r.idreconteo)
       setBienes(local ? local.esperados.map(e => ({
         idbien: e.idbien, clave: e.clave, nombre: e.nombre, resguardante: e.resguardante,
         encontrado: !!local.encontrados[e.clave],
@@ -1136,62 +1116,84 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar, onReabrir }) {
       })) : [])
     })()
     return () => { vivo = false }
-  }, [abierta])
+  }, [idreconteo])
 
-  const total       = r.esperados || bienes?.length || 0
-  const encontrados = bienes ? bienes.filter(b => b.encontrado).length : (r.encontrados || 0)
-  const faltan      = Math.max(0, (bienes ? bienes.length : total) - encontrados)
+  const encontrados = bienes ? bienes.filter(b => b.encontrado).length : 0
+  const total       = bienes ? bienes.length : (cab?.esperados || 0)
+  const faltan      = total - encontrados
   const conNota     = bienes ? bienes.filter(b => b.observacion).length : 0
 
-  const lista = (bienes || []).filter(b =>
-    pestana === 'todos' ? true : pestana === 'ok' ? b.encontrado : !b.encontrado)
+  const lista = useMemo(() => {
+    const q = texto.trim().toUpperCase()
+    return (bienes || [])
+      .filter(b => (pestana === 'todos' ? true : pestana === 'ok' ? b.encontrado : !b.encontrado))
+      .filter(b => !q || (b.clave || '').includes(q) || (b.nombre || '').toUpperCase().includes(q) ||
+        (b.resguardante || '').toUpperCase().includes(q) || (b.observacion || '').toUpperCase().includes(q))
+  }, [bienes, pestana, texto])
+
+  if (!cab) return (
+    <>
+      <Cabecera titulo="Reconteo" atras />
+      <div className="contenido">{bienes === null ? <Cargando /> : <Vacio icono="ti-history" texto="Este reconteo ya no existe" />}</div>
+    </>
+  )
 
   return (
-    <div className="tarjeta plana">
-      <div className="fila">
-        <button className="crece" style={{ textAlign: 'left', padding: 0 }} onClick={onAbrir}>
-          <p className="nombre">{r.nombrearea}</p>
-          <p className="detalle">{r.dependencia || '—'}</p>
-          <p className="detalle">{fechaCorta(r.inicio)}{r.fin ? '' : ' · en curso'}{r.usuario ? ` · ${r.usuario}` : ''}</p>
-          <p className="detalle" style={{ marginTop: '5px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+    <>
+      <Cabecera titulo={cab.nombrearea || 'Reconteo'} sub={`${cab.dependencia || ''}${cab.usuario ? ' · ' + cab.usuario : ''}`} atras />
+      <div className="contenido">
+        <div className="tarjeta">
+          <p className="etiqueta">{cab.fin ? 'Terminado' : 'En curso'}</p>
+          <p className="detalle" style={{ marginTop: '2px' }}>{fechaCorta(cab.inicio)}</p>
+          <p className="detalle" style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             <span className="chip ok">{encontrados} verificados</span>
             {faltan > 0 && <span className="chip falta">{faltan} faltan</span>}
             {conNota > 0 && <span className="chip falta">{conNota} con observación</span>}
           </p>
-        </button>
-        {/* Ver y borrar a la mano, sin tener que bajar toda la lista de bienes */}
-        <button className="icono-btn" onClick={onAbrir} aria-label={abierta ? 'Cerrar' : 'Ver el detalle'}>
-          <i className={`ti ti-chevron-${abierta ? 'up' : 'down'}`} />
-        </button>
-        <button className="icono-btn peligro" onClick={onBorrar} aria-label="Borrar del historial">
-          <i className="ti ti-trash" />
-        </button>
-      </div>
+        </div>
 
-      {abierta && (
-        <>
-          {!bienes && <Cargando />}
-          {bienes && (
-            <>
-              <div style={{ padding: '4px 12px 10px' }}>
-                <div className="pestanas">
-                  <button className={pestana === 'todos' ? 'activo' : ''} onClick={() => setPestana('todos')}>
-                    <b>{bienes.length}</b>Todos
-                  </button>
-                  <button className={pestana === 'ok' ? 'activo' : ''} onClick={() => setPestana('ok')}>
-                    <b>{encontrados}</b>Verificados
-                  </button>
-                  <button className={pestana === 'faltan' ? 'activo' : ''} onClick={() => setPestana('faltan')}>
-                    <b>{faltan}</b>Faltan
-                  </button>
-                </div>
-              </div>
+        {/* Las acciones, arriba */}
+        {cab.fin
+          ? (
+            <button className="boton suave" onClick={() => setConfirma('reabrir')}>
+              <i className="ti ti-lock-open" style={{ fontSize: '18px' }} />Volver a abrir el reconteo
+            </button>
+          )
+          : (
+            <button className="boton" onClick={() => irA('m', 'reconteo', cab.idarea)}>
+              <i className="ti ti-player-play" style={{ fontSize: '18px' }} />Continuar este reconteo
+            </button>
+          )}
+        <button className="boton peligro" onClick={() => setConfirma('borrar')}>
+          <i className="ti ti-trash" style={{ fontSize: '18px' }} />Borrar del historial
+        </button>
 
-              {lista.length === 0
-                ? <div className="fila"><span className="detalle">
-                    {pestana === 'faltan' ? 'Aparecieron todos los bienes del área.' : 'Sin bienes en esta lista.'}
-                  </span></div>
-                : lista.map(b => (
+        {bienes === null ? <Cargando /> : (
+          <>
+            <div className="pestanas">
+              <button className={pestana === 'todos' ? 'activo' : ''} onClick={() => setPestana('todos')}>
+                <b>{total}</b>Todos
+              </button>
+              <button className={pestana === 'ok' ? 'activo' : ''} onClick={() => setPestana('ok')}>
+                <b>{encontrados}</b>Verificados
+              </button>
+              <button className={pestana === 'faltan' ? 'activo' : ''} onClick={() => setPestana('faltan')}>
+                <b>{faltan}</b>Faltan
+              </button>
+            </div>
+
+            <div className="buscador">
+              <i className="ti ti-search" />
+              <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="characters" />
+              {texto && <button onClick={() => setTexto('')}><i className="ti ti-x" style={{ color: 'var(--texto-4)' }} /></button>}
+            </div>
+
+            {lista.length === 0
+              ? <Vacio icono={pestana === 'faltan' ? 'ti-circle-check' : 'ti-search-off'}
+                  texto={pestana === 'faltan' ? 'Aparecieron todos los bienes del área' : 'Sin resultados'} />
+              : (
+                <div className="tarjeta plana">
+                  {lista.map(b => (
                     <button key={b.idbien} className="fila" onClick={() => irA('b', b.clave)}>
                       <span className={`marca ${b.encontrado ? 'ok' : 'falta'}`}>
                         <i className={`ti ti-${b.encontrado ? 'check' : 'question-mark'}`} />
@@ -1206,37 +1208,41 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar, onReabrir }) {
                       </div>
                     </button>
                   ))}
-
-              {ajenos.length > 0 && (
-                <div className="fila">
-                  <i className="ti ti-alert-triangle" style={{ color: 'var(--alerta)' }} />
-                  <div className="crece">
-                    <p className="nombre">{ajenos.length} código{ajenos.length !== 1 ? 's' : ''} de otra área</p>
-                    <p className="detalle">{ajenos.map(a => a.clave).join(', ')}</p>
-                  </div>
                 </div>
               )}
 
-              {r.fin
-                ? (
-                  <button className="fila" onClick={onReabrir}>
-                    <i className="ti ti-lock-open" style={{ color: 'var(--texto-3)' }} />
-                    <div className="crece">
-                      <p className="nombre">Volver a abrir el reconteo</p>
-                      <p className="detalle">Para registrar un bien que apareció después</p>
-                    </div>
-                  </button>
-                )
-                : (
-                  <button className="fila" onClick={() => irA('m', 'reconteo', r.idarea)}>
-                    <i className="ti ti-player-play" style={{ color: 'var(--texto-3)' }} />
-                    <span className="crece nombre">Continuar este reconteo</span>
-                  </button>
-                )}
-            </>
-          )}
-        </>
+            {ajenos.length > 0 && (
+              <div className="tarjeta" style={{ borderColor: 'var(--alerta)' }}>
+                <p className="nombre" style={{ color: 'var(--alerta)' }}>
+                  {ajenos.length} código{ajenos.length !== 1 ? 's' : ''} de otra área
+                </p>
+                <p className="detalle">{ajenos.map(a => a.clave).join(', ')}</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {confirma === 'reabrir' && (
+        <Confirmar
+          titulo="¿Volver a abrir este reconteo?"
+          detalle={`El conteo de ${cab.nombrearea} vuelve a quedar en curso para poder registrar un bien que apareció después. Lo que se escanee queda con la fecha de hoy.`}
+          textoOk="Sí, reabrir"
+          onOk={async () => {
+            await reabrirRemoto(cab.idreconteo).catch(() => {})
+            reabrirReconteo(cab.idreconteo)
+            irA('m', 'reconteo', cab.idarea)
+          }}
+          onCerrar={() => setConfirma(null)} />
       )}
-    </div>
+      {confirma === 'borrar' && (
+        <Confirmar
+          titulo="¿Borrar este reconteo del historial?"
+          detalle={`Se quita el conteo de ${cab.nombrearea} del ${fechaCorta(cab.inicio)}. No se borra ningún bien y las observaciones siguen en el inventario; se pierde el registro del conteo, también para la computadora.`}
+          textoOk="Sí, borrar" peligro
+          onOk={async () => { await borrarRemoto(cab.idreconteo).catch(() => {}); irA('m', 'historial') }}
+          onCerrar={() => setConfirma(null)} />
+      )}
+    </>
   )
 }

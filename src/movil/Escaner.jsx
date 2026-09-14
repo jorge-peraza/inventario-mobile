@@ -1,57 +1,45 @@
 import { useEffect, useRef, useState } from 'react'
 import { volver, irA } from '../rutas'
+import { Cabecera } from './AppMovil'
+import { Cargando, Vacio } from './comunes'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
-import { reconteoAbierto, reconteo, revisar, marcar, marcarSubida, resumen, normalizarClave, fechaCorta, fusionarMarcas } from './reconteo'
+import {
+  reconteoAbierto, reconteo, revisar, marcar, marcarSubida, resumen,
+  normalizarClave, fechaCorta, fusionarMarcas,
+} from './reconteo'
 import { bienPorClave, anotarObservacionEnBien } from './datos'
 import { subirAvance, detalleRemoto } from './sincronizar'
 import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
 
 // ── Escáner del reconteo ──────────────────────────────────────────────────────
-// Pantalla completa con la cámara detrás. Cada lectura se resuelve contra la
-// lista del área que ya está en memoria, así que no hace falta señal: en una
-// bodega esa es la diferencia entre poder contar y no poder.
+// Esta pantalla hace una sola cosa: leer el código. En cuanto lee uno, apaga la
+// cámara y pasa a la pantalla del bien.
+//
+// Antes el bien se enseñaba en una tarjeta encima del video, con la cámara
+// siguiendo encendida detrás: se trababa, tapaba media pantalla y el teclado
+// dejaba el campo fuera de sitio. Separado en dos pantallas, cada una se ve
+// completa y la cámara solo vive mientras hace falta.
 //
 // Leer NO marca: primero se enseña el bien y se espera el visto bueno. Si solo
 // con apuntar la cámara se verificara, bastaría pasar cerca de un estante para
 // dar por bueno lo que no se revisó.
-//
-// Una etiqueta rota o un bien sin etiquetar se capturan a mano en la misma
-// pantalla, sin salir del escaneo.
+
 // Lo que se espera con el código a la vista antes de darlo por leído. Sin esta
-// pausa la tarjeta saltaba en el instante en que la cámara rozaba una etiqueta,
+// pausa la lectura saltaba en el instante en que la cámara rozaba una etiqueta,
 // y bastaba pasar de largo frente a un estante para abrirla sin querer.
 const RETARDO_LECTURA = 1500
 
 export function Escaner({ idarea }) {
   const refVideo = useRef(null)
-  const refPausa = useRef(false)
-  const refUltima = useRef({ clave: '', cuando: 0 })
-  const refEspera = useRef(null)                 // { clave, timer } mientras se aguanta el código
-  const [leyendo, setLeyendo] = useState('')     // clave que se está aguantando
-  const [rc, setRc] = useState(() => reconteoAbierto(idarea))
-  const [lectura, setLectura] = useState(null)   // { estado, clave, bien, cuando, ajeno }
+  const refEspera = useRef(null)     // { clave, timer } mientras se aguanta el código
+  const refLeido = useRef(false)     // ya se pasó a la pantalla del bien
+  const [leyendo, setLeyendo] = useState('')
   const [error, setError] = useState(null)
-  const [manual, setManual] = useState('')
+  const [rc] = useState(() => reconteoAbierto(idarea))
   // Al conceder el permiso de la cámara, Android saca de pantalla completa. Para
   // volver a entrar hace falta un toque del usuario —el navegador no deja
   // hacerlo solo—, así que el botón vive aquí mismo y no en el menú de atrás.
   const [completa, setCompleta] = useState(enPantallaCompleta)
-  // Alto que ocupa el teclado del celular. Sin esto, al escribir la observación
-  // el teclado tapaba la tarjeta entera y no se veía lo que se estaba tecleando.
-  const [teclado, setTeclado] = useState(0)
-
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const ajustar = () => setTeclado(Math.max(0, window.innerHeight - vv.height - vv.offsetTop))
-    ajustar()
-    vv.addEventListener('resize', ajustar)
-    vv.addEventListener('scroll', ajustar)
-    return () => {
-      vv.removeEventListener('resize', ajustar)
-      vv.removeEventListener('scroll', ajustar)
-    }
-  }, [])
 
   useEffect(() => {
     const alCambiar = () => setCompleta(enPantallaCompleta())
@@ -90,106 +78,32 @@ export function Escaner({ idarea }) {
     return () => {
       vivo = false
       parar?.()
+      clearTimeout(refEspera.current?.timer)
       if (stream) cerrarCamara(stream)
     }
   }, [])
 
-  function leido(texto, metodo = 'qr') {
-    if (refPausa.current) return                 // hay una confirmación abierta
+  function leido(texto) {
+    if (refLeido.current) return                 // ya se está saliendo de aquí
     const actual = rc || reconteoAbierto(idarea)
     if (!actual) return
     const clave = normalizarClave(texto)
     if (!clave) return
 
-    // La cámara lee el mismo código muchas veces por segundo: se ignora la
-    // repetición inmediata para no vibrar sin parar sobre la misma etiqueta.
-    const ahora = Date.now()
-    if (clave === refUltima.current.clave && ahora - refUltima.current.cuando < 1500) return
-
-    // Con la cámara hay que sostener el código un momento; lo capturado a mano
-    // entra de una vez, que para eso se escribió.
-    if (metodo === 'qr') {
-      if (refEspera.current?.clave === clave) return      // ya se está contando
-      clearTimeout(refEspera.current?.timer)
-      setLeyendo(clave)
-      refEspera.current = {
-        clave,
-        timer: setTimeout(() => {
-          refEspera.current = null
-          setLeyendo('')
-          refUltima.current = { clave, cuando: Date.now() }
-          abrirLectura(actual, clave, metodo)
-        }, RETARDO_LECTURA),
-      }
-      return
-    }
-
-    refUltima.current = { clave, cuando: ahora }
-    abrirLectura(actual, clave, metodo)
-  }
-
-  function abrirLectura(actual, clave, metodo) {
-    const r = revisar(actual.id, clave)
-    refPausa.current = true
-    avisar(r.estado === 'nuevo' ? 'ok' : 'mal')
-    setLectura({ ...r, metodo })
-
-    // Si no es de esta área, se averigua dónde debería estar: encontrar un bien
-    // fuera de su área es justo lo que un reconteo tiene que sacar a la luz.
-    if (r.estado === 'ajeno') {
-      bienPorClave(clave)
-        .then(b => setLectura(l => (l && l.clave === clave ? { ...l, ajeno: b, buscado: true } : l)))
-        .catch(() => setLectura(l => (l && l.clave === clave ? { ...l, buscado: true } : l)))
-    }
-  }
-
-  function cerrarLectura() {
-    setLectura(null)
-    refPausa.current = false
-    refUltima.current = { clave: '', cuando: 0 }
+    // Hay que sostener el código un momento: así no se lee de pasada
+    if (refEspera.current?.clave === clave) return
     clearTimeout(refEspera.current?.timer)
-    refEspera.current = null
-    setLeyendo('')
-  }
-
-  // Si se sale de la pantalla con un código a medio leer, no queda nada corriendo
-  useEffect(() => () => clearTimeout(refEspera.current?.timer), [])
-
-  // Lo que marcan los demás llega también aquí: así no se pide confirmación de
-  // un bien que la otra persona acaba de verificar.
-  useEffect(() => {
-    const actual = rc || reconteoAbierto(idarea)
-    if (!actual || actual.fin) return
-    const traer = async () => {
-      const marcas = await detalleRemoto(actual.id).catch(() => null)
-      if (marcas && fusionarMarcas(actual.id, marcas)) setRc(reconteo(actual.id))
+    setLeyendo(clave)
+    refEspera.current = {
+      clave,
+      timer: setTimeout(() => {
+        refEspera.current = null
+        refLeido.current = true
+        avisar('ok')
+        // Al salir de la pantalla, el efecto de arriba apaga la cámara
+        irA('m', 'lectura', idarea, clave, 'qr')
+      }, RETARDO_LECTURA),
     }
-    const id = setInterval(traer, 12000)
-    return () => clearInterval(id)
-  }, [idarea, rc?.id])
-
-  function confirmar(observacion) {
-    const actual = rc || reconteoAbierto(idarea)
-    if (actual && lectura?.estado === 'nuevo') {
-      marcar(actual.id, lectura.clave, lectura.metodo || 'qr', observacion)
-      const guardado = reconteo(actual.id)
-      setRc(guardado)
-
-      // La marca sube en el momento, no al rato: es lo que hace que la otra
-      // persona que cuenta la misma área lo vea enseguida. Sin señal se queda
-      // pendiente y se reintenta solo, sin frenar el escaneo.
-      subirAvance(guardado, [lectura.clave]).catch(() => {})
-
-      // La observación se escribe también en el bien, para que quede en el
-      // inventario y no solo en el conteo. Va en segundo plano: si no hay
-      // señal se queda pendiente y se reintenta, sin frenar el escaneo.
-      if (observacion && lectura.bien?.idbien) {
-        anotarObservacionEnBien(lectura.bien.idbien, observacion)
-          .then(() => { marcarSubida(actual.id, lectura.clave); setRc(reconteo(actual.id)) })
-          .catch(() => { /* queda pendiente; se reintenta desde la lista */ })
-      }
-    }
-    cerrarLectura()
   }
 
   const s = resumen(rc)
@@ -197,9 +111,7 @@ export function Escaner({ idarea }) {
   return (
     <div className="movil-escaner">
       <video ref={refVideo} muted playsInline />
-      <div className="capa" style={teclado ? { bottom: `${teclado}px` } : undefined}>
-        {/* La equis regresa a la lista del área, así que el botón de lista que
-            estaba junto sobraba: hacía exactamente lo mismo. */}
+      <div className="capa">
         <div className="arriba">
           <div className="cuenta">
             {s.encontrados} de {s.total}
@@ -216,11 +128,11 @@ export function Escaner({ idarea }) {
           </button>
         </div>
 
-        {!lectura && <div className="mira" />}
+        <div className="mira" />
 
         {/* Mientras se aguanta el código se avisa, para que se note que hay que
             sostenerlo un momento y no que la lectura falló. */}
-        {!lectura && leyendo && (
+        {leyendo && (
           <div className="leyendo">
             <i className="ti ti-loader-2 gira" />
             <span>{leyendo}</span>
@@ -229,31 +141,135 @@ export function Escaner({ idarea }) {
 
         <div className="abajo">
           {error && <div className="aviso error">{error}</div>}
-
-          {lectura
-            ? <TarjetaLectura lectura={lectura} onConfirmar={confirmar} onCancelar={cerrarLectura} />
-            : (
-              <form className="manual" onSubmit={e => { e.preventDefault(); if (manual.trim()) { leido(manual, 'manual'); setManual('') } }}>
-                <input value={manual} onChange={e => setManual(e.target.value)}
-                  placeholder="Clave o número de serie" autoCapitalize="characters" autoCorrect="off" />
-                <button type="submit">Buscar</button>
-              </form>
-            )}
+          <button className="boton suave" onClick={() => irA('m', 'capturar', idarea)}>
+            <i className="ti ti-keyboard" style={{ fontSize: '18px' }} />Capturar clave o serie
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-// Lo que se leyó, con sus datos, antes de darlo por verificado
-function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
-  const { estado, clave, bien, cuando, observacion, ajeno, buscado } = lectura
-  // El campo arranca en blanco: se escribe lo que se ve hoy, no se corrige un
-  // texto viejo. Lo que tenía el bien se enseña debajo, y al guardar se
-  // reemplaza; si no se escribe nada, la observación del bien se queda igual.
+// ── Capturar a mano ──────────────────────────────────────────────────────────
+// Su propia pantalla, sin cámara detrás: el campo arriba y el teclado con sitio
+// de sobra. Sirve tanto para la clave de inventario como para el número de
+// serie, que es lo que queda cuando la etiqueta está rota o el bien todavía no
+// se etiqueta.
+export function CapturarClave({ idarea }) {
+  const [texto, setTexto] = useState('')
+  const rc = reconteoAbierto(idarea)
+
+  function buscar(e) {
+    e?.preventDefault()
+    const t = texto.trim()
+    if (t) irA('m', 'lectura', idarea, t, 'manual')
+  }
+
+  return (
+    <>
+      <Cabecera titulo="Capturar a mano" sub={rc?.nombrearea} atras />
+      <div className="contenido">
+        <form onSubmit={buscar} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <p className="etiqueta" style={{ marginBottom: '6px' }}>Clave de inventario o número de serie</p>
+            <input value={texto} onChange={e => setTexto(e.target.value)} autoFocus
+              placeholder="I25-3401-2-765" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+              style={{ width: '100%', padding: '13px 14px', borderRadius: '12px', background: 'var(--campo)',
+                border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '17px', outline: 'none' }} />
+          </div>
+          <button className="boton" type="submit" disabled={!texto.trim()}>
+            <i className="ti ti-search" style={{ fontSize: '18px' }} />Buscar
+          </button>
+        </form>
+
+        <p className="detalle">
+          Si la etiqueta está rota o el bien todavía no se etiqueta, se puede capturar
+          el número de serie que trae el aparato.
+        </p>
+
+        <button className="boton suave" onClick={() => irA('m', 'escanear', idarea)}>
+          <i className="ti ti-scan" style={{ fontSize: '18px' }} />Volver a la cámara
+        </button>
+      </div>
+    </>
+  )
+}
+
+// ── El bien que se acaba de leer ─────────────────────────────────────────────
+// Pantalla completa, sin la cámara encendida detrás. Al verificar se vuelve al
+// escáner para seguir con el siguiente.
+export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
+  const [rc, setRc] = useState(() => reconteoAbierto(idarea))
+  const [lectura, setLectura] = useState(null)
   const [nota, setNota] = useState('')
+  const [guardando, setGuardando] = useState(false)
   const refNota = useRef(null)
 
+  useEffect(() => {
+    const actual = reconteoAbierto(idarea)
+    setRc(actual)
+    if (!actual) return
+    const r = revisar(actual.id, clave)
+    setLectura(r)
+
+    // Si no es de esta área, se averigua dónde debería estar: encontrar un bien
+    // fuera de su área es justo lo que un reconteo tiene que sacar a la luz.
+    if (r.estado === 'ajeno') {
+      bienPorClave(r.clave)
+        .then(b => setLectura(l => (l ? { ...l, ajeno: b, buscado: true } : l)))
+        .catch(() => setLectura(l => (l ? { ...l, buscado: true } : l)))
+    }
+    // Y se trae lo que hayan marcado los demás, por si este bien ya lo verificó
+    // la otra persona mientras tanto.
+    detalleRemoto(actual.id)
+      .then(marcas => {
+        if (marcas && fusionarMarcas(actual.id, marcas)) {
+          setRc(reconteo(actual.id))
+          setLectura(revisar(actual.id, clave))
+        }
+      })
+      .catch(() => {})
+  }, [idarea, clave])
+
+  const seguir = () => irA('m', 'escanear', idarea)
+
+  function verificar() {
+    const actual = rc || reconteoAbierto(idarea)
+    if (!actual || lectura?.estado !== 'nuevo') return seguir()
+    setGuardando(true)
+    const observacion = nota.trim()
+    marcar(actual.id, lectura.clave, metodo, observacion)
+    const guardado = reconteo(actual.id)
+
+    // La marca sube en el momento: es lo que hace que la otra persona que
+    // cuenta la misma área la vea enseguida. Sin señal queda pendiente y se
+    // reintenta sola, sin frenar el escaneo.
+    subirAvance(guardado, [lectura.clave]).catch(() => {})
+
+    // La observación se escribe también en el bien, para que quede en el
+    // inventario y no solo en el conteo.
+    if (observacion && lectura.bien?.idbien) {
+      anotarObservacionEnBien(lectura.bien.idbien, observacion)
+        .then(() => marcarSubida(actual.id, lectura.clave))
+        .catch(() => { /* queda pendiente; se reintenta desde la lista */ })
+    }
+    seguir()
+  }
+
+  if (!rc) return (
+    <>
+      <Cabecera titulo="Reconteo" atras />
+      <div className="contenido"><Vacio icono="ti-scan" texto="No hay un reconteo abierto en esta área" /></div>
+    </>
+  )
+  if (!lectura) return (
+    <>
+      <Cabecera titulo="Buscando…" sub={clave} atras />
+      <div className="contenido"><Cargando /></div>
+    </>
+  )
+
+  const { estado, bien, cuando, observacion, ajeno, buscado } = lectura
   const cab = estado === 'nuevo'
     ? { color: 'var(--ok)',     fondo: 'var(--ok-suave)',     icono: 'ti-qrcode',       texto: 'Bien encontrado' }
     : estado === 'repetido'
@@ -261,80 +277,95 @@ function TarjetaLectura({ lectura, onConfirmar, onCancelar }) {
       : { color: 'var(--alerta)', fondo: 'var(--alerta-suave)', icono: 'ti-alert-circle', texto: 'No es de esta área' }
 
   const dato = (etq, valor) => (
-    <div key={etq} style={{ minWidth: 0 }}>
-      <p className="etiqueta">{etq}</p>
-      <p style={{ fontSize: '13.5px', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{valor || '—'}</p>
+    <div className="fila" key={etq}>
+      <div className="crece">
+        <p className="etiqueta">{etq}</p>
+        <p className="nombre" style={{ fontWeight: 400 }}>{valor || '—'}</p>
+      </div>
     </div>
   )
 
   return (
-    <div className="confirma">
-      {/* Encabezado con el estado de la lectura, del ancho de la tarjeta */}
-      <div className="cabeza" style={{ background: cab.fondo, color: cab.color }}>
-        <i className={`ti ${cab.icono}`} />
-        <span>{cab.texto}</span>
-        <span className="clave-cab">{clave}</span>
-      </div>
-
-      {bien ? (
-        <div className="cuerpo">
-          <p className="titulo">{bien.nombre}</p>
-          {bien.area && <p className="detalle">{bien.area}</p>}
-
-          <div className="campos">
-            {dato('Marca', bien.marca)}
-            {dato('Modelo', bien.modelo)}
-            {dato('Serie', bien.serie)}
-            {dato('Resguardo', bien.resguardante)}
-          </div>
-
-          {estado === 'repetido' && (
-            <div className="aviso-linea">
-              <i className="ti ti-clock" />
-              <span>Verificado el {fechaCorta(cuando)}{observacion ? ` · ${observacion}` : ''}</span>
-            </div>
-          )}
-
-          {estado === 'nuevo' && (
-            <div style={{ marginTop: '12px' }}>
-              <p className="etiqueta" style={{ marginBottom: '6px' }}>Observaciones</p>
-              <textarea ref={refNota} value={nota} onChange={e => setNota(e.target.value)} rows={2}
-                placeholder="Agregar Comentarios."
-                // Al abrirse el teclado la tarjeta se desliza para que el campo
-                // quede a la vista: si no, el teclado la tapaba por completo.
-                onFocus={() => setTimeout(() => refNota.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350)}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: '11px',
-                  background: 'var(--campo)', border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)',
-                  fontSize: '16px', outline: 'none', resize: 'none', lineHeight: 1.4 }} />
-              {bien?.observaciones && (
-                <p className="detalle" style={{ marginTop: '6px' }}>
-                  <i className="ti ti-message-2" style={{ marginRight: '4px' }} />
-                  Ahora dice: {bien.observaciones}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="cuerpo">
-          <p className="detalle">
-            {!buscado ? 'Buscando en el inventario…'
-              : ajeno ? <>{ajeno.nombre}<br />Está asignado a <b>{ajeno.area}</b>.</>
-              : 'Esta clave no existe en el inventario.'}
+    <>
+      <Cabecera titulo={estado === 'nuevo' ? 'Verificar bien' : cab.texto} sub={rc.nombrearea} atras />
+      <div className="contenido">
+        <div className="tarjeta" style={{ background: cab.fondo, borderColor: cab.color, color: cab.color }}>
+          <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 600 }}>
+            <i className={`ti ${cab.icono}`} style={{ fontSize: '19px' }} />{cab.texto}
           </p>
+          <p className="clave" style={{ color: 'inherit', marginTop: '4px' }}>{lectura.clave}</p>
         </div>
-      )}
 
-      <div className="botones">
-        <button className="boton suave" onClick={onCancelar}>
-          {estado === 'nuevo' ? 'Cancelar' : 'Seguir escaneando'}
-        </button>
-        {estado === 'nuevo' && (
-          <button className="boton" onClick={() => onConfirmar(nota.trim())}>
-            <i className="ti ti-check" style={{ fontSize: '17px' }} />Verificar
+        {bien ? (
+          <>
+            <div className="tarjeta">
+              <p style={{ fontSize: '17px', fontWeight: 600, lineHeight: 1.3 }}>{bien.nombre}</p>
+              {bien.area && <p className="detalle">{bien.area}</p>}
+            </div>
+
+            <div className="tarjeta plana">
+              {dato('Marca', bien.marca)}
+              {dato('Modelo', bien.modelo)}
+              {dato('Serie', bien.serie)}
+              {dato('Resguardo', bien.resguardante)}
+            </div>
+
+            {estado === 'repetido' && (
+              <div className="tarjeta">
+                <p className="detalle">
+                  <i className="ti ti-clock" style={{ marginRight: '6px' }} />
+                  Verificado el {fechaCorta(cuando)}
+                </p>
+                {observacion && <p className="detalle" style={{ marginTop: '4px' }}>{observacion}</p>}
+              </div>
+            )}
+
+            {estado === 'nuevo' && (
+              <div>
+                <p className="etiqueta" style={{ marginBottom: '6px' }}>Observaciones</p>
+                <textarea ref={refNota} value={nota} onChange={e => setNota(e.target.value)} rows={3}
+                  placeholder="Agregar Comentarios."
+                  onFocus={() => setTimeout(() => refNota.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350)}
+                  style={{ width: '100%', padding: '12px 13px', borderRadius: '12px', background: 'var(--campo)',
+                    border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px',
+                    outline: 'none', resize: 'vertical', lineHeight: 1.4 }} />
+                {/* Lo que dice hoy el bien: al guardar se reemplaza por lo que se
+                    escriba aquí; si se deja vacío, se queda como está. */}
+                {bien.observaciones && (
+                  <p className="detalle" style={{ marginTop: '6px' }}>
+                    <i className="ti ti-message-2" style={{ marginRight: '4px' }} />
+                    Ahora dice: {bien.observaciones}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="tarjeta">
+            <p className="detalle">
+              {!buscado ? 'Buscando en el inventario…'
+                : ajeno ? <>{ajeno.nombre}<br />Está asignado a <b>{ajeno.area}</b>.</>
+                : 'Esta clave no existe en el inventario.'}
+            </p>
+          </div>
+        )}
+
+        {estado === 'nuevo' ? (
+          <>
+            <button className="boton" onClick={verificar} disabled={guardando}>
+              <i className="ti ti-check" style={{ fontSize: '18px' }} />Verificar y seguir escaneando
+            </button>
+            <button className="boton suave" onClick={seguir} disabled={guardando}>Cancelar</button>
+          </>
+        ) : (
+          <button className="boton" onClick={seguir}>
+            <i className="ti ti-scan" style={{ fontSize: '18px' }} />Seguir escaneando
           </button>
         )}
+        <button className="boton suave" onClick={() => irA('m', 'reconteo', idarea)}>
+          <i className="ti ti-list" style={{ fontSize: '18px' }} />Ver la lista del área
+        </button>
       </div>
-    </div>
+    </>
   )
 }

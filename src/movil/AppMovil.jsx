@@ -4,8 +4,8 @@ import { useTheme } from '../context/ThemeContext'
 import { useRuta, irA, reemplazarRuta, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
 import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
-import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos } from './PantallasMuebles'
-import { Escaner } from './Escaner'
+import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos, DetalleReconteo } from './PantallasMuebles'
+import { Escaner, CapturarClave, LecturaBien } from './Escaner'
 import { InicioInmuebles, BuscarInmuebles, FichaInmueble, EditarInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
 
 // ── Armazón de la vista móvil ─────────────────────────────────────────────────
@@ -69,6 +69,8 @@ export default function AppMovil({ user, onSalir }) {
   const seccion = ruta.pagina                       // 'm' | 'i' | 'b'
   const sub     = ruta.params[0] || ''              // 'inicio' | 'bienes' | …
   const arg     = ruta.params[1] || ''              // idarea, clave, idcategoria
+  const arg2    = ruta.params[2] || ''              // clave leída
+  const arg3    = ruta.params[3] || ''              // cómo se leyó: 'qr' o 'manual'
 
   // Qué pestaña de la barra se ve encendida
   const activa = seccion === 'b' ? (inmuebles ? 'inmuebles' : 'bienes') : sub
@@ -99,7 +101,10 @@ export default function AppMovil({ user, onSalir }) {
       case 'papelera':  return <BuscarBienes lista="papelera" />
       case 'reconteo':  return arg ? <ListaReconteo idarea={arg} usuario={user} /> : <ElegirArea />
       case 'escanear':  return <Escaner idarea={arg} usuario={user} />
+      case 'capturar':  return <CapturarClave idarea={arg} />
+      case 'lectura':   return <LecturaBien idarea={arg} clave={arg2} metodo={arg3 || 'qr'} />
       case 'historial': return <HistorialReconteos />
+      case 'rc':        return <DetalleReconteo idreconteo={arg} />
       default:          return <InicioMuebles user={user} />
     }
   }
