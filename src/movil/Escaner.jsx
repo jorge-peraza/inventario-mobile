@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { volver, irA } from '../rutas'
+import { reemplazarRuta } from '../rutas'
 import { Cabecera } from './AppMovil'
 import { Cargando, Vacio } from './comunes'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
@@ -23,6 +23,11 @@ import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaComplet
 // Leer NO marca: primero se enseña el bien y se espera el visto bueno. Si solo
 // con apuntar la cámara se verificara, bastaría pasar cerca de un estante para
 // dar por bueno lo que no se revisó.
+//
+// Dentro del ciclo cámara → bien → cámara las pantallas se REEMPLAZAN, no se
+// apilan. Apilándolas, cerrar la cámara regresaba al último bien leído —"este
+// bien ya está verificado"—, y al cerrarlo se abría la cámara otra vez: no
+// había forma de salir. Reemplazando, atrás siempre lleva a la lista del área.
 
 // Lo que se espera con el código a la vista antes de darlo por leído. Sin esta
 // pausa la lectura saltaba en el instante en que la cámara rozaba una etiqueta,
@@ -79,6 +84,9 @@ export function Escaner({ idarea }) {
       vivo = false
       parar?.()
       clearTimeout(refEspera.current?.timer)
+      // Se suelta el video además de apagar la cámara: sin esto el celular
+      // dejaba el último cuadro congelado y la luz encendida un rato más.
+      if (refVideo.current) refVideo.current.srcObject = null
       if (stream) cerrarCamara(stream)
     }
   }, [])
@@ -101,7 +109,7 @@ export function Escaner({ idarea }) {
         refLeido.current = true
         avisar('ok')
         // Al salir de la pantalla, el efecto de arriba apaga la cámara
-        irA('m', 'lectura', idarea, clave, 'qr')
+        reemplazarRuta('m', 'lectura', idarea, clave, 'qr')
       }, RETARDO_LECTURA),
     }
   }
@@ -123,7 +131,7 @@ export function Escaner({ idarea }) {
               <i className={`ti ti-${completa ? 'arrows-minimize' : 'arrows-maximize'}`} />
             </button>
           )}
-          <button className="icono-btn" onClick={volver} aria-label="Cerrar">
+          <button className="icono-btn" onClick={() => reemplazarRuta('m', 'reconteo', idarea)} aria-label="Cerrar">
             <i className="ti ti-x" />
           </button>
         </div>
@@ -141,7 +149,7 @@ export function Escaner({ idarea }) {
 
         <div className="abajo">
           {error && <div className="aviso error">{error}</div>}
-          <button className="boton suave" onClick={() => irA('m', 'capturar', idarea)}>
+          <button className="boton suave" onClick={() => reemplazarRuta('m', 'capturar', idarea)}>
             <i className="ti ti-keyboard" style={{ fontSize: '18px' }} />Capturar clave o serie
           </button>
         </div>
@@ -162,7 +170,7 @@ export function CapturarClave({ idarea }) {
   function buscar(e) {
     e?.preventDefault()
     const t = texto.trim()
-    if (t) irA('m', 'lectura', idarea, t, 'manual')
+    if (t) reemplazarRuta('m', 'lectura', idarea, t, 'manual')
   }
 
   return (
@@ -187,7 +195,7 @@ export function CapturarClave({ idarea }) {
           el número de serie que trae el aparato.
         </p>
 
-        <button className="boton suave" onClick={() => irA('m', 'escanear', idarea)}>
+        <button className="boton suave" onClick={() => reemplazarRuta('m', 'escanear', idarea)}>
           <i className="ti ti-scan" style={{ fontSize: '18px' }} />Volver a la cámara
         </button>
       </div>
@@ -231,7 +239,7 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
       .catch(() => {})
   }, [idarea, clave])
 
-  const seguir = () => irA('m', 'escanear', idarea)
+  const seguir = () => reemplazarRuta('m', 'escanear', idarea)
 
   function verificar() {
     const actual = rc || reconteoAbierto(idarea)
@@ -362,7 +370,7 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
             <i className="ti ti-scan" style={{ fontSize: '18px' }} />Seguir escaneando
           </button>
         )}
-        <button className="boton suave" onClick={() => irA('m', 'reconteo', idarea)}>
+        <button className="boton suave" onClick={() => reemplazarRuta('m', 'reconteo', idarea)}>
           <i className="ti ti-list" style={{ fontSize: '18px' }} />Ver la lista del área
         </button>
       </div>
