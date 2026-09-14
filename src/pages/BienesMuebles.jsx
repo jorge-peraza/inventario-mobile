@@ -1402,18 +1402,21 @@ const PARTIDA_POR_MODO = {
 // ── QUERY SUPABASE ────────────────────────────────────────────────────────────
 // Los mismos filtros que usa la tabla, menos el texto buscado. Se comparte con
 // paginaDeBien para que el conteo salga sobre exactamente la misma lista.
-function filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos, areasPermitidas }) {
+function filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos, bajas, areasPermitidas }) {
   // Un usuario de dependencia solo puede ver sus áreas. El corte se hace en la
   // consulta, no escondiendo botones: aunque se quite el filtro de pantalla, la
   // base nunca devuelve bienes de otra dependencia.
   if (areasPermitidas && areasPermitidas.length) query = query.in('idarea', areasPermitidas)
 
-  // La papelera y los traspasos son la misma lista, solo cambia el estado
-  query = query.in('estadobien', traspasos ? ['TRASPASO'] : papelera ? [ESTADO_PAPELERA] : ['ACTIVO', 'SOLICITUD BAJA'])
+  // Papelera, traspasos y bajas son la misma lista: solo cambia el estado
+  query = query.in('estadobien',
+    traspasos ? ['TRASPASO'] : bajas ? ['BAJA'] : papelera ? [ESTADO_PAPELERA] : ['ACTIVO', 'SOLICITUD BAJA'])
 
-  // Los traspasados llevan su propia categoría ('TRASPASOS'), así que filtrar
-  // por tipo de bien los dejaría a todos fuera: en esa vista no se aplica.
-  if (!traspasos)
+  // Los traspasados y los dados de baja llevan como categoría el nombre de la
+  // hoja del Excel de donde se cargaron ('TRASPASOS', 'BAJAS POR CABILDO'…),
+  // no su categoría real: 4,207 de las 4,240 bajas son así. Filtrar por tipo de
+  // bien las dejaría fuera casi todas, de modo que en esas vistas no se aplica.
+  if (!traspasos && !bajas)
     query = query.in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
 
   if (filtroAreaIds && filtroAreaIds.length > 0)
@@ -1509,7 +1512,7 @@ export function dependenciaCorta(nombre) {
   return s.replace(/\s*\([^)]*\)\s*$/, '').split(',')[0].trim()
 }
 
-async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera, traspasos, areasPermitidas }) {
+async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, filtroAreaIds, porPagina, papelera, traspasos, bajas, areasPermitidas }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
 
@@ -1532,7 +1535,7 @@ async function fetchBienes({ modo, pagina, busqueda, filtroBien, filtroEstado, f
   // revisa el listado de un área.
   query = ordenDeLista(query, filtroAreaIds)
 
-  query = filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos, areasPermitidas })
+  query = filtrosDeLista(query, { modo, filtroBien, filtroEstado, filtroAreaIds, papelera, traspasos, bajas, areasPermitidas })
 
   if (busqueda)
     query = query.or(`nombrebien.ilike.%${busqueda}%,claveinventario.ilike.%${busqueda}%`)
@@ -2241,6 +2244,14 @@ export function valorMueble(col, b) {
       return b.costoinicial ? '$ ' + Number(b.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''
     case 'numero_oficio':
       return ''   // se llena a mano en el documento
+    // La base guarda la fecha como aaaa-mm-dd; en el documento va dd/mm/aaaa.
+    // Se parte el texto en vez de usar Date para que no se recorra un día por
+    // la zona horaria.
+    case 'fecha_baja':
+    case 'fecha_solicitud_baja': {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(b[col.key] || ''))
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : ''
+    }
     default: {
       const v = b[col.key]
       return (v == null || v === '—' || v === 'SIN FACTURA') ? (col.key === 'numerofactura' ? 'SIN FACTURA' : '') : String(v)
@@ -2386,14 +2397,15 @@ export const COLS_ALTAS = [
   { key: 'resguardatario',  label: 'RESGUARDANTE',        m: 'Resguardante',        w: 24, align: 'left' },
 ]
 
-export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds, traspasos, areasPermitidas }) {
+export async function fetchTodosMuebles({ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds, traspasos, bajas, areasPermitidas }) {
   const BATCH = 1000
   let todos = [], desde = 0
   while (true) {
     let q = supabase.from('bienes').select(SELECT_BIENES).order('consecutivo', { ascending: true }).order('idbien', { ascending: true }).range(desde, desde + BATCH - 1)
-    // Los traspasados llevan su propia categoría, por eso ahí no se filtra por tipo
-    q = traspasos
-      ? q.eq('estadobien', 'TRASPASO')
+    // Traspasados y bajas llevan como categoría el nombre de la hoja del Excel,
+    // no la real, así que en esas vistas no se filtra por tipo de bien.
+    q = traspasos ? q.eq('estadobien', 'TRASPASO')
+      : bajas    ? q.eq('estadobien', 'BAJA')
       : q.in('estadobien', ['ACTIVO', 'SOLICITUD BAJA']).in('categoriainventario', CATS_BY_MODO[modo] ?? CATS_BY_MODO.mobiliario)
     if (filtroAreaIds && filtroAreaIds.length) q = q.in('idarea', filtroAreaIds)
     // El reporte respeta el mismo corte por dependencia que la tabla
@@ -2662,6 +2674,43 @@ export async function fetchBienesPorEstado(estado) {
     desde += BATCH
   }
   return todos
+}
+
+// Trae las bajas cuya FECHA DE BAJA cae en el rango. La fecha es la de la
+// sesión de cabildo que autorizó la baja, no la del oficio que la solicitó.
+// Los bienes sin fecha capturada no entran: no se sabe a qué periodo van.
+export async function fetchBajasPorFecha({ desde, hasta, areaIds }) {
+  const BATCH = 1000
+  let todos = [], d = 0
+  while (true) {
+    let q = supabase.from('bienes')
+      .select(`${SELECT_BIENES}, fecha_solicitud_baja, fecha_baja, oficio_baja`)
+      .eq('estadobien', 'BAJA')
+      .not('fecha_baja', 'is', null)
+      .order('fecha_baja', { ascending: true }).order('idbien', { ascending: true })
+      .range(d, d + BATCH - 1)
+    if (desde) q = q.gte('fecha_baja', desde)
+    if (hasta) q = q.lte('fecha_baja', hasta)
+    if (areaIds && areaIds.length) q = q.in('idarea', areaIds)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = [...todos, ...data.map(mapBien)]
+    if (data.length < BATCH) break
+    d += BATCH
+  }
+  return todos
+}
+
+// Cuántas bajas hay en un rango, sin traérselas todas (para las tarjetas)
+export async function contarBajasPorFecha({ desde, hasta }) {
+  let q = supabase.from('bienes').select('idbien', { count: 'exact', head: true })
+    .eq('estadobien', 'BAJA').not('fecha_baja', 'is', null)
+  if (desde) q = q.gte('fecha_baja', desde)
+  if (hasta) q = q.lte('fecha_baja', hasta)
+  const { count, error } = await q
+  if (error) throw error
+  return count || 0
 }
 
 const RGB_GRIS = [191, 191, 191]
@@ -4634,7 +4683,7 @@ export function MenuFila({ menu, onClose, dark, t, acciones = [] }) {
   )
 }
 
-export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', initialBusqueda = '', papelera = false, traspasos = false, soloLectura = false, areasPermitidas = null }) {
+export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', initialBusqueda = '', papelera = false, traspasos = false, bajas = false, soloLectura = false, areasPermitidas = null }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [modo, setModo]                     = useState(initialModo)
@@ -4690,16 +4739,16 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         const areas = areasPermitidas && areasPermitidas.length
           ? todas.filter(a => areasPermitidas.includes(a.idarea))
           : todas
-        // En traspasos el filtro debe traer los números de esa lista, no los
-        // del inventario vigente. La papelera conserva el catálogo completo
-        // porque de ahí se elige el área a la que regresa un bien.
-        if (!traspasos) { if (vivo) setAllAreas(areas); return }
-        const conteo = await conteoAreasPorEstado(['TRASPASO'])
+        // En traspasos y en bajas el filtro debe traer los números de esa lista,
+        // no los del inventario vigente. La papelera conserva el catálogo
+        // completo porque de ahí se elige el área a la que regresa un bien.
+        if (!traspasos && !bajas) { if (vivo) setAllAreas(areas); return }
+        const conteo = await conteoAreasPorEstado(bajas ? ['BAJA'] : ['TRASPASO'])
         if (vivo) setAllAreas(areas.map(a => ({ ...a, total_bienes: conteo.get(a.idarea) || 0 })).filter(a => a.total_bienes > 0))
       })
       .catch(console.error)
     return () => { vivo = false }
-  }, [traspasos])
+  }, [traspasos, bajas])
 
   const cargar = useCallback((pag, params = {}) => {
     setLoading(true)
@@ -4714,6 +4763,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       porPagina:     params.porPagina     ?? porPagina,
       papelera,
       traspasos,
+      bajas,
       areasPermitidas,
     })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(pag) })
@@ -4745,7 +4795,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       // corresponde ahí, no el de todo el inventario.
       const suArea = b.idarea != null ? [b.idarea] : areasSelec
 
-      const pag = await paginaDeBien(b, { modo, filtroBien, filtroEstado, filtroAreaIds: suArea, porPagina, papelera, traspasos, areasPermitidas })
+      const pag = await paginaDeBien(b, { modo, filtroBien, filtroEstado, filtroAreaIds: suArea, porPagina, papelera, traspasos, bajas, areasPermitidas })
       // Cambiar búsqueda y filtro dispararía otra carga en página 0; se salta
       skipDebounce.current = true
       setBusqueda('')
@@ -4770,7 +4820,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina, papelera, traspasos, areasPermitidas })
+    fetchBienes({ modo, pagina: 0, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, porPagina, papelera, traspasos, bajas, areasPermitidas })
       .then(({ data, count }) => { setDatos(data); setTotalRegistros(count); setPagina(0) })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
@@ -4840,20 +4890,20 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
-      <Sidebar user={user} active={papelera ? 'papelera' : traspasos ? 'traspasos' : 'bienes'} onNavigate={onNavigate} />
+      <Sidebar user={user} active={papelera ? 'papelera' : traspasos ? 'traspasos' : bajas ? 'bajas' : 'bienes'} onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : traspasos ? 'Traspasos' : 'Bienes Muebles'}</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : traspasos ? 'Traspasos' : bajas ? 'Bajas' : 'Bienes Muebles'}</h1>
             <p style={{ fontSize: '14px', color: t.text3 }}>
-              {papelera ? 'Bienes capturados por error · ' : traspasos ? 'Bienes traspasados · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
+              {papelera ? 'Bienes capturados por error · ' : traspasos ? 'Bienes traspasados · ' : bajas ? 'Bienes dados de baja · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
             </p>
           </div>
           {/* Una dependencia solo consulta: no da de alta ni cambia titulares */}
-          {!papelera && !traspasos && !soloLectura && (
+          {!papelera && !traspasos && !bajas && !soloLectura && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {/* Actúa sobre un área completa, por eso va aquí y no en la barra
                   de acciones, que trabaja sobre los registros seleccionados. */}
@@ -4886,7 +4936,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
           {/* En traspasos no aplica el tipo de bien: todos llevan la categoría
               TRASPASOS. Quedan la búsqueda y el filtro de dependencia y área. */}
-          {!traspasos && (
+          {!traspasos && !bajas && (
             <button onClick={() => setModalTipo(true)}
               style={{ ...searchBoxStyle(dark), minWidth: '200px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
               <i className={`ti ${MODOS.find(m => m.id === modo)?.icon || 'ti-category'}`} style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)', flexShrink: 0 }} />
@@ -4901,7 +4951,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           <GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark}
             etiquetaVacia={soloLectura ? (user?.dependencia || 'Mi dependencia') : undefined} />
 
-          {!traspasos && (
+          {!traspasos && !bajas && (
             <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{ ...sStyle(dark), width: 'auto' }}>
               {['Todos', 'Buen estado', 'Deteriorado', 'No verificado'].map(e => <option key={e}>{e}</option>)}
             </select>
@@ -4938,7 +4988,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
               En traspasos solo se consulta y se reporta: resguardos y bajas
               trabajan sobre bienes vigentes. */}
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
-            {!traspasos && !soloLectura && <>
+            {!traspasos && !bajas && !soloLectura && <>
               <button onClick={() => seleccionados.size > 0 && setModalResguardosLote([...seleccionados.values()])} disabled={seleccionados.size === 0}
                 style={btnBarra(dark, t, seleccionados.size > 0)}>
                 <i className="ti ti-file-text" style={{ fontSize:'17px' }} />
@@ -5121,7 +5171,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                                   <i className="ti ti-arrow-back-up" style={{ fontSize: '14px' }} />
                                 </button>
                               )}
-                              {!papelera && !traspasos && !soloLectura && <>
+                              {!papelera && !traspasos && !bajas && !soloLectura && <>
                               <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }}    title="Modificar"    style={btnAccion(dark, 'editar')}    onMouseEnter={e => e.currentTarget.style.opacity='0.7'} onMouseLeave={e => e.currentTarget.style.opacity='1'}><i className="ti ti-pencil"          style={{ fontSize: '14px' }} /></button>
                               {/* Con varios bienes marcados abre el resguardo del lote,
                                   igual que el botón de arriba de la tabla. */}
@@ -5187,10 +5237,10 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           acciones={[
             { icon: 'ti-map-pin', label: 'Ir a página',   accion: () => irAlBien(menuFila.bien) },
             { icon: 'ti-eye',     label: 'Consultar',     accion: () => setPanelBien(menuFila.bien) },
-            { icon: 'ti-pencil',  label: 'Modificar',     accion: () => setModalEditar(menuFila.bien), visible: !papelera && !traspasos && !soloLectura },
-            { icon: 'ti-file-text', label: 'Ver resguardo', accion: () => setModalResguardo(menuFila.bien), visible: !papelera && !traspasos && !soloLectura },
-            { icon: 'ti-arrows-exchange', label: 'Traspaso', accion: () => setModalTrasp(menuFila.bien), visible: !papelera && !traspasos && !soloLectura },
-            { icon: 'ti-circle-minus', label: 'Solicitar baja', accion: () => solicitarBajaUno(menuFila.bien), visible: !papelera && !traspasos && !soloLectura, separador: true },
+            { icon: 'ti-pencil',  label: 'Modificar',     accion: () => setModalEditar(menuFila.bien), visible: !papelera && !traspasos && !bajas && !soloLectura },
+            { icon: 'ti-file-text', label: 'Ver resguardo', accion: () => setModalResguardo(menuFila.bien), visible: !papelera && !traspasos && !bajas && !soloLectura },
+            { icon: 'ti-arrows-exchange', label: 'Traspaso', accion: () => setModalTrasp(menuFila.bien), visible: !papelera && !traspasos && !bajas && !soloLectura },
+            { icon: 'ti-circle-minus', label: 'Solicitar baja', accion: () => solicitarBajaUno(menuFila.bien), visible: !papelera && !traspasos && !bajas && !soloLectura, separador: true },
             { icon: 'ti-arrow-back-up', label: 'Restaurar al inventario', accion: () => setConfirmaRestaurar(menuFila.bien), visible: papelera, separador: true },
           ]} />
       )}
@@ -5211,7 +5261,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         modo={modo}
         traspasos={traspasos}
         seleccionados={[...seleccionados.keys()]}
-        filtros={{ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, traspasos, areasPermitidas }}
+        filtros={{ modo, busqueda, filtroBien, filtroEstado, filtroAreaIds: areasSelec, traspasos, bajas, areasPermitidas }}
         totalFiltrados={totalRegistros}
       />}
       {modalSolicitar && <ModalSolicitarBaja

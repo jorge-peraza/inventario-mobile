@@ -497,6 +497,27 @@ function nombreCategoria(r, cats) {
 }
 
 // Agrupa filas por categoría conservando orden de aparición
+// Ordena por la clave del inmueble leyendo su número como número, no como texto:
+// así "02-BOL" va antes que "899-BOL" en vez de después. Cada categoría usa un
+// solo sufijo (BOL, CC, E, EDU, EDYR, PN, PL, I, VIA), pero se compara también
+// por si alguna llega a mezclarlos.
+//
+// Las claves que no llevan número —"PEND-14", "SIN CLAVE"— se van al final,
+// ordenadas entre ellas, para no encabezar la lista con lo que está pendiente.
+function ordenPorClave(a, b) {
+  const partes = c => {
+    const t = String(c ?? '').trim().toUpperCase()
+    const m = /^(\d+)\s*-\s*(.+)$/.exec(t)
+    return m ? { n: Number(m[1]), sufijo: m[2], t } : { n: null, sufijo: '', t }
+  }
+  const x = partes(a.claveinmueble), y = partes(b.claveinmueble)
+  if ((x.n === null) !== (y.n === null)) return x.n === null ? 1 : -1
+  if (x.n === null) return x.t.localeCompare(y.t, 'es', { numeric: true })
+  if (x.sufijo !== y.sufijo) return x.sufijo.localeCompare(y.sufijo, 'es')
+  if (x.n !== y.n) return x.n - y.n
+  return x.t.localeCompare(y.t, 'es', { numeric: true })
+}
+
 function agruparPorCategoria(rows, cats) {
   const grupos = new Map()
   for (const r of rows) {
@@ -504,6 +525,9 @@ function agruparPorCategoria(rows, cats) {
     if (!grupos.has(nombre)) grupos.set(nombre, [])
     grupos.get(nombre).push(r)
   }
+  // Dentro de cada categoría, en orden de clave. La consulta las trae por
+  // consecutivo, que es el orden en que se capturaron y salta de 899 a 02.
+  for (const items of grupos.values()) items.sort(ordenPorClave)
   return grupos
 }
 
@@ -810,10 +834,18 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
       if (!primero) fila += 3       // 3 renglones en blanco entre categorías
       primero = false
 
-      // Banda con el nombre de la categoría, combinada a lo ancho de la tabla
+      // Banda con el nombre de la categoría, combinada a lo ancho de la tabla.
+      //
+      // El orden importa: primero el estilo de cada celda, luego la combinación y
+      // hasta el final el texto. ExcelJS reenvía a la celda principal lo que se
+      // escribe en cualquier celda ya combinada, así que escribir '' en las de la
+      // derecha borraba el nombre que se acababa de poner en la primera —por eso
+      // la banda salía vacía en el Excel y sí con texto en el PDF.
+      dataCols.forEach((c, idx) => headerCell(ws.getCell(fila, idx + 1), ''))
       ws.mergeCells(fila, 1, fila, dataCols.length)
-      dataCols.forEach((c, idx) => headerCell(ws.getCell(fila, idx + 1), idx === 0 ? nombre.toUpperCase() : ''))
-      ws.getCell(fila, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+      const banda = ws.getCell(fila, 1)
+      banda.value = nombre.toUpperCase()
+      banda.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
       fila++
 
       // Debajo, el encabezado de columnas

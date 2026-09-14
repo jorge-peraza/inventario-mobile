@@ -12,10 +12,10 @@ const CUENTAS = {
 export const PAGINAS_POR_ROL = {
   admin:           ['dashboard', 'bienes', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
   admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'reportes'],
-  // Una dependencia solo consulta lo suyo: su inicio y el inventario, de donde
-  // además saca sus reportes. No entra a traspasos, papelera, reconteo ni
-  // usuarios.
-  dependencia:     ['index-dep', 'bienes'],
+  // Una dependencia consulta lo suyo: su inicio, el inventario vigente y el
+  // histórico de lo que salió —traspasos y bajas—, de donde además saca sus
+  // reportes. No entra a papelera, reconteo ni usuarios.
+  dependencia:     ['index-dep', 'bienes', 'traspasos', 'bajas'],
 }
 
 export function paginaInicio(rol) {

@@ -169,7 +169,8 @@ const COLS_BAJAS = [
   { key: 'marca',       label: 'MARCA',           m: 'Marca',           w: 16, grupo: 'DESCRIPCIÓN' },
   { key: 'tipo',        label: 'TIPO / MODELO',   m: 'Tipo / Modelo',   w: 18, grupo: 'DESCRIPCIÓN' },
   { key: 'serie',       label: 'SERIE',           m: 'Serie',           w: 20, grupo: 'DESCRIPCIÓN' },
-  { key: 'area',         label: 'ÁREA DE ADSCRIPCIÓN',   m: 'Área de adscripción',   w: 30 },
+  // 'areaadscripcion' imprime "DEPENDENCIA / ÁREA"; 'area' solo traía el área
+  { key: 'areaadscripcion', label: 'ÁREA DE ADSCRIPCIÓN', m: 'Área de adscripción', w: 30 },
   { key: 'valorfactura', label: 'VALOR FACTURA / AVALÚO', m: 'Valor factura / avalúo', w: 18 },
   { key: 'numerofactura', label: 'FACTURA / AVALÚO',      m: 'Factura / avalúo',       w: 18 },
   { key: 'numero_oficio', label: 'NÚMERO DE OFICIO',      m: 'Número de oficio',       w: 22 },
@@ -187,30 +188,62 @@ function searchBoxStyle(dark) {
 }
 function fmt(n) { return n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$ —' }
 
-function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInicial }) {
+function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInicial, esConfirmadas = true }) {
   const haySel = seleccionados.length > 0
-  const [colsSel, setColsSel] = useState(() => new Set(COLS_BAJAS.map(c => c.key)))
+  // En bajas confirmadas el periodo va por la fecha en que cabildo autorizó la
+  // baja; en solicitudes, por la fecha en que se pidió.
+  const campoFecha = esConfirmadas ? 'fecha_baja' : 'fecha_solicitud_baja'
+  const COLS = useMemo(() => {
+    const col = esConfirmadas
+      ? { key: 'fecha_baja',           label: 'FECHA DE BAJA',      m: 'Fecha de baja',      w: 15, noWrap: true }
+      : { key: 'fecha_solicitud_baja', label: 'FECHA DE SOLICITUD', m: 'Fecha de solicitud', w: 16, noWrap: true }
+    // La fecha entra antes de NÚMERO DE OFICIO, que va siempre al final
+    return [...COLS_BAJAS.slice(0, -1), col, COLS_BAJAS[COLS_BAJAS.length - 1]]
+  }, [esConfirmadas])
+
+  const [colsSel, setColsSel] = useState(() => new Set(COLS.map(c => c.key)))
   const [alcance, setAlcance] = useState(haySel ? 'seleccion' : 'todos')
   const [titulo, setTitulo]   = useState(tituloInicial || '')
+  // Vacías = todas las bajas, que es como venía funcionando
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
 
   function toggleCol(key) { setColsSel(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n }) }
-  const todasCols = colsSel.size === COLS_BAJAS.length
-  function toggleTodas() { setColsSel(todasCols ? new Set() : new Set(COLS_BAJAS.map(c => c.key))) }
+  const todasCols = colsSel.size === COLS.length
+  function toggleTodas() { setColsSel(todasCols ? new Set() : new Set(COLS.map(c => c.key))) }
 
   const selSet = new Set(seleccionados)
   const totalSel = seleccionados.length
-  const totalTodos = datos.length
+  const rangoMal = desde && hasta && desde > hasta
+  const hayRango = !!(desde || hasta)
+
+  // El periodo acota la lista completa; sobre lo seleccionado a mano no se
+  // aplica, porque ahí el usuario ya eligió registro por registro.
+  const enPeriodo = useMemo(() => {
+    if (!hayRango) return datos
+    return datos.filter(b => {
+      const f = b[campoFecha]
+      if (!f) return false
+      return (!desde || f >= desde) && (!hasta || f <= hasta)
+    })
+  }, [datos, desde, hasta, hayRango, campoFecha])
+
+  // Cuántas quedan fuera por no tener la fecha capturada
+  const sinFecha = useMemo(() => (hayRango ? datos.filter(b => !b[campoFecha]).length : 0), [datos, hayRango, campoFecha])
+
+  const totalTodos = enPeriodo.length
   const conteoAlcance = alcance === 'seleccion' ? totalSel : totalTodos
 
   async function generar(formato) {
     if (colsSel.size === 0) { setErr('Selecciona al menos una columna'); return }
+    if (rangoMal) { setErr('La fecha de inicio es posterior a la de término'); return }
     setGenerando(formato); setErr(null)
     try {
-      const rows = alcance === 'seleccion' ? datos.filter(d => selSet.has(d.idbien)) : datos
-      if (!rows.length) { setErr('No hay registros para el reporte'); setGenerando(null); return }
-      const cols = COLS_BAJAS.filter(c => colsSel.has(c.key))
+      const rows = alcance === 'seleccion' ? datos.filter(d => selSet.has(d.idbien)) : enPeriodo
+      if (!rows.length) { setErr(hayRango ? 'No hay bajas con fecha en ese periodo' : 'No hay registros para el reporte'); setGenerando(null); return }
+      const cols = COLS.filter(c => colsSel.has(c.key))
       const tit = titulo.trim()
       if (formato === 'excel') await exportarExcelMuebles(rows, cols, tit)
       else                     await exportarPDFMuebles(rows, cols, tit)
@@ -241,6 +274,37 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
         </div>
 
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+          {/* Periodo: de qué fechas traer las bajas. Si se deja vacío salen
+              todas, como antes de que existiera este filtro. */}
+          <div>
+            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>
+              {esConfirmadas ? 'Periodo · fecha de baja' : 'Periodo · fecha de solicitud'} <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0 }}>(opcional)</span>
+            </p>
+            <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginBottom:'5px' }}>Del</p>
+                <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+                  style={{ width:'100%', padding:'9px 11px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'13px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', colorScheme: dark ? 'dark' : 'light', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginBottom:'5px' }}>Al</p>
+                <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+                  style={{ width:'100%', padding:'9px 11px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'13px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', colorScheme: dark ? 'dark' : 'light', boxSizing:'border-box' }} />
+              </div>
+              {hayRango && (
+                <button onClick={() => { setDesde(''); setHasta('') }} title="Quitar el periodo"
+                  style={{ flexShrink:0, height:'36px', padding:'0 11px', borderRadius:'9px', cursor:'pointer', fontFamily:'inherit', fontSize:'12px', background:'transparent', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.15)', color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+                  <i className="ti ti-x" style={{ fontSize:'13px' }} />
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize:'11px', color: rangoMal ? (dark ? '#f4a1a1' : '#c0392b') : (dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)'), marginTop:'6px' }}>
+              {rangoMal ? 'La fecha de inicio es posterior a la de término'
+                : !hayRango ? 'Si lo dejas vacío se incluyen todas las bajas.'
+                : `${totalTodos.toLocaleString()} ${totalTodos === 1 ? 'baja' : 'bajas'} en el periodo${sinFecha ? ` · ${sinFecha.toLocaleString()} sin fecha capturada quedan fuera` : ''}`}
+            </p>
+          </div>
+
           {/* Título */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Título del documento <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0 }}>(opcional)</span></p>
@@ -267,11 +331,11 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
           {/* Columnas */}
           <div>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }}>
-              <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Columnas ({colsSel.size}/{COLS_BAJAS.length})</p>
+              <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Columnas ({colsSel.size}/{COLS.length})</p>
               <button onClick={toggleTodas} style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', fontSize:'12px', color: dark ? '#f0f0f0' : '#000', fontWeight:500 }}>{todasCols ? 'Quitar todas' : 'Todas'}</button>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
-              {COLS_BAJAS.map(c => {
+              {COLS.map(c => {
                 const sel = colsSel.has(c.key)
                 return (
                   <div key={c.key} onClick={() => toggleCol(c.key)} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', borderRadius:'8px', cursor:'pointer', border:`1px solid ${sel ? (dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)') : (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')}`, background: sel ? (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)') : 'transparent', transition:'all 0.12s' }}>
@@ -330,6 +394,24 @@ function ordenarPorFactura(rows) {
   })
 }
 
+// Deja juntas las bajas de una misma dependencia y, dentro de ella, de una misma
+// área. La consulta las trae por consecutivo, que se reinicia en cada área: al
+// juntar todas las dependencias quedaban intercaladas.
+//
+// Dentro del área van por clave de inventario, que es como están acomodadas en
+// los Excel. Solo cambia el orden de los renglones: no agrupa ni quita ninguno.
+function ordenarPorArea(rows) {
+  const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { numeric: true, sensitivity: 'base' })
+  // Las que no tienen área caen al final en vez de encabezar la lista
+  const dep  = b => (b.dependencia && b.dependencia !== '—' ? b.dependencia : 'ZZZZ')
+  const area = b => (b.area && b.area !== '—' ? b.area : 'ZZZZ')
+  return [...rows].sort((a, b) =>
+    cmp(dep(a), dep(b)) ||
+    cmp(area(a), area(b)) ||
+    cmp(a.claveinventario, b.claveinventario) ||
+    (a.idbien - b.idbien))
+}
+
 // ── Reporte mensual de ALTAS ──────────────────────────────────────────────────
 // Va por fecha de alta, no por fecha de factura. Esa fecha no vive en una
 // columna: se lee del texto de observaciones, que es donde Oficialía la escribe
@@ -362,8 +444,41 @@ function textoPeriodo(desde, hasta) {
   return a && b ? `DEL ${a} AL ${b}`.toUpperCase() : ''
 }
 
+// Un solo reporte de altas con cuatro formas de elegir el periodo:
+//
+//    Mes        del 27 al 26, que es el corte con el que se entrega
+//    Trimestre  ene–mar · abr–jun · jul–sep · oct–dic
+//    Semestre   ene–jun · jul–dic
+//    Fechas     las que se quieran
+//
+// Elegir un modo solo rellena las dos fechas; el filtro siempre trabaja con
+// ellas, así que tocar Del o Al a mano vale y cambia el modo a "Fechas".
+const TRIMESTRES = [
+  { id: '1', label: '1er trimestre (Ene–Mar)', corto: '1ER TRIMESTRE', ini: '01-01', fin: '03-31' },
+  { id: '2', label: '2do trimestre (Abr–Jun)', corto: '2DO TRIMESTRE', ini: '04-01', fin: '06-30' },
+  { id: '3', label: '3er trimestre (Jul–Sep)', corto: '3ER TRIMESTRE', ini: '07-01', fin: '09-30' },
+  { id: '4', label: '4to trimestre (Oct–Dic)', corto: '4TO TRIMESTRE', ini: '10-01', fin: '12-31' },
+]
+const SEMESTRES = [
+  { id: '1', label: '1er semestre (Ene–Jun)', corto: '1ER SEMESTRE', ini: '01-01', fin: '06-30' },
+  { id: '2', label: '2do semestre (Jul–Dic)', corto: '2DO SEMESTRE', ini: '07-01', fin: '12-31' },
+]
+const MODOS_ALTAS = [
+  { id: 'mes',       label: 'Mes' },
+  { id: 'trimestre', label: 'Trimestre' },
+  { id: 'semestre',  label: 'Semestre' },
+  { id: 'fechas',    label: 'Fechas' },
+]
+// El periodo en el que cae hoy, para abrir en el que se va a pedir
+const trimestreDeHoy = (d = new Date()) => String(Math.floor(d.getMonth() / 3) + 1)
+const semestreDeHoy  = (d = new Date()) => String(d.getMonth() < 6 ? 1 : 2)
+
 function ModalReporteAltas({ allAreas, onClose, dark, t }) {
   const inicial = periodoDeCorte()
+  const [modo, setModo]   = useState('mes')
+  const [anio, setAnio]   = useState(new Date().getFullYear())
+  const [trim, setTrim]   = useState(trimestreDeHoy)
+  const [sem, setSem]     = useState(semestreDeHoy)
   const [desde, setDesde] = useState(inicial.desde)
   const [hasta, setHasta] = useState(inicial.hasta)
   const [areasSelec, setAreasSelec] = useState([])
@@ -383,7 +498,20 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
     return () => { vivo = false }
   }, [])
 
-  // Las dos fechas entran en el periodo: del 27 al 27, ambos incluidos.
+  // El modo elegido manda sobre las fechas; en "Fechas" no se tocan
+  useEffect(() => {
+    if (modo === 'fechas') return
+    if (modo === 'mes') { const p = periodoDeCorte(); setDesde(p.desde); setHasta(p.hasta); return }
+    const op = (modo === 'trimestre' ? TRIMESTRES : SEMESTRES).find(o => o.id === (modo === 'trimestre' ? trim : sem))
+    if (op) { setDesde(`${anio}-${op.ini}`); setHasta(`${anio}-${op.fin}`) }
+  }, [modo, anio, trim, sem])
+
+  function fechaAMano(cual, valor) {
+    setModo('fechas')
+    if (cual === 'desde') setDesde(valor); else setHasta(valor)
+  }
+
+  // Las dos fechas entran en el periodo, ambas incluidas.
   const delMes = useMemo(() => {
     const enArea = areasSelec.length ? todas.filter(b => areasSelec.includes(b.idarea)) : todas
     return enArea.filter(b => b.fechaalta && (!desde || b.fechaalta >= desde) && (!hasta || b.fechaalta <= hasta))
@@ -392,7 +520,11 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
   }, [todas, desde, hasta, areasSelec])
 
   const importeMes = delMes.reduce((s, b) => s + (Number(b.costoinicial) || 0), 0)
-  const nombreMes = textoPeriodo(desde, hasta)
+  // En trimestre y semestre el documento se titula por su nombre, no por las
+  // fechas: "3ER TRIMESTRE DE 2026" dice más que "DEL 1 DE JULIO AL 30 DE…"
+  const nombreMes = modo === 'trimestre' ? `${(TRIMESTRES.find(o => o.id === trim) || {}).corto} DE ${anio}`
+    : modo === 'semestre' ? `${(SEMESTRES.find(o => o.id === sem) || {}).corto} DE ${anio}`
+    : textoPeriodo(desde, hasta)
   const rangoMal = desde && hasta && desde > hasta
 
   useEffect(() => { setTitulo(`REPORTE DE ALTAS BIENES MUEBLES ${nombreMes}`) }, [nombreMes])
@@ -422,7 +554,7 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
               <i className="ti ti-calendar-plus" style={{ fontSize:'18px', color: t.text1 }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte mensual de altas</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de altas</p>
               <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Por fecha de alta, no por fecha de factura</p>
             </div>
           </div>
@@ -431,9 +563,47 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
           </button>
         </div>
         <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          {/* Periodo */}
+          <div>
+            <p style={lbl}>Periodo</p>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+              {MODOS_ALTAS.map(m => (
+                <button key={m.id} onClick={() => setModo(m.id)}
+                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: modo === m.id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: modo === m.id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: modo === m.id ? t.text1 : t.text3 }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Trimestre o semestre + año */}
+          {(modo === 'trimestre' || modo === 'semestre') && (
+            <div style={{ display:'flex', gap:'10px' }}>
+              <div style={{ flex:2 }}>
+                <p style={lbl}>{modo === 'trimestre' ? 'Trimestre' : 'Semestre'}</p>
+                {modo === 'trimestre'
+                  ? <select value={trim} onChange={e => setTrim(e.target.value)} style={inputStyle}>
+                      {TRIMESTRES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  : <select value={sem} onChange={e => setSem(e.target.value)} style={inputStyle}>
+                      {SEMESTRES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>}
+              </div>
+              <div style={{ flex:1 }}>
+                <p style={lbl}>Año</p>
+                <select value={anio} onChange={e => setAnio(Number(e.target.value))} style={inputStyle}>
+                  {Array.from({ length: 8 }, (_, i) => new Date().getFullYear() - i)
+                    .map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Las fechas siempre a la vista: el modo solo las rellena, y editarlas
+              a mano es válido —pasa el periodo a "Fechas". */}
           <div style={{ display:'flex', gap:'10px' }}>
-            <div style={{ flex:1 }}><p style={lbl}>Del</p><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></div>
-            <div style={{ flex:1 }}><p style={lbl}>Al</p><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></div>
+            <div style={{ flex:1 }}><p style={lbl}>Del</p><input type="date" value={desde} onChange={e => fechaAMano('desde', e.target.value)} style={inputStyle} /></div>
+            <div style={{ flex:1 }}><p style={lbl}>Al</p><input type="date" value={hasta} onChange={e => fechaAMano('hasta', e.target.value)} style={inputStyle} /></div>
           </div>
           <div><p style={lbl}>Dependencias</p><GroupedAreaSelector areas={allAreas} selected={areasSelec} onChange={setAreasSelec} dark={dark} /></div>
           <div><p style={lbl}>Título del documento</p><input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} style={inputStyle} /></div>
@@ -483,6 +653,8 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   async function generar(formato) {
     setGenerando(formato); setErr(null)
     try {
+      // Estos cuatro van por FECHA DE FACTURA. El que va por fecha de alta es el
+      // Reporte de Altas, que es otro modal.
       let rows = ordenarPorFactura(await fetchPorFechaFactura({ desde, hasta, areaIds: areasSelec }))
       if (!rows.length) { setErr('No hay registros en ese rango de fechas'); setGenerando(null); return }
       // El reporte de bienes lleva sus propias columnas y numeración corrida
@@ -685,11 +857,16 @@ export default function Reportes({ user, onNavigate }) {
     return false
   }
 
-  const filtrados = datos.filter(b =>
+  // Ordenadas por dependencia y área: así la tabla y el reporte que sale de ella
+  // no mezclan bienes de una dependencia con los de otra.
+  const filtrados = useMemo(() => ordenarPorArea(datos.filter(b =>
     coincide(b) &&
     (!qb || (b.nombrebien || '').toLowerCase().includes(qb) || (b.tipo || '').toLowerCase().includes(qb) || (b.marca || '').toLowerCase().includes(qb)) &&
     (areasSelec.length === 0 || areasSet.has(b.idarea))
-  )
+  // areasSet se rehace en cada render y sale de areasSelec, que sí está en la
+  // lista: incluirlo dejaría el useMemo sin efecto.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  )), [datos, busqueda, qb, areasSelec])
 
   useEffect(() => { setPagina(0) }, [vista, busqueda, filtroBien, porPagina, areasSelec])
   const totalPag = Math.max(1, Math.ceil(filtrados.length / porPagina))
@@ -764,8 +941,9 @@ export default function Reportes({ user, onNavigate }) {
                   { id: 'anual',      icon: 'ti-file-text',    label: 'Reporte Anual',         hint: 'Facturas del último año',      value: conteoPeriodo.anual,      color: t.text2 },
                   { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Conciliación', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
                   { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',        hint: 'Inventario detallado por fecha',  value: null,                  color: t.text2 },
-                  // Va por fecha de alta, no por fecha de factura
-                  { id: 'altas',      icon: 'ti-calendar-plus', label: 'Altas del Mes',         hint: 'Por fecha de alta, no de factura', value: null,                 color: t.text2 },
+                  // Va por fecha de alta, no por fecha de factura. Adentro se
+                  // elige el periodo: mes, trimestre, semestre o fechas libres.
+                  { id: 'altas', icon: 'ti-calendar-plus', label: 'Reporte de Altas', hint: 'Mes · trimestre · semestre', value: null, color: t.text2 },
                 ].map(p => (
                   <button key={p.id} onClick={() => {
                     if (p.id === 'adquisiciones') setModalAdquisiciones(true)
@@ -925,7 +1103,15 @@ export default function Reportes({ user, onNavigate }) {
                               <td style={tdBase()}><span style={{ color: t.text2 }}>{b.marca || '—'}</span></td>
                               <td style={tdBase()}><span style={{ color: t.text2 }}>{b.tipo || '—'}</span></td>
                               <td style={tdBase()}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{b.serie || '—'}</span></td>
-                              <td style={{ ...tdBase(), maxWidth: '170px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}><span style={{ color: t.text2 }}>{b.area || '—'}</span></td>
+                              {/* Área y, debajo, la dependencia a la que pertenece. Se
+                                  omite cuando ambas se llaman igual, para no repetir
+                                  el texto. Igual que en la tabla de Bienes Muebles. */}
+                              <td style={{ ...tdBase(), maxWidth: '170px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                <span style={{ color: t.text2, lineHeight: 1.3, display: 'block' }}>{b.area || '—'}</span>
+                                {b.dependencia && b.dependencia.toUpperCase() !== String(b.area || '').toUpperCase() && (
+                                  <span style={{ color: t.text4, fontSize: '11px', lineHeight: 1.3, display: 'block', marginTop: '2px' }}>{b.dependencia}</span>
+                                )}
+                              </td>
                               <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text2, fontWeight: 500 }}>{fmt(b.costoinicial)}</span></td>
                               <td style={tdBase()}><span style={{ color: t.text3, fontSize: '11px' }}>{b.numerofactura && b.numerofactura !== 'SIN FACTURA' ? b.numerofactura : 'SIN FACTURA'}</span></td>
                               <td style={{ ...tdBase(), whiteSpace: 'nowrap' }}><span style={{ color: t.text3, fontSize: '12px' }}>{fmtFecha(esConfirmadas ? fechasDeBaja(b).confirmacion : fechasDeBaja(b).solicitud)}</span></td>
@@ -1015,6 +1201,7 @@ export default function Reportes({ user, onNavigate }) {
       {modalConfig && <ModalConfigReporte config={modalConfig === 'nuevo' ? null : modalConfig} allAreas={allAreas} onClose={() => setModalConfig(null)} onGuardar={guardarReporte} dark={dark} t={t} />}
       {modalPreview && <ModalPreviewReporte config={modalPreview} onClose={() => setModalPreview(null)} dark={dark} t={t} />}
       {modalReporte && <ModalReporteBajas onClose={() => setModalReporte(false)} dark={dark} t={t} datos={filtrados} seleccionados={[...seleccionados]}
+        esConfirmadas={esConfirmadas}
         tituloInicial={`${esConfirmadas ? 'BAJAS CONFIRMADAS' : 'SOLICITUD DE BAJAS'} HAN ${mesAnioActual()}`} />}
       <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} } @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
     </div>

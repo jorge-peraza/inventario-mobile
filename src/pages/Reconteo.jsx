@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../supabase'
-import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './BienesMuebles'
+import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion, exportarExcelMuebles, exportarPDFMuebles } from './BienesMuebles'
 import { bienesDeArea } from '../movil/datos'
+import { reabrirRemoto } from '../movil/sincronizar'
 
 // ── Reconteo (escritorio) ────────────────────────────────────────────────────
 // El conteo físico se levanta desde el celular; aquí se consulta lo que quedó.
@@ -65,8 +66,221 @@ function Deslizante({ valor, onCambio, opciones, dark, t }) {
   )
 }
 
+// ── Reporte de un reconteo ───────────────────────────────────────────────────
+// Columnas del acta de conteo físico. Van sin el grupo DESCRIPCIÓN porque aquí
+// no se describe el bien: se deja constancia de si apareció y cómo.
+const COLS_RECONTEO = [
+  { key: 'clave',          label: 'CLAVE DE INVENTARIO',    m: 'Clave de inventario',    w: 20, noWrap: true },
+  { key: 'nombre',         label: 'NOMBRE DEL BIEN',        m: 'Nombre del bien',        w: 40, align: 'left' },
+  { key: 'resguardante',   label: 'RESGUARDATARIO',         m: 'Resguardatario',         w: 30, align: 'left' },
+  { key: 'estadoreconteo', label: 'RESULTADO',              m: 'Resultado',              w: 18 },
+  { key: 'metodotexto',    label: 'MÉTODO',                 m: 'Método',                 w: 14 },
+  { key: 'fechaverif',     label: 'FECHA DE VERIFICACIÓN',  m: 'Fecha de verificación',  w: 22, noWrap: true },
+  { key: 'observacion',    label: 'OBSERVACIÓN DEL CONTEO', m: 'Observación del conteo', w: 34, align: 'left' },
+  { key: 'obsBien',        label: 'OBSERVACIONES DEL BIEN', m: 'Observaciones del bien', w: 34, align: 'left' },
+]
+
+const ALCANCES = [
+  { id: 'todos',  label: 'Todos' },
+  { id: 'ok',     label: 'Verificados' },
+  { id: 'faltan', label: 'No encontrados' },
+]
+
+// Deja cada renglón listo para el documento: los exportadores leen el valor tal
+// cual de la fila, así que lo que se calcula se guarda aquí como texto.
+function filasParaReporte(bienes) {
+  return bienes.map((b, i) => ({
+    ...b,
+    no: i + 1,
+    estadoreconteo: b.encontrado ? 'VERIFICADO' : 'NO ENCONTRADO',
+    metodotexto: !b.encontrado ? '' : b.metodo === 'qr' ? 'ETIQUETA' : b.metodo === 'manual' ? 'A MANO' : '',
+    fechaverif: b.fecha ? fmtFechaHora(b.fecha) : '',
+  }))
+}
+
+function ModalReporteReconteo({ reconteo, onClose, dark, t }) {
+  const [alcance, setAlcance] = useState('todos')
+  const [colsSel, setColsSel] = useState(() => new Set(COLS_RECONTEO.map(c => c.key)))
+  const [titulo, setTitulo]   = useState('')
+  const [generando, setGenerando] = useState(null)
+  const [err, setErr] = useState(null)
+  const [cargando, setCargando] = useState(true)
+  const [bienes, setBienes] = useState([])
+
+  useEffect(() => {
+    let vivo = true
+    setCargando(true)
+    cargarBienesDeReconteo(reconteo)
+      .then(d => { if (vivo) setBienes(d.bienes) })
+      .catch(e => { if (vivo) setErr(e.message) })
+      .finally(() => { if (vivo) setCargando(false) })
+    return () => { vivo = false }
+  }, [reconteo])
+
+  const area = reconteo.nombrearea || 'ÁREA'
+  const tituloSugerido = `RECONTEO FÍSICO ${String(area).toUpperCase()} · ${fmtFecha(reconteo.inicio).toUpperCase()}`
+  useEffect(() => { setTitulo(tituloSugerido) }, [tituloSugerido])
+
+  const encontrados = bienes.filter(b => b.encontrado).length
+  const faltan = bienes.length - encontrados
+  const filas = useMemo(() => bienes.filter(b =>
+    alcance === 'todos' ? true : alcance === 'ok' ? b.encontrado : !b.encontrado
+  ), [bienes, alcance])
+
+  function toggleCol(key) { setColsSel(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n }) }
+  const todasCols = colsSel.size === COLS_RECONTEO.length
+
+  async function generar(formato) {
+    if (colsSel.size === 0) { setErr('Selecciona al menos una columna'); return }
+    setGenerando(formato); setErr(null)
+    try {
+      if (!filas.length) { setErr('No hay bienes en esa selección'); setGenerando(null); return }
+      const rows = filasParaReporte(filas)
+      const cols = COLS_RECONTEO.filter(c => colsSel.has(c.key))
+      const tit = titulo.trim()
+      if (formato === 'excel') await exportarExcelMuebles(rows, cols, tit)
+      else                     await exportarPDFMuebles(rows, cols, tit)
+      onClose()
+    } catch (e) { setErr(e.message) } finally { setGenerando(null) }
+  }
+
+  const inputStyle = { width:'100%', padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'13px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', boxSizing:'border-box' }
+  const lbl = { fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }
+  const conteo = { todos: bienes.length, ok: encontrados, faltan }
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', minWidth:0 }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', flexShrink:0, background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-file-export" style={{ fontSize:'18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
+            </div>
+            <div style={{ minWidth:0 }}>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte del reconteo</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {area} · {fmtFechaHora(reconteo.inicio)}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', flexShrink:0, borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+          {/* Qué bienes entran */}
+          <div>
+            <p style={lbl}>Bienes a incluir</p>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+              {ALCANCES.map(a => (
+                <button key={a.id} onClick={() => setAlcance(a.id)}
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'8px 10px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: alcance === a.id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === a.id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === a.id ? t.text1 : t.text3 }}>
+                  {a.label} ({cargando ? '…' : conteo[a.id].toLocaleString()})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Título */}
+          <div>
+            <p style={lbl}>Título del documento <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0 }}>(opcional)</span></p>
+            <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={tituloSugerido} style={inputStyle} />
+          </div>
+
+          {/* Columnas */}
+          <div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }}>
+              <p style={{ ...lbl, marginBottom:0 }}>Columnas ({colsSel.size}/{COLS_RECONTEO.length})</p>
+              <button onClick={() => setColsSel(todasCols ? new Set() : new Set(COLS_RECONTEO.map(c => c.key)))}
+                style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', fontSize:'12px', color: dark ? '#f0f0f0' : '#000', fontWeight:500 }}>
+                {todasCols ? 'Quitar todas' : 'Todas'}
+              </button>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
+              {COLS_RECONTEO.map(c => {
+                const sel = colsSel.has(c.key)
+                return (
+                  <div key={c.key} onClick={() => toggleCol(c.key)} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', borderRadius:'8px', cursor:'pointer', border:`1px solid ${sel ? (dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)') : (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')}`, background: sel ? (dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)') : 'transparent', transition:'all 0.12s' }}>
+                    <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: sel ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {sel && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
+                    </div>
+                    <span style={{ fontSize:'13px', color: dark ? '#f0f0f0' : '#111', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.m}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+        </div>
+
+        <div style={{ padding:'1rem 1.5rem 1.25rem', display:'flex', gap:'8px', borderTop: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)', flexShrink:0 }}>
+          <button onClick={() => generar('excel')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: (generando || cargando) ? 'not-allowed' : 'pointer', opacity: cargando ? 0.5 : 1, background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+            {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize:'16px' }} />Excel</>}
+          </button>
+          <button onClick={() => generar('pdf')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: (generando || cargando) ? 'not-allowed' : 'pointer', opacity: cargando ? 0.5 : 1, background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+            {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize:'16px' }} />PDF</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
+  )
+}
+
+// Arma la lista de un reconteo: los bienes que el área tiene hoy según la base,
+// cruzados con lo que el celular alcanzó a registrar. La usan el detalle y el
+// reporte, para que los dos digan exactamente lo mismo.
+async function cargarBienesDeReconteo(reconteo) {
+  // Se pagina la consulta: un área grande pasa del tope de filas que la base
+  // devuelve de una vez, y entonces faltaban bienes en la lista.
+  const PAGINA = 1000
+  let filas = [], desde = 0
+  while (true) {
+    const { data, error } = await supabase.from('reconteo_bienes').select('*')
+      .eq('idreconteo', reconteo.idreconteo).order('clave')
+      .range(desde, desde + PAGINA - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    filas = filas.concat(data)
+    if (data.length < PAGINA) break
+    desde += PAGINA
+  }
+  // Los bienes del área salen de la base, no de lo que haya subido el celular:
+  // así la lista está completa desde el primer escaneo y el conteo no depende de
+  // que ese teléfono termine de sincronizar. De los renglones del reconteo se
+  // toma lo que solo ellos saben: si el bien apareció, cuándo, cómo y con qué
+  // observación.
+  const verificados = new Map(filas.map(f => [f.idbien, f]))
+  const delArea = await bienesDeArea(reconteo.idarea)
+  const completa = delArea.map(b => {
+    const v = verificados.get(b.idbien)
+    verificados.delete(b.idbien)
+    return {
+      idbien: b.idbien, clave: b.clave, nombre: b.nombre, resguardante: b.resguardante,
+      encontrado: !!v?.encontrado, metodo: v?.metodo || null, fecha: v?.fecha || null,
+      // La del conteo y la que ya traía el bien se guardan aparte: solo la
+      // primera cuenta como "con observación" del reconteo.
+      observacion: v?.observacion || null, obsBien: b.observaciones || null,
+    }
+  })
+  // Lo que se contó y ya no está en el área (se traspasó o se dio de baja
+  // después del conteo) no se pierde: se queda al final de la lista.
+  const fuera = [...verificados.values()]
+
+  const a = await supabase.from('reconteo_ajenos').select('*').eq('idreconteo', reconteo.idreconteo)
+  return { bienes: [...completa, ...fuera], ajenos: a.error ? [] : (a.data || []) }
+}
+
 // ── Detalle de un reconteo ───────────────────────────────────────────────────
-function Detalle({ reconteo, onVolver, dark, t, card }) {
+function Detalle({ reconteo, onVolver, onCambio, dark, t, card }) {
+  const [reabriendo, setReabriendo] = useState(false)
   const [bienes, setBienes]   = useState([])
   const [ajenos, setAjenos]   = useState([])
   const [cargando, setCargando] = useState(true)
@@ -82,46 +296,10 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
     setCargando(true); setError(null)
     ;(async () => {
       try {
-        // Se pagina la consulta: un área grande pasa del tope de filas que la
-        // base devuelve de una vez, y entonces faltaban bienes en la lista.
-        const PAGINA = 1000
-        let filas = [], desde = 0
-        while (true) {
-          const { data, error } = await supabase.from('reconteo_bienes').select('*')
-            .eq('idreconteo', reconteo.idreconteo).order('clave')
-            .range(desde, desde + PAGINA - 1)
-          if (error) throw error
-          if (!data || data.length === 0) break
-          filas = filas.concat(data)
-          if (data.length < PAGINA) break
-          desde += PAGINA
-        }
-        // Los bienes del área salen de la base, no de lo que haya subido el
-        // celular: así la lista está completa desde el primer escaneo y el
-        // conteo no depende de que ese teléfono termine de sincronizar. De los
-        // renglones del reconteo se toma lo que solo ellos saben: si el bien
-        // apareció, cuándo, cómo y con qué observación.
-        const verificados = new Map(filas.map(f => [f.idbien, f]))
-        const delArea = await bienesDeArea(reconteo.idarea)
-        const completa = delArea.map(b => {
-          const v = verificados.get(b.idbien)
-          verificados.delete(b.idbien)
-          return {
-            idbien: b.idbien, clave: b.clave, nombre: b.nombre, resguardante: b.resguardante,
-            encontrado: !!v?.encontrado, metodo: v?.metodo || null, fecha: v?.fecha || null,
-            // La del conteo y la que ya traía el bien se guardan aparte: solo la
-            // primera cuenta como "con observación" del reconteo.
-            observacion: v?.observacion || null, obsBien: b.observaciones || null,
-          }
-        })
-        // Lo que se contó y ya no está en el área (se traspasó o se dio de baja
-        // después del conteo) no se pierde: se queda al final de la lista.
-        const fuera = [...verificados.values()]
-
-        const a = await supabase.from('reconteo_ajenos').select('*').eq('idreconteo', reconteo.idreconteo)
+        const { bienes, ajenos } = await cargarBienesDeReconteo(reconteo)
         if (!vivo) return
-        setBienes([...completa, ...fuera])
-        setAjenos(a.error ? [] : (a.data || []))
+        setBienes(bienes)
+        setAjenos(ajenos)
       } catch (e) { if (vivo) setError(e.message) }
       finally { if (vivo) setCargando(false) }
     })()
@@ -167,9 +345,26 @@ function Detalle({ reconteo, onVolver, dark, t, card }) {
             </p>
           </div>
         </div>
-        {(() => { const c = chipEstado(dark, reconteo.fin ? 'cerrado' : 'curso'); return (
-          <span style={{ ...c.style, padding: '5px 12px', fontSize: '12px' }}>{c.label}</span>
-        ) })()}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Un conteo terminado se puede volver a abrir: a veces aparece un bien
+              semanas después y hay que registrarlo en ese mismo conteo. */}
+          {reconteo.fin && (
+            <button onClick={async () => {
+                setReabriendo(true)
+                try { await reabrirRemoto(reconteo.idreconteo); onCambio?.() }
+                catch (e) { console.error(e) } finally { setReabriendo(false) }
+              }}
+              disabled={reabriendo}
+              title="Queda en curso para poder registrar un bien que apareció después"
+              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '9px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '13px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: reabriendo ? 'wait' : 'pointer' }}>
+              <i className={`ti ti-${reabriendo ? 'loader-2' : 'lock-open'}`} style={{ fontSize: '16px', animation: reabriendo ? 'spin 1s linear infinite' : 'none' }} />
+              Volver a abrir
+            </button>
+          )}
+          {(() => { const c = chipEstado(dark, reconteo.fin ? 'cerrado' : 'curso'); return (
+            <span style={{ ...c.style, padding: '5px 12px', fontSize: '12px' }}>{c.label}</span>
+          ) })()}
+        </div>
       </div>
 
       {/* Resumen del conteo */}
@@ -375,6 +570,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
   const [error, setError]     = useState(null)
   const [abierto, setAbierto] = useState(null)   // reconteo en detalle
   const [borrar, setBorrar]   = useState(null)   // reconteo por quitar del historial
+  const [reporte, setReporte] = useState(null)   // reconteo del que se genera el documento
 
   const [busqueda, setBusqueda] = useState('')
   const [dep, setDep]           = useState('')
@@ -434,7 +630,8 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {abierto ? (
-          <Detalle reconteo={abierto} onVolver={() => setAbierto(null)} dark={dark} t={t} card={card} />
+          <Detalle reconteo={abierto} onVolver={() => setAbierto(null)} dark={dark} t={t} card={card}
+            onCambio={async () => { await cargar(); setAbierto(a => (a ? { ...a, fin: null } : a)) }} />
         ) : (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', gap: '12px', flexWrap: 'wrap' }}>
@@ -559,6 +756,11 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
                                       onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                       <i className="ti ti-eye" style={{ fontSize: '14px' }} />
                                     </button>
+                                    <button onClick={e => { e.stopPropagation(); setReporte(r) }} title="Generar reporte de este reconteo"
+                                      style={btnAccion(dark, 'editar')}
+                                      onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                      <i className="ti ti-file-export" style={{ fontSize: '14px' }} />
+                                    </button>
                                     {/* Igual que en el celular: el historial se puede depurar.
                                         Una dependencia solo consulta, así que no le aparece. */}
                                     {!soloLectura && (
@@ -590,6 +792,8 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
           onClose={() => setBorrar(null)}
           onBorrado={() => { setBorrar(null); cargar() }} />
       )}
+
+      {reporte && <ModalReporteReconteo reconteo={reporte} dark={dark} t={t} onClose={() => setReporte(null)} />}
 
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
     </div>

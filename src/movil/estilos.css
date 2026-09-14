@@ -282,6 +282,25 @@
   padding: 16px 16px calc(22px + env(safe-area-inset-bottom));
   text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 12px;
+  /* Con el teclado abierto queda poco alto: la tarjeta se recorre en vez de
+     salirse de la pantalla. */
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Aviso de que hay un código a la vista y falta sostenerlo un momento */
+.movil-escaner .leyendo {
+  position: absolute; z-index: 3;
+  left: 50%; top: calc(46% + 32vw + 18px);
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap;
 }
 .movil-escaner .aviso {
   display: inline-block;

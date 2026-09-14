@@ -7,8 +7,9 @@ import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualiz
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
   cerrarReconteo, borrarReconteo, resumen, fechaCorta, pendientes, marcarSubida,
+  adoptarReconteo, fusionarMarcas, reabrirReconteo,
 } from './reconteo'
-import { subirReconteo, subirAvance, subirPendientes, hayTablas, historialRemoto, detalleRemoto, ajenosRemotos, borrarRemoto, sincronizarBorrados } from './sincronizar'
+import { subirReconteo, subirAvance, subirPendientes, hayTablas, historialRemoto, detalleRemoto, ajenosRemotos, borrarRemoto, sincronizarBorrados, reconteoAbiertoRemoto, reabrirRemoto, quitarMarca } from './sincronizar'
 
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
 
@@ -634,13 +635,28 @@ export function ElegirArea() {
 export function ListaReconteo({ idarea, usuario }) {
   const [rc, setRc] = useState(() => reconteoAbierto(idarea))
 
-  // Antes de retomar un conteo se comprueba contra la base que siga existiendo:
-  // si lo borraron desde la computadora, aquí no debe poder continuarse.
+  // Al entrar se pregunta a la base qué pasa con esta área:
+  //  · lo que se haya borrado desde la computadora se quita de aquí;
+  //  · si hay un conteo en marcha —lo abrió otra persona o se acaba de reabrir—
+  //    se adopta y se sigue en ese, sin tener que empezar uno nuevo.
+  const [buscandoAbierto, setBuscandoAbierto] = useState(true)
   useEffect(() => {
     let vivo = true
-    sincronizarBorrados()
-      .then(quitados => { if (vivo && quitados) setRc(reconteoAbierto(idarea)) })
-      .catch(() => {})
+    ;(async () => {
+      try {
+        const quitados = await sincronizarBorrados().catch(() => 0)
+        if (vivo && quitados) setRc(reconteoAbierto(idarea))
+        if (reconteoAbierto(idarea)) return
+        const remoto = await reconteoAbiertoRemoto(idarea).catch(() => null)
+        if (!vivo || !remoto) return
+        const [marcas, bienes] = await Promise.all([
+          detalleRemoto(remoto.idreconteo).catch(() => []),
+          bienesDeArea(idarea).catch(() => []),
+        ])
+        if (!vivo) return
+        setRc(adoptarReconteo({ cabecera: remoto, marcas: marcas || [], bienes }))
+      } finally { if (vivo) setBuscandoAbierto(false) }
+    })()
     return () => { vivo = false }
   }, [idarea])
   const [area, setArea] = useState(null)
@@ -672,8 +688,23 @@ export function ListaReconteo({ idarea, usuario }) {
     return () => window.removeEventListener('reconteo-cambiado', alCambiar)
   }, [idarea])
 
-  // Lo contado se va guardando en la base conforme avanza, no solo al cerrar:
-  // el teléfono queda como respaldo para poder seguir sin señal.
+  // Marcar o quitar la marca desde la lista escribe en la base en el momento,
+  // igual que al escanear: si no, lo que se palomea a mano solo quedaba en este
+  // teléfono hasta la siguiente ronda y la otra persona no lo veía.
+  function alternarMarca(e) {
+    if (!rc) return
+    if (e.verificado) {
+      desmarcar(rc.id, e.clave)
+      quitarMarca(rc.id, e.clave).catch(() => {})
+    } else {
+      marcar(rc.id, e.clave, 'manual')
+      subirAvance(reconteo(rc.id), [e.clave]).catch(() => {})
+    }
+    setRc(reconteo(rc.id))
+  }
+
+  // Red de seguridad: lo que no haya alcanzado a subir —sin señal— se reintenta
+  // en cuanto se pueda, sin frenar el conteo.
   const yaSubidas = useRef(new Set())
   useEffect(() => {
     if (!rc) return
@@ -689,6 +720,14 @@ export function ListaReconteo({ idarea, usuario }) {
     setIniciando(true); setError(null)
     try {
       const bienes = await bienesDeArea(idarea)
+      // Si otra persona ya abrió el conteo de esta área, se cuenta en el suyo
+      // en vez de abrir uno aparte: el área se recuenta una vez, no dos.
+      const remoto = await reconteoAbiertoRemoto(idarea).catch(() => null)
+      if (remoto) {
+        const marcas = await detalleRemoto(remoto.idreconteo).catch(() => [])
+        setRc(adoptarReconteo({ cabecera: remoto, marcas: marcas || [], bienes }))
+        return
+      }
       setRc(abrirReconteo({
         idarea,
         nombrearea: area?.nombrearea || '',
@@ -698,6 +737,34 @@ export function ListaReconteo({ idarea, usuario }) {
       }))
     } catch (e) { setError(e.message) } finally { setIniciando(false) }
   }
+
+  // ── Lo que va marcando la otra persona ──
+  // Mientras la pantalla está abierta se pregunta a la base cada pocos segundos
+  // qué se ha marcado desde otros teléfonos. Sin esto, dos personas contando la
+  // misma área no se veían: cada quien creía que faltaba lo que el otro ya tenía.
+  const [llegaron, setLlegaron] = useState(0)
+  const sincronizar = useCallback(async () => {
+    const actual = reconteoAbierto(idarea)
+    if (!actual) return
+    const marcas = await detalleRemoto(actual.id).catch(() => null)
+    if (!marcas) return
+    const nuevas = fusionarMarcas(actual.id, marcas)
+    if (nuevas) { setRc(reconteo(actual.id)); setLlegaron(n => n + nuevas) }
+  }, [idarea])
+
+  useEffect(() => {
+    if (!rc || rc.fin) return
+    sincronizar()
+    const id = setInterval(sincronizar, 10000)
+    const alVolver = () => { if (!document.hidden) sincronizar() }
+    document.addEventListener('visibilitychange', alVolver)
+    window.addEventListener('focus', alVolver)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', alVolver)
+      window.removeEventListener('focus', alVolver)
+    }
+  }, [rc?.id, rc?.fin, sincronizar])
 
   const s = resumen(rc)
   const sinSubir = pendientes(rc)
@@ -762,9 +829,10 @@ export function ListaReconteo({ idarea, usuario }) {
 
           {error && <div className="tarjeta" style={{ borderColor: 'var(--alerta)', color: 'var(--alerta)' }}>{error}</div>}
 
-          <button className="boton" onClick={iniciar} disabled={iniciando || !area}>
-            {iniciando
-              ? <><i className="ti ti-loader-2 gira" style={{ fontSize: '18px' }} />Preparando la lista…</>
+          <button className="boton" onClick={iniciar} disabled={iniciando || buscandoAbierto || !area}>
+            {iniciando || buscandoAbierto
+              ? <><i className="ti ti-loader-2 gira" style={{ fontSize: '18px' }} />
+                  {buscandoAbierto ? 'Buscando conteos en marcha…' : 'Preparando la lista…'}</>
               : <><i className="ti ti-scan" style={{ fontSize: '19px' }} />Iniciar nuevo reconteo</>}
           </button>
 
@@ -820,6 +888,16 @@ export function ListaReconteo({ idarea, usuario }) {
           <i className="ti ti-scan" style={{ fontSize: '19px' }} />Escanear con la cámara
         </button>
 
+        {llegaron > 0 && (
+          <div className="tarjeta" style={{ borderColor: 'var(--ok)' }}>
+            <p className="nombre" style={{ color: 'var(--ok)' }}>
+              <i className="ti ti-users" style={{ marginRight: '6px' }} />
+              {llegaron} bien{llegaron !== 1 ? 'es' : ''} verificado{llegaron !== 1 ? 's' : ''} desde otro equipo
+            </p>
+            <p className="detalle">Están contando esta área al mismo tiempo. La lista ya se actualizó.</p>
+          </div>
+        )}
+
         {s.ajenos > 0 && (
           <div className="tarjeta" style={{ borderColor: 'var(--falta)' }}>
             <p className="nombre" style={{ color: 'var(--falta)' }}>
@@ -858,7 +936,7 @@ export function ListaReconteo({ idarea, usuario }) {
               {lista.map(e => (
                 <div key={e.clave} className="fila">
                   <button style={{ padding: 0 }}
-                    onClick={() => (e.verificado ? desmarcar(rc.id, e.clave) : marcar(rc.id, e.clave, 'manual'))}
+                    onClick={() => alternarMarca(e)}
                     aria-label={e.verificado ? 'Quitar verificación' : 'Marcar como encontrado'}>
                     <span className={`marca ${e.verificado ? 'ok' : 'falta'}`}>
                       <i className={`ti ti-${e.verificado ? 'check' : 'question-mark'}`} />
@@ -924,6 +1002,7 @@ export function HistorialReconteos() {
   const [texto, setTexto]     = useState('')
   const [abierto, setAbierto] = useState('')
   const [borrar, setBorrar]   = useState(null)
+  const [reabrir, setReabrir] = useState(null)
 
   async function cargar() {
     setCargando(true)
@@ -985,9 +1064,23 @@ export function HistorialReconteos() {
           <TarjetaReconteo key={r.idreconteo} r={r}
             abierta={abierto === r.idreconteo}
             onAbrir={() => setAbierto(abierto === r.idreconteo ? '' : r.idreconteo)}
-            onBorrar={() => setBorrar(r)} />
+            onBorrar={() => setBorrar(r)}
+            onReabrir={() => setReabrir(r)} />
         ))}
       </div>
+
+      {reabrir && (
+        <Confirmar
+          titulo="¿Volver a abrir este reconteo?"
+          detalle={`El conteo de ${reabrir.nombrearea} vuelve a quedar en curso para poder registrar un bien que apareció después. Lo que se escanee queda con la fecha de hoy.`}
+          textoOk="Sí, reabrir"
+          onOk={async () => {
+            await reabrirRemoto(reabrir.idreconteo).catch(() => {})
+            reabrirReconteo(reabrir.idreconteo)
+            irA('m', 'reconteo', reabrir.idarea)
+          }}
+          onCerrar={() => setReabrir(null)} />
+      )}
 
       {borrar && (
         <Confirmar
@@ -1003,7 +1096,7 @@ export function HistorialReconteos() {
 
 // Una tarjeta del historial: el resumen y, al abrirla, los bienes con los mismos
 // tres estados que la computadora.
-function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
+function TarjetaReconteo({ r, abierta, onAbrir, onBorrar, onReabrir }) {
   const [bienes, setBienes] = useState(null)
   const [ajenos, setAjenos] = useState([])
   const [pestana, setPestana] = useState('todos')
@@ -1124,12 +1217,22 @@ function TarjetaReconteo({ r, abierta, onAbrir, onBorrar }) {
                 </div>
               )}
 
-              {!r.fin && (
-                <button className="fila" onClick={() => irA('m', 'reconteo', r.idarea)}>
-                  <i className="ti ti-player-play" style={{ color: 'var(--texto-3)' }} />
-                  <span className="crece nombre">Continuar este reconteo</span>
-                </button>
-              )}
+              {r.fin
+                ? (
+                  <button className="fila" onClick={onReabrir}>
+                    <i className="ti ti-lock-open" style={{ color: 'var(--texto-3)' }} />
+                    <div className="crece">
+                      <p className="nombre">Volver a abrir el reconteo</p>
+                      <p className="detalle">Para registrar un bien que apareció después</p>
+                    </div>
+                  </button>
+                )
+                : (
+                  <button className="fila" onClick={() => irA('m', 'reconteo', r.idarea)}>
+                    <i className="ti ti-player-play" style={{ color: 'var(--texto-3)' }} />
+                    <span className="crece nombre">Continuar este reconteo</span>
+                  </button>
+                )}
             </>
           )}
         </>

@@ -85,6 +85,88 @@ export function abrirReconteo({ idarea, nombrearea, dependencia, bienes, usuario
   return nuevo
 }
 
+// ── Trabajo entre varios teléfonos ───────────────────────────────────────────
+// El conteo de un área es uno solo, aunque lo levanten dos personas. Estas dos
+// funciones son las que lo hacen posible: una trae a este equipo el conteo que
+// ya existe en la base, y la otra le suma lo que los demás han ido marcando.
+
+// Copia aquí un conteo que vive en la base (lo abrió otro teléfono, o se acaba
+// de reabrir desde la computadora) para poder seguir contándolo sin señal.
+export function adoptarReconteo({ cabecera, marcas = [], bienes = [] }) {
+  if (!cabecera?.idreconteo) return null
+  const lista = leerTodo()
+  const previo = lista.find(r => r.id === cabecera.idreconteo)
+
+  // La lista de bienes es la del área hoy; si ya se tenía, se respeta la foto
+  // que se guardó al abrirlo, que es contra la que se está contando.
+  const esperados = previo?.esperados?.length ? previo.esperados : bienes.map(b => ({
+    idbien: b.idbien,
+    clave:  (b.clave || '').toUpperCase(),
+    nombre: b.nombre, marca: b.marca, modelo: b.modelo, serie: b.serie,
+    resguardante: b.resguardante, area: b.area, observaciones: b.observaciones,
+  }))
+
+  const encontrados = { ...(previo?.encontrados || {}) }
+  for (const m of marcas) {
+    if (!m.encontrado) continue
+    const clave = String(m.clave || '').toUpperCase()
+    if (!clave || encontrados[clave]) continue
+    encontrados[clave] = {
+      fecha: m.fecha || new Date().toISOString(),
+      metodo: m.metodo || 'qr',
+      observacion: m.observacion || '',
+      subida: true,              // ya está en la base: no hay nada pendiente
+    }
+  }
+
+  const armado = {
+    ...(previo || {}),
+    id: cabecera.idreconteo,
+    idarea: Number(cabecera.idarea),
+    nombrearea: cabecera.nombrearea || previo?.nombrearea || '',
+    dependencia: cabecera.dependencia || previo?.dependencia || '',
+    usuario: previo?.usuario || cabecera.usuario || '',
+    inicio: cabecera.inicio || previo?.inicio || new Date().toISOString(),
+    fin: cabecera.fin || null,
+    esperados,
+    encontrados,
+    ajenos: previo?.ajenos || {},
+    enLaBase: true,
+  }
+  guardarTodo([armado, ...lista.filter(r => r.id !== armado.id)])
+  return armado
+}
+
+// Suma a lo que hay aquí lo que otros ya marcaron. Devuelve cuántas marcas
+// nuevas llegaron, para poder avisarlo en pantalla.
+export function fusionarMarcas(id, marcas = []) {
+  let nuevas = 0
+  conReconteo(id, c => {
+    const copia = { ...c.encontrados }
+    for (const m of marcas) {
+      if (!m.encontrado) continue
+      const clave = String(m.clave || '').toUpperCase()
+      if (!clave || copia[clave]) continue
+      copia[clave] = {
+        fecha: m.fecha || new Date().toISOString(),
+        metodo: m.metodo || 'qr',
+        observacion: m.observacion || '',
+        subida: true,
+      }
+      nuevas++
+    }
+    if (nuevas) c.encontrados = copia
+  })
+  return nuevas
+}
+
+// Un conteo terminado se puede volver a abrir: a veces aparece un bien semanas
+// después y hay que registrarlo en ese mismo conteo. La fecha que queda es la
+// del día en que se escanea, no la del conteo original.
+export function reabrirReconteo(id) {
+  return conReconteo(id, c => { c.fin = null })
+}
+
 function conReconteo(id, cambiar) {
   const lista = leerTodo()
   const i = lista.findIndex(r => r.id === id)
@@ -107,11 +189,21 @@ export function revisar(id, claveCruda) {
   const r = reconteo(id)
   if (!r || !clave) return { estado: 'ajeno', clave }
 
-  const bien = r.esperados.find(e => e.clave === clave)
+  let bien = r.esperados.find(e => e.clave === clave)
+  // Si no es una clave del área, se prueba como número de serie: una etiqueta
+  // rota o un bien que todavía no se etiqueta se capturan por la serie, que es
+  // lo que trae grabado el aparato.
+  if (!bien && clave.length >= 4) {
+    const limpia = t => String(t || '').toUpperCase().replace(/[\s-]/g, '')
+    const serie = limpia(clave)
+    bien = r.esperados.find(e => e.serie && limpia(e.serie) === serie)
+  }
   if (!bien) return { estado: 'ajeno', clave }
-  const ya = r.encontrados[clave]
-  if (ya) return { estado: 'repetido', clave, bien, cuando: ya.fecha, observacion: ya.observacion || '' }
-  return { estado: 'nuevo', clave, bien }
+
+  // Desde aquí manda la clave del bien encontrado, no lo que se tecleó
+  const ya = r.encontrados[bien.clave]
+  if (ya) return { estado: 'repetido', clave: bien.clave, bien, cuando: ya.fecha, observacion: ya.observacion || '' }
+  return { estado: 'nuevo', clave: bien.clave, bien }
 }
 
 // Marca una clave. Devuelve qué pasó para poder avisarlo en pantalla:

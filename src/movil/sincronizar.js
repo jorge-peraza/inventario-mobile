@@ -142,6 +142,34 @@ export async function historialRemoto({ limite = 60, idarea = null } = {}) {
   return data || []
 }
 
+// Deshacer una marca: el bien vuelve a contar como no encontrado. Se escribe en
+// la base en el momento, igual que al marcarlo.
+export async function quitarMarca(idreconteo, clave) {
+  const { error } = await supabase.from('reconteo_bienes')
+    .update({ encontrado: false, metodo: null, fecha: null, observacion: null })
+    .eq('idreconteo', idreconteo).eq('clave', clave)
+  if (error) { if (noHayTablas(error)) return false; throw error }
+  return true
+}
+
+// El conteo abierto de un área, sea de quien sea. Es lo que permite que dos
+// personas cuenten la misma área a la vez: en vez de abrir cada quien el suyo,
+// el segundo se suma al que ya está en marcha.
+export async function reconteoAbiertoRemoto(idarea) {
+  const { data, error } = await supabase.from('reconteos').select('*')
+    .eq('idarea', Number(idarea)).is('fin', null)
+    .order('inicio', { ascending: false }).limit(1)
+  if (error) { if (noHayTablas(error)) return null; throw error }
+  return (data && data[0]) || null
+}
+
+// Vuelve a abrir un conteo terminado
+export async function reabrirRemoto(idreconteo) {
+  const { error } = await supabase.from('reconteos').update({ fin: null }).eq('idreconteo', idreconteo)
+  if (error) { if (noHayTablas(error)) return false; throw error }
+  return true
+}
+
 // Pone al teléfono al día con la base: lo que ya no está allá se borra de aquí,
 // para que no vuelva a subirse ni reaparezca en el historial.
 export async function sincronizarBorrados() {

@@ -4,6 +4,8 @@ const NAV_MUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'dashboard' },
   { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
   { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
+  // El administrador ve las bajas desde Reportes, como siempre: aquí no lleva
+  // entrada propia. La página /bajas existe solo para las dependencias.
   { icon:'ti-chart-bar',        label:'Reportes',       id:'reportes',  page:'reportes' },
   // Dependencias queda oculta por ahora; la página y su ruta siguen vivas y
   // basta con descomentar esta línea para volver a mostrarla en el menú.
@@ -20,10 +22,13 @@ const NAV_INMUEBLES = [
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
 ]
 
-// Una dependencia solo consulta lo suyo: su inicio y el inventario que le toca
+// Una dependencia consulta lo suyo: el inventario vigente y el histórico de lo
+// que salió, sea por traspaso o por baja. Todo acotado a sus áreas.
 const NAV_DEPENDENCIA = [
-  { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio', page:'index-dep' },
-  { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes', page:'bienes' },
+  { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'index-dep' },
+  { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
+  { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
+  { icon:'ti-circle-minus',     label:'Bajas',          id:'bajas',     page:'bajas' },
 ]
 
 const W_OPEN   = 230

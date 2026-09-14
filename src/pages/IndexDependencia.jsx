@@ -19,8 +19,9 @@ export default function IndexDependencia({ user, onNavigate }) {
   }, [user?.iddependencia])
 
   const acciones = [
-    { icon: 'ti-table',       label: 'Ver mi inventario',  desc: 'Bienes a cargo de la dependencia', go: () => onNavigate('bienes') },
-    { icon: 'ti-file-export', label: 'Exportar reporte',   desc: 'PDF o Excel de mi inventario',     go: () => onNavigate('bienes') },
+    { icon: 'ti-table',            label: 'Ver mi inventario', desc: 'Bienes a cargo de la dependencia',  go: () => onNavigate('bienes') },
+    { icon: 'ti-arrows-exchange',  label: 'Mis traspasos',     desc: 'Bienes que salieron por traspaso',  go: () => onNavigate('traspasos') },
+    { icon: 'ti-circle-minus',     label: 'Mis bajas',         desc: 'Bienes dados de baja',              go: () => onNavigate('bajas') },
   ]
 
   return (

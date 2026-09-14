@@ -109,7 +109,12 @@ function App() {
   // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
   // misma key React reutilizaba la instancia y mostraba los datos del otro
   if (page === 'papelera')            return <ThemeProvider><BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera /></ThemeProvider>
-  if (page === 'traspasos')           return <ThemeProvider><BienesMuebles key={`traspasos-${recarga}`} user={user} onNavigate={navigate} traspasos /></ThemeProvider>
+  // Traspasos y bajas llevan el mismo corte por dependencia que el inventario:
+  // sin él, una dependencia vería los movimientos de todas las demás.
+  if (page === 'traspasos')           return <ThemeProvider><BienesMuebles key={`traspasos-${recarga}`} user={user} onNavigate={navigate} traspasos soloLectura={esDependencia}
+    areasPermitidas={esDependencia ? (areasDeDependencia.length ? areasDeDependencia : [-1]) : null} /></ThemeProvider>
+  if (page === 'bajas')               return <ThemeProvider><BienesMuebles key={`bajas-${recarga}`} user={user} onNavigate={navigate} bajas soloLectura={esDependencia}
+    areasPermitidas={esDependencia ? (areasDeDependencia.length ? areasDeDependencia : [-1]) : null} /></ThemeProvider>
   if (page === 'dependencias')        return <ThemeProvider><Dependencias key={recarga}       user={user} onNavigate={navigate} /></ThemeProvider>
   if (page === 'usuarios')            return <ThemeProvider><Usuarios key={recarga}           user={user} onNavigate={navigate} /></ThemeProvider>
   // El reconteo se levanta desde el celular; aquí se consulta el historial
