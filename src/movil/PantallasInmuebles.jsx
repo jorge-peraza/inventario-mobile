@@ -35,7 +35,10 @@ export function InicioInmuebles({ user }) {
         ])
         // De mayor a menor, como en la computadora: comodato y desincorporado
         // acaban abajo por tener pocos.
-        setCats(porCat.sort((a, b) => b.total - a.total))
+        // Las dos de salida tienen su propio apartado abajo: aquí estorban
+        setCats(porCat
+          .filter(c => ![ID_PROCESO, ID_DESINC].includes(Number(c.idcategoria)))
+          .sort((a, b) => b.total - a.total))
         setConteos(sal); setStats(cifras)
       })
       .catch(console.error)
@@ -121,6 +124,15 @@ export function BuscarInmuebles({ idcategoria = '' }) {
   useEffect(() => { categoriasInmuebles().then(setCats).catch(console.error) }, [])
   useEffect(() => { setCat(idcategoria ? String(idcategoria) : '') }, [idcategoria])
 
+  // Las salidas y el inventario no se mezclan en el mismo filtro: viniendo de
+  // Desincorporaciones solo se ofrecen esas dos categorías, y en el inventario
+  // no aparecen, porque se consultan en su propia pantalla.
+  const enSalidas = [ID_PROCESO, ID_DESINC].includes(Number(cat))
+  const catsDelFiltro = useMemo(() => cats.filter(c => {
+    const salida = [ID_PROCESO, ID_DESINC].includes(Number(c.idcategoria))
+    return enSalidas ? salida : !salida
+  }), [cats, enSalidas])
+
   // Con categoría se lista completa; sin ella, se busca por texto
   useEffect(() => {
     if (!cat) return
@@ -159,10 +171,12 @@ export function BuscarInmuebles({ idcategoria = '' }) {
     return r
   }, [datos, cat, q, min, max, hayM2])
   const nombreCat = cats.find(c => Number(c.idcategoria) === Number(cat))?.nombrecategoria
-  const textoM2 = !hayM2 ? 'Superficie'
-    : min != null && max != null ? `${min.toLocaleString()} – ${max.toLocaleString()} m²`
-    : min != null ? `Desde ${min.toLocaleString()} m²`
-    : `Hasta ${max.toLocaleString()} m²`
+  // Corto a propósito: al lado del de categorías no hay sitio para más, y con
+  // un rango largo el botón se salía de la pantalla.
+  const textoM2 = !hayM2 ? 'm²'
+    : min != null && max != null ? `${min.toLocaleString()}–${max.toLocaleString()}`
+    : min != null ? `≥ ${min.toLocaleString()}`
+    : `≤ ${max.toLocaleString()}`
 
   return (
     <>
@@ -178,15 +192,16 @@ export function BuscarInmuebles({ idcategoria = '' }) {
         </div>
 
         {/* Los dos filtros, uno al lado del otro: la categoría y el tamaño */}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="chip-filtro" onClick={() => setHojaCats(true)}>
+        <div style={{ display: 'flex', gap: '8px', minWidth: 0 }}>
+          <button className="chip-filtro" style={{ flex: '1 1 0', minWidth: 0 }} onClick={() => setHojaCats(true)}>
             <i className="ti ti-category" />
             <span className="crece">{nombreCat || 'Todas las categorías'}</span>
             <i className="ti ti-chevron-down" />
           </button>
-          <button className="chip-filtro" style={{ width: 'auto', flexShrink: 0 }} onClick={() => setHojaM2(true)}>
+          <button className="chip-filtro" style={{ flex: '0 1 auto', width: 'auto', minWidth: 0, maxWidth: '48%' }}
+            onClick={() => setHojaM2(true)}>
             <i className="ti ti-ruler-measure" style={{ color: hayM2 ? 'var(--texto-1)' : undefined }} />
-            <span>{textoM2}</span>
+            <span className="crece">{textoM2}</span>
           </button>
         </div>
 
@@ -214,7 +229,7 @@ export function BuscarInmuebles({ idcategoria = '' }) {
       </div>
 
       {hojaCats && (
-        <HojaCategorias cats={cats} cat={cat}
+        <HojaCategorias cats={catsDelFiltro} cat={cat} conTodas={!enSalidas}
           onElegir={id => { setCat(id); setHojaCats(false); setDatos([]) }}
           onCerrar={() => setHojaCats(false)} />
       )}
@@ -227,7 +242,7 @@ export function BuscarInmuebles({ idcategoria = '' }) {
 }
 
 // Elegir la categoría desde la propia lista
-function HojaCategorias({ cats, cat, onElegir, onCerrar }) {
+function HojaCategorias({ cats, cat, onElegir, onCerrar, conTodas = true }) {
   useBloquearScroll()
   const [texto, setTexto] = useState('')
   const lista = useMemo(() => {
@@ -247,11 +262,13 @@ function HojaCategorias({ cats, cat, onElegir, onCerrar }) {
             <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Buscar categoría…" />
           </div>
         </div>
-        <button className="fila" onClick={() => onElegir('')}>
-          <i className="ti ti-category" style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
-          <span className="crece nombre">Todas las categorías</span>
-          {!cat && <i className="ti ti-check" style={{ color: 'var(--texto-1)' }} />}
-        </button>
+        {conTodas && (
+          <button className="fila" onClick={() => onElegir('')}>
+            <i className="ti ti-category" style={{ fontSize: '20px', color: 'var(--texto-3)' }} />
+            <span className="crece nombre">Todas las categorías</span>
+            {!cat && <i className="ti ti-check" style={{ color: 'var(--texto-1)' }} />}
+          </button>
+        )}
         {lista.map(c => (
           <button key={c.idcategoria} className="fila" onClick={() => onElegir(String(c.idcategoria))}>
             <span className="crece nombre">{c.nombrecategoria}</span>
@@ -469,19 +486,6 @@ export function DesincorporacionesMovil() {
         {cargando && <Cargando />}
         {!cargando && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
-              <div className="tarjeta" style={{ padding: '13px' }}>
-                <i className="ti ti-progress" style={{ fontSize: '18px', color: 'var(--falta)' }} />
-                <p style={{ fontSize: '24px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{conteos.proceso}</p>
-                <p style={{ fontSize: '11px', color: 'var(--texto-3)', lineHeight: 1.25 }}>En proceso</p>
-              </div>
-              <div className="tarjeta" style={{ padding: '13px' }}>
-                <i className="ti ti-circle-minus" style={{ fontSize: '18px', color: 'var(--alerta)' }} />
-                <p style={{ fontSize: '24px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{conteos.desinc}</p>
-                <p style={{ fontSize: '11px', color: 'var(--texto-3)', lineHeight: 1.25 }}>Desincorporados</p>
-              </div>
-            </div>
-
             <div className="tarjeta plana">
               <button className="fila" onClick={() => irA('i', 'cat', ID_PROCESO)}>
                 <span className="marca falta"><i className="ti ti-progress" /></span>
@@ -489,6 +493,7 @@ export function DesincorporacionesMovil() {
                   <p className="nombre">En proceso de desincorporación</p>
                   <p className="detalle">Trámite sin concluir · siguen siendo del ayuntamiento</p>
                 </div>
+                <span className="detalle">{conteos.proceso}</span>
                 <i className="ti ti-chevron-right flecha" />
               </button>
               <button className="fila" onClick={() => irA('i', 'cat', ID_DESINC)}>
@@ -497,14 +502,11 @@ export function DesincorporacionesMovil() {
                   <p className="nombre">Desincorporados del HAN</p>
                   <p className="detalle">Ya salieron del patrimonio</p>
                 </div>
+                <span className="detalle">{conteos.desinc}</span>
                 <i className="ti ti-chevron-right flecha" />
               </button>
             </div>
 
-            <p className="detalle">
-              Mover un inmueble de una etapa a otra se hace desde la computadora; aquí se consulta
-              y se corrigen sus datos.
-            </p>
           </>
         )}
       </div>
