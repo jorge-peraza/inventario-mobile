@@ -380,6 +380,21 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
     idarea:          bien.idarea          ?? '',
   })
 
+  // El estado de verificación y el texto libre se editan por separado y se
+  // vuelven a unir al guardar.
+  //
+  // Antes el campo se releía de form.observaciones en cada tecla, y como
+  // partirObs() recorta espacios y quita las palabras de estado, lo escrito se
+  // deshacía solo: no entraban los espacios y había que regresar el cursor
+  // para poder seguir. Ahora lo que se teclea manda, y partirObs() solo se usa
+  // al abrir el modal.
+  const obsInicial = partirObs(bien.observaciones)
+  const [estadoObs, setEstadoObs] = useState(obsInicial.estado)
+  const [restoObs, setRestoObs]   = useState(obsInicial.resto)
+  useEffect(() => {
+    setForm(f => ({ ...f, observaciones: unirObs(estadoObs, restoObs) || '' }))
+  }, [estadoObs, restoObs])
+
   // Datos de la factura: viven en otra tabla, así que van aparte del formulario
   // Sin factura la consulta devuelve costoinicial 0: se muestra vacío, no "0"
   const datosFactura = () => ({
@@ -570,8 +585,8 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
           <div style={{ padding: '11px 0' }}>
             <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Estado del bien</p>
             <select
-              value={partirObs(form.observaciones).estado}
-              onChange={e => set('observaciones', unirObs(e.target.value, partirObs(form.observaciones).resto) || '')}
+              value={estadoObs}
+              onChange={e => setEstadoObs(e.target.value)}
               style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', padding: 0 }}
             >
               <option value="">— Sin especificar —</option>
@@ -581,8 +596,8 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
           <div style={{ padding: '11px 0' }}>
             <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Observaciones adicionales</p>
             <textarea
-              value={partirObs(form.observaciones).resto}
-              onChange={e => set('observaciones', unirObs(partirObs(form.observaciones).estado, e.target.value) || '')}
+              value={restoObs}
+              onChange={e => setRestoObs(e.target.value)}
               rows={3}
               style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, padding: 0 }}
             />

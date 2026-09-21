@@ -496,10 +496,15 @@ export function EditarBien({ clave }) {
             rows={4} placeholder={opciones.placeholder}
             style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
               border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '15px', outline: 'none', resize: 'vertical' }} />
+        // Las mayúsculas se ven, no se fuerzan en el teclado: con
+        // autoCapitalize="characters" el teclado de Android deja el texto "en
+        // composición" y cada letra cancelaba la anterior, así que no entraban
+        // ni espacios. El valor se guarda en mayúsculas de todas formas.
         : <input value={campos[llave]} onChange={e => setCampos(c => ({ ...c, [llave]: e.target.value }))}
-            placeholder={opciones.placeholder} autoCapitalize="characters" autoCorrect="off"
+            placeholder={opciones.placeholder} autoCapitalize="off" autoCorrect="off" spellCheck={false}
             style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
-              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px', outline: 'none' }} />}
+              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px', outline: 'none',
+              textTransform: 'uppercase' }} />}
     </div>
   )
 
@@ -906,7 +911,7 @@ export function ListaReconteo({ idarea, usuario }) {
 
         <div className="buscador">
           <i className="ti ti-search" />
-          <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="characters" />
+          <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{ textTransform: "uppercase" }} />
           {texto && <button onClick={() => setTexto('')}><i className="ti ti-x" style={{ color: 'var(--texto-4)' }} /></button>}
         </div>
 
@@ -1184,7 +1189,7 @@ export function DetalleReconteo({ idreconteo }) {
 
             <div className="buscador">
               <i className="ti ti-search" />
-              <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="characters" />
+              <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Filtrar esta lista…" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{ textTransform: "uppercase" }} />
               {texto && <button onClick={() => setTexto('')}><i className="ti ti-x" style={{ color: 'var(--texto-4)' }} /></button>}
             </div>
 

@@ -181,9 +181,10 @@ export function CapturarClave({ idarea }) {
           <div>
             <p className="etiqueta" style={{ marginBottom: '6px' }}>Clave de inventario o número de serie</p>
             <input value={texto} onChange={e => setTexto(e.target.value)} autoFocus
-              placeholder="I25-3401-2-765" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+              placeholder="I25-3401-2-765" autoCapitalize="off" autoCorrect="off" spellCheck={false}
               style={{ width: '100%', padding: '13px 14px', borderRadius: '12px', background: 'var(--campo)',
-                border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '17px', outline: 'none' }} />
+                border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '17px', outline: 'none',
+                textTransform: 'uppercase' }} />
           </div>
           <button className="boton" type="submit" disabled={!texto.trim()}>
             <i className="ti ti-search" style={{ fontSize: '18px' }} />Buscar

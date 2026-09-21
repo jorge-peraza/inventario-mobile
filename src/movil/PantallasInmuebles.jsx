@@ -419,12 +419,16 @@ export function EditarInmueble({ idinmueble }) {
       <p className="etiqueta" style={{ marginBottom: '6px' }}>{etq}</p>
       {opciones.largo
         ? <textarea value={campos[llave]} onChange={e => setCampos(c => ({ ...c, [llave]: e.target.value }))}
-            rows={3} placeholder={opciones.placeholder}
+            rows={3} placeholder={opciones.placeholder} autoCapitalize="off" autoCorrect="off" spellCheck={false}
             style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
-              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '15px', outline: 'none', resize: 'vertical' }} />
+              border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '15px', outline: 'none', resize: 'vertical',
+              textTransform: llave === 'nombre' ? 'uppercase' : 'none' }} />
+        // Sin autoCapitalize: el teclado de Android dejaba el texto "en
+        // composición" y no entraban ni los espacios. Lo que se guarda no
+        // cambia por esto.
         : <input value={campos[llave]} onChange={e => setCampos(c => ({ ...c, [llave]: e.target.value }))}
             placeholder={opciones.placeholder} inputMode={opciones.numero ? 'decimal' : undefined}
-            autoCapitalize={opciones.numero ? 'none' : 'characters'} autoCorrect="off"
+            autoCapitalize="off" autoCorrect="off" spellCheck={false}
             style={{ width: '100%', padding: '11px 13px', borderRadius: '12px', background: 'var(--campo)',
               border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px', outline: 'none' }} />}
     </div>
