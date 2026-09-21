@@ -224,6 +224,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [modalDesinc, setModalDesinc] = useState(null)
   const [modalReporte, setModalReporte] = useState(false)
   const [modalEnaj, setModalEnaj] = useState(false)
+  const [modalTes, setModalTes]   = useState(false)
   const [menuFila, setMenuFila]   = useState(null)
   const refTabla = useRef(null)
   const [confirmar, setConfirmar] = useState(null)   // { inm, accion }
@@ -370,6 +371,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
     { id: 'proceso',        icon: 'ti-progress',     label: 'En Proceso de Desincorporación', value: conteos.proceso, hint: 'Inmuebles en trámite', color: t.colorYellow },
     { id: 'desincorporado', icon: 'ti-circle-minus',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
     { id: 'enajenaciones',  icon: 'ti-transfer',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
+    { id: 'tesoreria',      icon: 'ti-building-bank', label: 'Reporte de Tesorería',          value: null, accion: true, hint: 'Enajenaciones del periodo', color: t.text2 },
   ]
 
   return (
@@ -397,7 +399,11 @@ export default function ReportesInmuebles({ user, onNavigate }) {
         {vista === 'inicio' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
             {cards.map(c => (
-              <button key={c.id} onClick={() => { if (c.id === 'enajenaciones') { setModalEnaj(true) } else { setVista(c.id); setBusqueda(''); setModoSeleccion(false); setSeleccionados(new Map()) } }}
+              <button key={c.id} onClick={() => {
+                if (c.id === 'enajenaciones') setModalEnaj(true)
+                else if (c.id === 'tesoreria') setModalTes(true)
+                else { setVista(c.id); setBusqueda(''); setModoSeleccion(false); setSeleccionados(new Map()) }
+              }}
                 style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
                 onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
@@ -644,7 +650,246 @@ export default function ReportesInmuebles({ user, onNavigate }) {
           onConfirm={(cat) => moverInmueble(confirmar.inm, confirmar.accion, cat)} />
       )}
       {modalEnaj && <ModalEnajenaciones onClose={() => setModalEnaj(false)} dark={dark} t={t} />}
+      {modalTes && <ModalReporteTesoreria onClose={() => setModalTes(false)} dark={dark} t={t} />}
     </div>
+  )
+}
+
+// ── Reporte de Tesorería ─────────────────────────────────────────────────────
+//
+// El inventario completo al cierre de un periodo, en el formato que entrega
+// Sindicatura: título, periodo, dependencia, la tabla agrupada por categoría, el
+// renglón del monto y las firmas.
+//
+// El periodo es un CORTE, no una ventana: entra todo lo que ya era patrimonio
+// al terminar el periodo, sin importar de qué año sea su escritura. Por eso el
+// ejemplar impreso de 2024 incluye inmuebles con documentos de 1940 y 1996.
+//
+// Quedan fuera las dos categorías que no son patrimonio —comodato, porque no es
+// propio, y desincorporado, porque ya salió—. "En proceso de desincorporación"
+// sí entra: el trámite no ha concluido.
+const MESES_TES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
+const CATS_NO_PATRIMONIO = [11, 13]
+
+// Lo fijo del formato. No se pregunta en el modal: siempre sale así. Si algún
+// día cambia el síndico o quien elabora, se cambia aquí.
+const TES_TITULO      = 'INVENTARIO DE BIENES INMUEBLES MUNICIPIO DE NOGALES SONORA'
+const TES_DEPENDENCIA = 'DEPENDENCIA O ENTIDAD: SINDICATURA MUNICIPAL'
+const TES_MONTO       = 'MONTO EN TERRENOS URBANOS'
+// Quien elabora va sin raya y sin área: solo el título y el nombre.
+// Quien firma sí lleva raya, que para eso es.
+const TES_FIRMAS = [
+  { titulo: 'ELABORADO POR:', nombre: 'ING. ELISEO ESCOBEDO', sinLinea: true },
+  { titulo: 'FIRMA',          nombre: 'MTRA. EDNA ELINORA SOTO GRACIA', puesto: 'SINDICO MUNICIPAL' },
+]
+
+function ModalReporteTesoreria({ onClose, dark, t }) {
+  // Las dos preguntas que responde el mismo formato:
+  //   'hasta'   qué bienes tenía el municipio al cerrar — el saldo, que es lo
+  //             que va como anexo del estado financiero
+  //   'periodo' qué entró y salió dentro de esas fechas — el movimiento
+  const [alcance, setAlcance] = useState('hasta')
+  const [modo, setModo]   = useState('anio')          // 'anio' | 'mes' | 'fechas'
+  const [anio, setAnio]   = useState(new Date().getFullYear())
+  const [mes, setMes]     = useState(new Date().getMonth())
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+  const [generando, setGen] = useState(null)
+  const [err, setErr] = useState(null)
+  const [cargando, setCargando] = useState(true)
+  const [inmuebles, setInmuebles] = useState([])
+  const [cats, setCats] = useState([])
+
+  // El corte: el último día del periodo elegido
+  const finDeMes = (a, m) => new Date(a, m + 1, 0).getDate()
+  const corte = modo === 'anio'  ? `${anio}-12-31`
+    : modo === 'mes'   ? `${anio}-${String(mes + 1).padStart(2, '0')}-${String(finDeMes(anio, mes)).padStart(2, '0')}`
+    : (hasta || '')
+  const inicio = modo === 'anio' ? `${anio}-01-01`
+    : modo === 'mes'  ? `${anio}-${String(mes + 1).padStart(2, '0')}-01`
+    : (desde || '')
+
+  const subtitulo = modo === 'anio' ? `PERIODO DE ENERO A DICIEMBRE ${anio}`
+    : modo === 'mes'  ? `PERIODO DE ${MESES_TES[mes]} ${anio}`
+    : (inicio && corte ? `PERIODO DEL ${inicio.split('-').reverse().join('/')} AL ${corte.split('-').reverse().join('/')}` : 'PERIODO')
+
+  useEffect(() => {
+    let vivo = true
+    setCargando(true)
+    ;(async () => {
+      try {
+        const { data: c } = await supabaseInmuebles.from('categoriasinmuebles').select('*')
+        let todos = [], d = 0
+        while (true) {
+          const { data, error } = await supabaseInmuebles.from('bienesinmuebles').select('*')
+            .not('fecha_enajenacion', 'is', null)
+            .not('idcategoria', 'in', `(${CATS_NO_PATRIMONIO.join(',')})`)
+            .order('consecutivo', { ascending: true }).range(d, d + 999)
+          if (error) throw error
+          if (!data || !data.length) break
+          todos = todos.concat(data)
+          if (data.length < 1000) break
+          d += 1000
+        }
+        if (!vivo) return
+        setCats(c || [])
+        setInmuebles(todos)
+      } catch (e) { if (vivo) setErr(e.message) }
+      finally { if (vivo) setCargando(false) }
+    })()
+    return () => { vivo = false }
+  }, [])
+
+  // El único criterio es fecha_enajenacion —la misma que trae el documento de
+  // propiedad—. Lo que cambia es el operador:
+  //
+  //   hasta la fecha   fecha <= corte            el inventario acumulado
+  //   en el periodo    inicio <= fecha <= corte  solo lo que se movió
+  //
+  // Por eso el reporte acumulado de 2024 incluye escrituras de 1940 y 1996: son
+  // bienes que el municipio ya tenía. Los ejemplares impresos son de ese tipo:
+  // listan los edificios 01-E a 28-E, y ninguno de esos se enajenó en 2024.
+  const filas = !corte ? [] : inmuebles.filter(i => {
+    const f = String(i.fecha_enajenacion).slice(0, 10)
+    return alcance === 'hasta' ? f <= corte : (!!inicio && f >= inicio && f <= corte)
+  })
+  // El monto sale calculado. Muchos inmuebles traen el valor catastral en cero
+  // —no se han avaluado—, así que la suma se queda corta; aun así va, y el
+  // renglón siempre aparece.
+  const suma = filas.reduce((s, i) => s + (Number(i.valorcatastral) || 0), 0)
+  const sumaTexto = '$' + suma.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // Las columnas del formato impreso; 'categoria' solo dispara el agrupado
+  const COLS_TES = REPORT_COLS.filter(c =>
+    ['claveinmueble','nombreinmueble','clavecatastral','superficiem2','ubicacion','adquisicion','valorcatastral','documentopropiedad','categoria'].includes(c.key))
+
+  async function generar(formato) {
+    if (!corte) { setErr('Elige el periodo'); return }
+    if (alcance === 'periodo' && !inicio) { setErr('Falta la fecha de inicio del periodo'); return }
+    if (!filas.length) { setErr('No hay inmuebles con fecha de enajenación en ese periodo'); return }
+    setGen(formato); setErr(null)
+    try {
+      const extra = {
+        subtitulo,
+        dependencia: TES_DEPENDENCIA,
+        monto: { etiqueta: TES_MONTO, valor: sumaTexto },
+        firmas: TES_FIRMAS,
+      }
+      if (formato === 'excel') await exportarExcel(filas, COLS_TES, cats, TES_TITULO, [], extra)
+      else                     await exportarPDF(filas, COLS_TES, cats, TES_TITULO, [], extra)
+      onClose()
+    } catch (e) { setErr(e.message) } finally { setGen(null) }
+  }
+
+  const iStyle = { width:'100%', padding:'9px 12px', borderRadius:'9px', outline:'none', fontFamily:'inherit', fontSize:'13px', background: dark ? '#2a2a2c' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)', color: dark ? '#f0f0f0' : '#111', colorScheme: dark ? 'dark' : 'light', boxSizing:'border-box' }
+  const lbl = { fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'5px' }
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'580px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', overflow:'hidden' }}>
+
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-building-bank" style={{ fontSize:'18px', color: t.text1 }} />
+            </div>
+            <div>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de Tesorería</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Inventario de bienes inmuebles</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+            <i className="ti ti-x" style={{ fontSize:'15px' }} />
+          </button>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          <div>
+            <p style={lbl}>Qué bienes</p>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+              {[['hasta','Hasta la fecha'],['periodo','En el periodo']].map(([id, lab]) => (
+                <button key={id} onClick={() => setAlcance(id)}
+                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: alcance === id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === id ? t.text1 : t.text3 }}>
+                  {lab}
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize:'11px', color:t.text4, marginTop:'6px' }}>
+              {alcance === 'hasta'
+                ? 'Todo lo que el municipio ya tenía al cerrar. Es el que va con el estado financiero.'
+                : 'Solo lo que entró o salió dentro de esas fechas.'}
+            </p>
+          </div>
+
+          <div>
+            <p style={lbl}>Periodo</p>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', marginBottom:'10px' }}>
+              {[['anio','Año'],['mes','Mes'],['fechas','Fechas']].map(([id, lab]) => (
+                <button key={id} onClick={() => setModo(id)}
+                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: modo === id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: modo === id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: modo === id ? t.text1 : t.text3 }}>
+                  {lab}
+                </button>
+              ))}
+            </div>
+            {modo === 'fechas' ? (
+              // Acumulado: solo importa la fecha de cierre, así que se pide una
+              alcance === 'hasta' ? (
+                <div><p style={lbl}>Hasta el</p><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={iStyle} /></div>
+              ) : (
+                <div style={{ display:'flex', gap:'10px' }}>
+                  <div style={{ flex:1 }}><p style={lbl}>Del</p><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={iStyle} /></div>
+                  <div style={{ flex:1 }}><p style={lbl}>Al</p><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={iStyle} /></div>
+                </div>
+              )
+            ) : (
+              <div style={{ display:'flex', gap:'10px' }}>
+                {modo === 'mes' && (
+                  <div style={{ flex:2 }}><p style={lbl}>Mes</p>
+                    <select value={mes} onChange={e => setMes(Number(e.target.value))} style={iStyle}>
+                      {MESES_TES.map((m, i) => <option key={m} value={i}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div style={{ flex:1 }}><p style={lbl}>Año</p>
+                  <select value={anio} onChange={e => setAnio(Number(e.target.value))} style={iStyle}>
+                    {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {!cargando && (
+            <div style={{ padding:'11px 13px', borderRadius:'10px', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border:`1px solid ${t.cardBorder}` }}>
+              <p style={{ fontSize:'13px', color:t.text1, fontWeight:600 }}>
+                {!corte ? 'Elige la fecha' : `${filas.length.toLocaleString()} inmuebles · ${subtitulo.toLowerCase()}`}
+              </p>
+              <p style={{ fontSize:'11px', color:t.text4, marginTop:'4px' }}>
+                {alcance === 'hasta'
+                  ? `Por fecha de enajenación, hasta el ${corte ? corte.split('-').reverse().join('/') : '—'}.`
+                  : `Enajenados entre el ${inicio ? inicio.split('-').reverse().join('/') : '—'} y el ${corte ? corte.split('-').reverse().join('/') : '—'}.`}
+                {' '}No entran comodato ni desincorporados.
+              </p>
+            </div>
+          )}
+          {err && <p style={{ fontSize:'12px', color: dark ? '#f4a1a1' : '#c0392b' }}><i className="ti ti-alert-circle" style={{ marginRight:'5px' }} />{err}</p>}
+        </div>
+
+        <div style={{ padding:'1rem 1.5rem 1.25rem', display:'flex', gap:'8px', borderTop: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)', flexShrink:0 }}>
+          <button onClick={() => generar('excel')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:(generando||cargando)?'not-allowed':'pointer', opacity: cargando?0.5:1, background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+            {generando === 'excel' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-spreadsheet" style={{ fontSize:'16px' }} />Excel</>}
+          </button>
+          <button onClick={() => generar('pdf')} disabled={generando || cargando}
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor:(generando||cargando)?'not-allowed':'pointer', opacity: cargando?0.5:1, background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+            {generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize:'16px' }} />PDF</>}
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </>,
+    document.body
   )
 }
 

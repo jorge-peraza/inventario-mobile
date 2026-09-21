@@ -219,6 +219,7 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
     if (!actual) return
     const r = revisar(actual.id, clave)
     setLectura(r)
+    setNota(r.bien?.observaciones || '')
 
     // Si no es de esta área, se averigua dónde debería estar: encontrar un bien
     // fuera de su área es justo lo que un reconteo tiene que sacar a la luz.
@@ -255,8 +256,9 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
     subirAvance(guardado, [lectura.clave]).catch(() => {})
 
     // La observación se escribe también en el bien, para que quede en el
-    // inventario y no solo en el conteo.
-    if (observacion && lectura.bien?.idbien) {
+    // inventario y no solo en el conteo. Solo si cambió: si no se tocó el
+    // campo, no hay nada que guardar.
+    if (lectura.bien?.idbien && observacion !== (lectura.bien.observaciones || '')) {
       anotarObservacionEnBien(lectura.bien.idbien, observacion)
         .then(() => marcarSubida(actual.id, lectura.clave))
         .catch(() => { /* queda pendiente; se reintenta desde la lista */ })
@@ -337,14 +339,6 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
                   style={{ width: '100%', padding: '12px 13px', borderRadius: '12px', background: 'var(--campo)',
                     border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px',
                     outline: 'none', resize: 'vertical', lineHeight: 1.4 }} />
-                {/* Lo que dice hoy el bien: al guardar se reemplaza por lo que se
-                    escriba aquí; si se deja vacío, se queda como está. */}
-                {bien.observaciones && (
-                  <p className="detalle" style={{ marginTop: '6px' }}>
-                    <i className="ti ti-message-2" style={{ marginRight: '4px' }} />
-                    Ahora dice: {bien.observaciones}
-                  </p>
-                )}
               </div>
             )}
           </>

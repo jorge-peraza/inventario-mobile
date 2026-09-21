@@ -3,9 +3,10 @@ import { Cabecera } from './AppMovil'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
 import {
-  categoriasInmuebles, conteoPorCategoria, inmueblesDeCategoria, totalPatrimonio,
-  buscarInmuebles, conteosDesincorporacion, inmueblePorClave, actualizarInmueble,
+  categoriasInmuebles, conteoPorCategoria, inmueblesDeCategoria, estadisticasInmuebles,
+  buscarInmuebles, conteosDesincorporacion, inmueblePorClave, inmueblePorId, actualizarInmueble,
 } from './datosInmuebles'
+import { ID_PROCESO, ID_DESINC } from '../desincorporaciones'
 
 const fmtM2 = n => (n != null ? Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) + ' m²' : '—')
 const fmtDinero = n => (n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—')
@@ -18,26 +19,34 @@ function Vacio({ icono = 'ti-search-off', texto }) {
 }
 
 // ── Inicio ───────────────────────────────────────────────────────────────────
+// Las mismas cifras del tablero de la computadora, en las tarjetas chicas que
+// ya usa bienes muebles.
 export function InicioInmuebles({ user }) {
   const [cats, setCats] = useState([])
   const [conteos, setConteos] = useState({ proceso: 0, desinc: 0 })
-  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState(null)
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
     categoriasInmuebles()
       .then(async lista => {
-        const [porCat, sal, suma] = await Promise.all([
-          conteoPorCategoria(lista), conteosDesincorporacion(), totalPatrimonio(),
+        const [porCat, sal, cifras] = await Promise.all([
+          conteoPorCategoria(lista), conteosDesincorporacion(), estadisticasInmuebles(),
         ])
         // De mayor a menor, como en la computadora: comodato y desincorporado
         // acaban abajo por tener pocos.
         setCats(porCat.sort((a, b) => b.total - a.total))
-        setConteos(sal); setTotal(suma)
+        setConteos(sal); setStats(cifras)
       })
       .catch(console.error)
       .finally(() => setCargando(false))
   }, [])
+
+  const kpis = stats ? [
+    { label: 'Total de inmuebles',   valor: stats.total,           color: 'var(--texto-1)', icono: 'ti-building' },
+    { label: 'Incorporaciones ' + new Date().getFullYear(), valor: stats.incorporaciones, color: 'var(--ok)', icono: 'ti-circle-plus' },
+    { label: 'En desincorporación',  valor: stats.enProceso,       color: 'var(--falta)',   icono: 'ti-progress' },
+  ] : []
 
   return (
     <>
@@ -46,10 +55,16 @@ export function InicioInmuebles({ user }) {
         {cargando && <Cargando texto="Leyendo el inventario…" />}
         {!cargando && (
           <>
-            <div className="tarjeta">
-              <p className="etiqueta">Inmuebles del ayuntamiento</p>
-              <p style={{ fontSize: '30px', fontWeight: 600, lineHeight: 1.1, marginTop: '4px' }}>{total.toLocaleString()}</p>
-              <p className="detalle">{cats.length} categorías · sin contar comodato ni desincorporados</p>
+            {/* minmax(0,1fr) y no 1fr: con 1fr la columna no baja del ancho de
+                su texto y las tarjetas se salen de la pantalla */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
+              {kpis.map(k => (
+                <div key={k.label} className="tarjeta" style={{ padding: '11px' }}>
+                  <i className={`ti ${k.icono}`} style={{ fontSize: '17px', color: k.color }} />
+                  <p style={{ fontSize: '18px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{k.valor.toLocaleString()}</p>
+                  <p style={{ fontSize: '10.5px', color: 'var(--texto-3)', lineHeight: 1.25 }}>{k.label}</p>
+                </div>
+              ))}
             </div>
 
             <p className="etiqueta">Por categoría</p>
@@ -69,15 +84,17 @@ export function InicioInmuebles({ user }) {
 
             <p className="etiqueta">Desincorporación</p>
             <div className="tarjeta plana">
-              <button className="fila" onClick={() => irA('i', 'reportes')}>
+              <button className="fila" onClick={() => irA('i', 'cat', ID_PROCESO)}>
                 <span className="marca falta"><i className="ti ti-progress" /></span>
                 <div className="crece"><p className="nombre">En proceso</p><p className="detalle">Trámite sin concluir</p></div>
                 <span className="detalle">{conteos.proceso}</span>
+                <i className="ti ti-chevron-right flecha" />
               </button>
-              <button className="fila" onClick={() => irA('i', 'reportes')}>
+              <button className="fila" onClick={() => irA('i', 'cat', ID_DESINC)}>
                 <span className="marca" style={{ background: 'var(--alerta-suave)', color: 'var(--alerta)' }}><i className="ti ti-circle-minus" /></span>
                 <div className="crece"><p className="nombre">Desincorporados</p><p className="detalle">Ya salieron del patrimonio</p></div>
                 <span className="detalle">{conteos.desinc}</span>
+                <i className="ti ti-chevron-right flecha" />
               </button>
             </div>
           </>
@@ -97,6 +114,9 @@ export function BuscarInmuebles({ idcategoria = '' }) {
   // inicio cada vez. Si se entró desde una categoría, ese es el punto de partida.
   const [cat, setCat] = useState(idcategoria ? String(idcategoria) : '')
   const [hojaCats, setHojaCats] = useState(false)
+  // Rango de superficie, en metros cuadrados. Vacío = sin límite por ese lado.
+  const [m2, setM2] = useState({ min: '', max: '' })
+  const [hojaM2, setHojaM2] = useState(false)
 
   useEffect(() => { categoriasInmuebles().then(setCats).catch(console.error) }, [])
   useEffect(() => { setCat(idcategoria ? String(idcategoria) : '') }, [idcategoria])
@@ -123,10 +143,26 @@ export function BuscarInmuebles({ idcategoria = '' }) {
   }, [texto, cats, cat])
 
   const q = texto.trim().toLowerCase()
-  const lista = cat && q
-    ? datos.filter(d => (d.nombre + d.clave + d.ubicacion).toLowerCase().includes(q))
-    : datos
+  const min = m2.min === '' ? null : Number(m2.min)
+  const max = m2.max === '' ? null : Number(m2.max)
+  const hayM2 = min != null || max != null
+  const lista = useMemo(() => {
+    let r = datos
+    if (cat && q) r = r.filter(d => (d.nombre + d.clave + d.ubicacion).toLowerCase().includes(q))
+    if (hayM2) r = r.filter(d => {
+      const v = Number(d.superficie)
+      if (!Number.isFinite(v)) return false
+      if (min != null && v < min) return false
+      if (max != null && v > max) return false
+      return true
+    })
+    return r
+  }, [datos, cat, q, min, max, hayM2])
   const nombreCat = cats.find(c => Number(c.idcategoria) === Number(cat))?.nombrecategoria
+  const textoM2 = !hayM2 ? 'Superficie'
+    : min != null && max != null ? `${min.toLocaleString()} – ${max.toLocaleString()} m²`
+    : min != null ? `Desde ${min.toLocaleString()} m²`
+    : `Hasta ${max.toLocaleString()} m²`
 
   return (
     <>
@@ -141,21 +177,29 @@ export function BuscarInmuebles({ idcategoria = '' }) {
           {texto && <button onClick={() => setTexto('')}><i className="ti ti-x" style={{ color: 'var(--texto-4)' }} /></button>}
         </div>
 
-        {/* Filtro por categoría, como el de tipo de bien en muebles */}
-        <button className="chip-filtro" onClick={() => setHojaCats(true)}>
-          <i className="ti ti-category" />
-          <span className="crece">{nombreCat || 'Todas las categorías'}</span>
-          <i className="ti ti-chevron-down" />
-        </button>
+        {/* Los dos filtros, uno al lado del otro: la categoría y el tamaño */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="chip-filtro" onClick={() => setHojaCats(true)}>
+            <i className="ti ti-category" />
+            <span className="crece">{nombreCat || 'Todas las categorías'}</span>
+            <i className="ti ti-chevron-down" />
+          </button>
+          <button className="chip-filtro" style={{ width: 'auto', flexShrink: 0 }} onClick={() => setHojaM2(true)}>
+            <i className="ti ti-ruler-measure" style={{ color: hayM2 ? 'var(--texto-1)' : undefined }} />
+            <span>{textoM2}</span>
+          </button>
+        </div>
 
         {cargando && <Cargando texto="Buscando…" />}
-        {!cargando && !idcategoria && !texto.trim() && <Vacio icono="ti-search" texto="Escribe para buscar un inmueble" />}
-        {!cargando && lista.length === 0 && (idcategoria || texto.trim()) && <Vacio texto="Sin resultados" />}
+        {/* El aviso solo cuando de verdad no hay nada que enseñar: con una
+            categoría elegida la lista sale sola, sin tener que escribir. */}
+        {!cargando && !cat && !texto.trim() && <Vacio icono="ti-search" texto="Escribe para buscar un inmueble" />}
+        {!cargando && lista.length === 0 && (cat || texto.trim()) && <Vacio texto="Sin resultados" />}
 
         {lista.length > 0 && (
           <div className="tarjeta plana">
             {lista.map(i => (
-              <button key={i.idinmueble} className="fila" onClick={() => irA('b', i.clave)}>
+              <button key={i.idinmueble} className="fila" onClick={() => irA('i', 'inm', i.idinmueble)}>
                 <div className="crece">
                   <p className="clave">{i.clave}</p>
                   <p className="nombre">{i.nombre}</p>
@@ -173,6 +217,10 @@ export function BuscarInmuebles({ idcategoria = '' }) {
         <HojaCategorias cats={cats} cat={cat}
           onElegir={id => { setCat(id); setHojaCats(false); setDatos([]) }}
           onCerrar={() => setHojaCats(false)} />
+      )}
+      {hojaM2 && (
+        <HojaSuperficie m2={m2} onElegir={r => { setM2(r); setHojaM2(false) }}
+          onCerrar={() => setHojaM2(false)} />
       )}
     </>
   )
@@ -215,19 +263,58 @@ function HojaCategorias({ cats, cat, onElegir, onCerrar }) {
   )
 }
 
+// Rango de superficie: de cuánto a cuánto, en metros cuadrados
+function HojaSuperficie({ m2, onElegir, onCerrar }) {
+  useBloquearScroll()
+  const [min, setMin] = useState(m2.min)
+  const [max, setMax] = useState(m2.max)
+
+  const campo = (valor, poner, etq, ph) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <p className="etiqueta" style={{ marginBottom: '6px' }}>{etq}</p>
+      <input value={valor} onChange={e => poner(e.target.value.replace(/[^\d.]/g, ''))}
+        inputMode="decimal" placeholder={ph}
+        style={{ width: '100%', padding: '12px 13px', borderRadius: '12px', background: 'var(--campo)',
+          border: '1px solid var(--borde-fuerte)', color: 'var(--texto-1)', fontSize: '16px', outline: 'none' }} />
+    </div>
+  )
+
+  return (
+    <>
+      <div className="movil-telon" onClick={onCerrar} />
+      <div className="movil-hoja">
+        <div className="asa" />
+        <div style={{ padding: '0 16px 14px' }}>
+          <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '10px' }}>Superficie</p>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {campo(min, setMin, 'Desde (m²)', '0')}
+            {campo(max, setMax, 'Hasta (m²)', 'sin límite')}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+            <button className="boton suave" onClick={() => onElegir({ min: '', max: '' })}>Quitar</button>
+            <button className="boton" onClick={() => onElegir({ min, max })}>Aplicar</button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Ficha de un inmueble ─────────────────────────────────────────────────────
-export function FichaInmueble({ clave }) {
+export function FichaInmueble({ clave = '', idinmueble = '' }) {
   const [inm, setInm] = useState(null)
   const [cargando, setCargando] = useState(true)
 
+  // Por id cuando se llega desde una lista —hay desincorporados que comparten
+  // clave o no tienen—, y por clave cuando se llega desde el QR.
   useEffect(() => {
     setCargando(true)
     categoriasInmuebles()
-      .then(cats => inmueblePorClave(clave, cats))
+      .then(cats => (idinmueble ? inmueblePorId(idinmueble, cats) : inmueblePorClave(clave, cats)))
       .then(setInm)
       .catch(console.error)
       .finally(() => setCargando(false))
-  }, [clave])
+  }, [clave, idinmueble])
 
   const dato = (etq, valor) => (
     <div className="fila" key={etq}>
@@ -240,7 +327,12 @@ export function FichaInmueble({ clave }) {
 
   return (
     <>
-      <Cabecera titulo="Inmueble" sub={clave} atras />
+      <Cabecera titulo="Inmueble" sub={inm?.clave || clave} atras
+        accion={inm && (
+          <button className="icono-btn" onClick={() => irA('i', 'editar', inm.idinmueble)} aria-label="Modificar">
+            <i className="ti ti-pencil" />
+          </button>
+        )} />
       <div className="contenido">
         {cargando && <Cargando />}
         {!cargando && !inm && <Vacio icono="ti-qrcode-off" texto={`No hay ningún inmueble con la clave ${clave}`} />}
@@ -260,9 +352,6 @@ export function FichaInmueble({ clave }) {
               {dato('Documento de propiedad', inm.documento)}
               {dato('Expediente', inm.expediente)}
             </div>
-            <button className="boton suave" onClick={() => irA('i', 'editar', inm.clave)}>
-              <i className="ti ti-pencil" style={{ fontSize: '18px' }} />Modificar inmueble
-            </button>
           </>
         )}
       </div>
@@ -273,7 +362,7 @@ export function FichaInmueble({ clave }) {
 // ── Modificar un inmueble ────────────────────────────────────────────────────
 // Los mismos datos que se corrigen en la computadora, menos la categoría y la
 // clave: cambiarlas reasigna el consecutivo y eso se hace desde allá.
-export function EditarInmueble({ clave }) {
+export function EditarInmueble({ idinmueble }) {
   const [inm, setInm] = useState(null)
   const [campos, setCampos] = useState({
     nombre: '', catastral: '', ubicacion: '', superficie: '', valor: '',
@@ -286,7 +375,7 @@ export function EditarInmueble({ clave }) {
   useEffect(() => {
     setCargando(true)
     categoriasInmuebles()
-      .then(cats => inmueblePorClave(clave, cats))
+      .then(cats => inmueblePorId(idinmueble, cats))
       .then(i => {
         setInm(i)
         if (i) setCampos({
@@ -297,7 +386,7 @@ export function EditarInmueble({ clave }) {
       })
       .catch(e => setError(e.message))
       .finally(() => setCargando(false))
-  }, [clave])
+  }, [idinmueble])
 
   async function guardar() {
     if (!inm) return
@@ -326,10 +415,10 @@ export function EditarInmueble({ clave }) {
 
   return (
     <>
-      <Cabecera titulo="Modificar inmueble" sub={clave} atras />
+      <Cabecera titulo="Modificar inmueble" sub={inm?.clave} atras />
       <div className="contenido">
         {cargando && <Cargando />}
-        {!cargando && !inm && <Vacio icono="ti-qrcode-off" texto={`No hay ningún inmueble con la clave ${clave}`} />}
+        {!cargando && !inm && <Vacio icono="ti-qrcode-off" texto="No se encontró el inmueble" />}
         {inm && (
           <>
             {campo('Nombre del inmueble', 'nombre', { largo: true })}
@@ -360,8 +449,12 @@ export function EditarInmueble({ clave }) {
   )
 }
 
-// ── Salidas del patrimonio ───────────────────────────────────────────────────
-export function ReportesInmueblesMovil() {
+// ── Desincorporaciones ───────────────────────────────────────────────────────
+// Los dos apartados de salida. Desde aquí se entra a la lista, se consulta cada
+// inmueble y se corrige lo que haga falta, igual que en el resto del inventario.
+// Los reportes en Excel y PDF se siguen haciendo desde la computadora, así que
+// esta pantalla ya no los ofrece.
+export function DesincorporacionesMovil() {
   const [conteos, setConteos] = useState({ proceso: 0, desinc: 0 })
   const [cargando, setCargando] = useState(true)
 
@@ -371,23 +464,46 @@ export function ReportesInmueblesMovil() {
 
   return (
     <>
-      <Cabecera titulo="Reportes" sub="Movimientos de inmuebles" />
+      <Cabecera titulo="Desincorporaciones" sub="Salidas del patrimonio" />
       <div className="contenido">
         {cargando && <Cargando />}
         {!cargando && (
           <>
-            <div className="tarjeta">
-              <p className="etiqueta">En proceso de desincorporación</p>
-              <p style={{ fontSize: '28px', fontWeight: 600, lineHeight: 1.1, marginTop: '4px' }}>{conteos.proceso}</p>
-              <p className="detalle">Inmuebles en trámite</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+              <div className="tarjeta" style={{ padding: '13px' }}>
+                <i className="ti ti-progress" style={{ fontSize: '18px', color: 'var(--falta)' }} />
+                <p style={{ fontSize: '24px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{conteos.proceso}</p>
+                <p style={{ fontSize: '11px', color: 'var(--texto-3)', lineHeight: 1.25 }}>En proceso</p>
+              </div>
+              <div className="tarjeta" style={{ padding: '13px' }}>
+                <i className="ti ti-circle-minus" style={{ fontSize: '18px', color: 'var(--alerta)' }} />
+                <p style={{ fontSize: '24px', fontWeight: 600, lineHeight: 1.2, marginTop: '4px' }}>{conteos.desinc}</p>
+                <p style={{ fontSize: '11px', color: 'var(--texto-3)', lineHeight: 1.25 }}>Desincorporados</p>
+              </div>
             </div>
-            <div className="tarjeta">
-              <p className="etiqueta">Desincorporados</p>
-              <p style={{ fontSize: '28px', fontWeight: 600, lineHeight: 1.1, marginTop: '4px' }}>{conteos.desinc}</p>
-              <p className="detalle">Ya salieron del patrimonio</p>
+
+            <div className="tarjeta plana">
+              <button className="fila" onClick={() => irA('i', 'cat', ID_PROCESO)}>
+                <span className="marca falta"><i className="ti ti-progress" /></span>
+                <div className="crece">
+                  <p className="nombre">En proceso de desincorporación</p>
+                  <p className="detalle">Trámite sin concluir · siguen siendo del ayuntamiento</p>
+                </div>
+                <i className="ti ti-chevron-right flecha" />
+              </button>
+              <button className="fila" onClick={() => irA('i', 'cat', ID_DESINC)}>
+                <span className="marca" style={{ background: 'var(--alerta-suave)', color: 'var(--alerta)' }}><i className="ti ti-circle-minus" /></span>
+                <div className="crece">
+                  <p className="nombre">Desincorporados del HAN</p>
+                  <p className="detalle">Ya salieron del patrimonio</p>
+                </div>
+                <i className="ti ti-chevron-right flecha" />
+              </button>
             </div>
-            <p className="detalle" style={{ textAlign: 'center' }}>
-              Los reportes en Excel y PDF se generan desde la computadora.
+
+            <p className="detalle">
+              Mover un inmueble de una etapa a otra se hace desde la computadora; aquí se consulta
+              y se corrigen sus datos.
             </p>
           </>
         )}

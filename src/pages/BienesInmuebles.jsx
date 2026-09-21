@@ -583,7 +583,16 @@ async function dibujarLogosPDF(doc, pageW, margin) {
 }
 
 // ── Export PDF ──────────────────────────────────────────────────────────────────
-export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []) {
+//
+// `extra` agrega las partes que pide el formato de Tesorería y que los demás
+// reportes no llevan. Va vacío por omisión, así que quien no lo pase obtiene
+// exactamente el mismo documento de siempre:
+//
+//    subtitulo    "PERIODO DE ENERO A DICIEMBRE 2024", bajo el título
+//    dependencia  "DEPENDENCIA O ENTIDAD: SINDICATURA MUNICIPAL", a la izquierda
+//    monto        { etiqueta, valor } renglón de total al cierre de la tabla
+//    firmas       [{ titulo, nombre, puesto }] bloque de firmas al final
+export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = [], extra = {}) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 28
@@ -599,6 +608,16 @@ export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []
     doc.setLineWidth(1)
     doc.line(pageW / 2 - tw / 2, startY + 10, pageW / 2 + tw / 2, startY + 10)
     startY += 24
+  }
+  if (extra.subtitulo) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0)
+    doc.text(extra.subtitulo, pageW / 2, startY + 4, { align: 'center' })
+    startY += 18
+  }
+  if (extra.dependencia) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(0)
+    doc.text(extra.dependencia, margin - 4, startY + 4)
+    startY += 16
   }
 
   const agrupar  = cols.some(c => c.key === 'categoria')
@@ -682,11 +701,60 @@ export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []
     rows.forEach(r => push(celdas(r), r))
     autoTable(doc, { ...common, head, body, headStyles: hStyle })
   }
+
+  // ── Cierre del formato de Tesorería: renglón de monto y bloque de firmas ────
+  const altoPag = doc.internal.pageSize.getHeight()
+  let y = doc.lastAutoTable ? doc.lastAutoTable.finalY : startY
+
+  if (extra.monto) {
+    if (y + 40 > altoPag - 24) { doc.addPage(); y = 40 }
+    // El importe cae bajo VALOR CATASTRAL: se usan los mismos anchos de columna
+    // de la tabla y la etiqueta abarca todo lo que va antes. La celda siguiente
+    // queda vacía, para anotar a mano el monto que entreguen y compararlo.
+    const iVal = dataCols.findIndex(c => c.key === 'valorcatastral')
+    const posVal = iVal >= 0 ? iVal : dataCols.length - 1
+    const renglon = []
+    if (posVal > 0) renglon.push({ content: extra.monto.etiqueta || 'MONTO', colSpan: posVal, styles: { halign: 'right' } })
+    renglon.push({ content: extra.monto.valor || '', styles: { halign: 'center' } })
+    for (let k = posVal + 1; k < dataCols.length; k++) renglon.push({ content: '' })
+
+    autoTable(doc, {
+      startY: y + 8,
+      margin: { left: 24, right: 24 },
+      columnStyles: colStylesPDF,
+      styles: { font: 'helvetica', fontSize: 8, cellPadding: 4, lineColor: [0,0,0], lineWidth: 0.5, textColor: [0,0,0], fontStyle: 'bold' },
+      body: [renglon],
+    })
+    y = doc.lastAutoTable.finalY
+  }
+
+  if (extra.firmas && extra.firmas.length) {
+    const alto = 86
+    if (y + alto > altoPag - 24) { doc.addPage(); y = 60 }
+    const ancho = (pageW - 48) / extra.firmas.length
+    extra.firmas.forEach((f, i) => {
+      const cx = 24 + ancho * i + ancho / 2
+      let ty = y + 26
+      if (f.titulo) { doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(f.titulo, cx, ty, { align: 'center' }); ty += 30 }
+      else ty += 30
+      // La raya solo donde se va a firmar; los bloques con sinLinea no la llevan
+      if (!f.sinLinea) {
+        doc.setLineWidth(0.8)
+        doc.line(cx - ancho * 0.32, ty, cx + ancho * 0.32, ty)
+      }
+      ty += 12
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+      if (f.nombre) doc.text(f.nombre, cx, ty, { align: 'center' })
+      if (f.puesto) { ty += 11; doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(f.puesto, cx, ty, { align: 'center' }) }
+    })
+  }
+
   doc.save(nombreArchivo('pdf'))
 }
 
 // ── Export Excel (ExcelJS — réplica exacta del formato oficial) ────────────────────
-export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = []) {
+// `extra` es lo mismo que en exportarPDF; vacío deja el documento como siempre.
+export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = [], extra = {}) {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('INVENTARIO BIENES INMUEBLES')
   // Impresión: horizontal, ajustada al ancho de la hoja para que no se corten
@@ -824,6 +892,23 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
     tCell.value = titulo
     tCell.font = { name: FUENTE, family: 2, size: 18, bold: true, underline: true, color: { argb: 'FF' + NEGRO } }
     tCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+    fila += extra.subtitulo ? 1 : 2
+  }
+
+  // Subtítulo del periodo y, debajo, la dependencia a la izquierda
+  if (extra.subtitulo) {
+    ws.mergeCells(fila, 1, fila, nCols)
+    const c = ws.getCell(fila, 1)
+    c.value = extra.subtitulo
+    c.font = { name: FUENTE, family: 2, size: 12, bold: true, color: { argb: 'FF' + NEGRO } }
+    c.alignment = { horizontal: 'center', vertical: 'middle' }
+    fila += 2
+  }
+  if (extra.dependencia) {
+    const c = ws.getCell(fila, 1)
+    c.value = extra.dependencia
+    c.font = { name: FUENTE, family: 2, size: 10, bold: true, color: { argb: 'FF' + NEGRO } }
+    c.alignment = { horizontal: 'left', vertical: 'middle' }
     fila += 2
   }
 
@@ -875,6 +960,65 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
       dataCols.forEach((c, idx) => dataCell(row.getCell(idx + 1), c.key.startsWith('__') ? '' : valorTexto(c, r, cats), alineacion(c.key), c.key !== 'claveinmueble', fill))
         if (evid.has(r.idinmueble)) ponerEvidencias(r, fila)
       fila++
+    })
+  }
+
+  // ── Cierre del formato de Tesorería ─────────────────────────────────────────
+  if (extra.monto) {
+    fila++
+    // El importe va justo debajo de VALOR CATASTRAL, no al final del renglón.
+    // Sin relleno gris: solo el texto y su recuadro.
+    const iVal = dataCols.findIndex(c => c.key === 'valorcatastral')
+    const colVal = (iVal >= 0 ? iVal : nCols - 1) + 1     // 1-based
+
+    if (colVal > 1) {
+      for (let c = 1; c < colVal; c++) dataCell(ws.getCell(fila, c), '', 'right', false)
+      if (colVal > 2) ws.mergeCells(fila, 1, fila, colVal - 1)
+      const etq = ws.getCell(fila, 1)
+      etq.value = extra.monto.etiqueta || 'MONTO'
+      etq.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
+      etq.alignment = { horizontal: 'right', vertical: 'middle' }
+    }
+
+    const val = ws.getCell(fila, colVal)
+    dataCell(val, extra.monto.valor || '', 'center', false)
+    val.font = { name: FUENTE, family: 2, size: 11, bold: true, color: { argb: 'FF' + NEGRO } }
+
+    // A la derecha, una celda vacía para anotar a mano el monto que entreguen
+    // y compararlo con el del sistema
+    dataCell(ws.getCell(fila, colVal + 1), '', 'center', false)
+    fila++
+  }
+
+  if (extra.firmas && extra.firmas.length) {
+    fila += 3
+    // Cada firma ocupa una franja de columnas, repartidas a lo ancho
+    const porFirma = Math.max(1, Math.floor(nCols / extra.firmas.length))
+    const escribir = (texto, f, desdeCol, negrita, tam) => {
+      const hasta = Math.min(nCols, desdeCol + porFirma - 1)
+      if (hasta > desdeCol) ws.mergeCells(f, desdeCol, f, hasta)
+      const c = ws.getCell(f, desdeCol)
+      c.value = texto
+      c.font = { name: FUENTE, family: 2, size: tam, bold: negrita, color: { argb: 'FF' + NEGRO } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    }
+    extra.firmas.forEach((fi, i) => {
+      const col = 1 + porFirma * i
+      if (fi.titulo) escribir(fi.titulo, fila, col, true, 10)
+    })
+    fila += 3
+    // La raya solo donde se firma
+    extra.firmas.forEach((fi, i) => {
+      if (fi.sinLinea) return
+      escribir('__________________________________', fila, 1 + porFirma * i, false, 10)
+    })
+    fila++
+    extra.firmas.forEach((fi, i) => {
+      if (fi.nombre) escribir(fi.nombre, fila, 1 + porFirma * i, true, 10)
+    })
+    fila++
+    extra.firmas.forEach((fi, i) => {
+      if (fi.puesto) escribir(fi.puesto, fila, 1 + porFirma * i, false, 10)
     })
   }
 

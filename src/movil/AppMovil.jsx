@@ -6,7 +6,7 @@ import { useBloquearScroll } from './useBloquearScroll'
 import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaCompleta } from './pantallaCompleta'
 import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos, DetalleReconteo } from './PantallasMuebles'
 import { Escaner, CapturarClave, LecturaBien } from './Escaner'
-import { InicioInmuebles, BuscarInmuebles, FichaInmueble, EditarInmueble, ReportesInmueblesMovil } from './PantallasInmuebles'
+import { InicioInmuebles, BuscarInmuebles, FichaInmueble, EditarInmueble, DesincorporacionesMovil } from './PantallasInmuebles'
 
 // ── Armazón de la vista móvil ─────────────────────────────────────────────────
 // Una sola pantalla a la vez, barra de navegación abajo y un botón "Más" para
@@ -88,8 +88,9 @@ export default function AppMovil({ user, onSalir }) {
       switch (sub) {
         case 'inmuebles': return <BuscarInmuebles />
         case 'cat':       return <BuscarInmuebles idcategoria={arg} />
-        case 'editar':    return <EditarInmueble clave={arg} />
-        case 'reportes':  return <ReportesInmueblesMovil />
+        case 'inm':       return <FichaInmueble idinmueble={arg} />
+        case 'editar':    return <EditarInmueble idinmueble={arg} />
+        case 'desinc':    return <DesincorporacionesMovil />
         default:          return <InicioInmuebles user={user} />
       }
     }
@@ -117,7 +118,7 @@ export default function AppMovil({ user, onSalir }) {
         { id: 'inicio',    icono: 'ti-home',        texto: 'Inicio',    ir: () => irA('i', 'inicio') },
         { id: 'inmuebles', icono: 'ti-building',    texto: 'Inmuebles', ir: () => irA('i', 'inmuebles') },
         { id: 'buscar',    icono: 'ti-search',      texto: 'Buscar',    ir: () => irA('i', 'inmuebles'), principal: true },
-        { id: 'reportes',  icono: 'ti-chart-bar',   texto: 'Reportes',  ir: () => irA('i', 'reportes') },
+        { id: 'desinc',    icono: 'ti-circle-minus', texto: 'Salidas',  ir: () => irA('i', 'desinc') },
         { id: 'mas',       icono: 'ti-dots',        texto: 'Más',       ir: () => setHoja(true) },
       ]
     : [
@@ -192,7 +193,7 @@ function HojaMas({ user, inmuebles, dark, onCerrar, onSalir }) {
   const opciones = inmuebles
     ? [
         { icono: 'ti-building',      texto: 'Bienes inmuebles',  al: () => ir('i', 'inmuebles') },
-        { icono: 'ti-chart-bar',     texto: 'Reportes',          al: () => ir('i', 'reportes') },
+        { icono: 'ti-circle-minus',  texto: 'Desincorporaciones', al: () => ir('i', 'desinc') },
       ]
     : [
         { icono: 'ti-armchair',        texto: 'Bienes muebles',   al: () => ir('m', 'bienes') },

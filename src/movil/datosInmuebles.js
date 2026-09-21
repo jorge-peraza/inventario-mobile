@@ -1,5 +1,5 @@
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
-import { ID_PROCESO, ID_DESINC, CATS_FUERA } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, CATS_FUERA, CATS_SALIDA } from '../desincorporaciones'
 
 // ── Consultas de inmuebles para la vista móvil ───────────────────────────────
 // Mismo criterio que el escritorio, para que los números cuadren:
@@ -130,6 +130,39 @@ export async function conteosDesincorporacion() {
   }
   const [proceso, desinc] = await Promise.all([uno(ID_PROCESO), uno(ID_DESINC)])
   return { proceso, desinc }
+}
+
+// Las tres cifras del tablero de la computadora, las mismas cuentas
+export async function estadisticasInmuebles() {
+  const BATCH = 1000
+  let todos = [], desde = 0
+  while (true) {
+    const { data, error } = await supabase.from('bienesinmuebles')
+      .select('idcategoria, fecha_enajenacion').range(desde, desde + BATCH - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    todos = todos.concat(data)
+    if (data.length < BATCH) break
+    desde += BATCH
+  }
+  const anio = String(new Date().getFullYear())
+  return {
+    total:          todos.filter(r => !FUERA.includes(r.idcategoria)).length,
+    // Incorporaciones del año: movimientos de este año que no son salidas
+    incorporaciones: todos.filter(r =>
+      String(r.fecha_enajenacion || '').startsWith(anio) && !CATS_SALIDA.includes(r.idcategoria)).length,
+    enProceso:      todos.filter(r => r.idcategoria === ID_PROCESO).length,
+  }
+}
+
+// Un inmueble por su id. Hace falta para los desincorporados: varios comparten
+// clave —"PEND-1"— o no tienen, así que por clave no se distinguen.
+export async function inmueblePorId(idinmueble, categorias) {
+  const { data, error } = await supabase.from('bienesinmuebles').select(SELECT)
+    .eq('idinmueble', Number(idinmueble)).limit(1)
+  if (error) throw error
+  if (!data || !data.length) return null
+  return mapear(data[0], categorias)
 }
 
 export async function inmueblePorClave(clave, categorias) {
