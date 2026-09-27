@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { cargarExcel, cargarPdf } from '../exportadores'
+import { cargarExcel, cargarPdf, nombreArchivo, textoPeriodo } from '../exportadores'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
  import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
-import { barraSticky, btnBarra, MenuFila } from './ui'
+import { barraSticky, btnBarra, MenuFila, Deslizable } from './ui'
 import { PaginaEvidencias } from './ArmarReporteInmuebles'
 import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, subirTramitesPendientes, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
@@ -484,10 +484,6 @@ function valorTexto(col, r, cats) {
   return String(raw)
 }
 
-function nombreArchivo(ext) {
-  const f = new Date().toISOString().slice(0, 10)
-  return `inventario-inmuebles-${f}.${ext}`
-}
 
 function nombreCategoria(r, cats) {
   return cats.find(c => c.idcategoria === r.idcategoria)?.nombrecategoria || 'SIN CATEGORÍA'
@@ -747,7 +743,7 @@ export async function exportarPDF(rows, cols, cats, titulo = '', evidencias = []
     })
   }
 
-  doc.save(nombreArchivo('pdf'))
+  doc.save(nombreArchivo(extra.archivo || titulo, 'inventario-inmuebles', 'pdf'))
 }
 
 // ── Export Excel (ExcelJS — réplica exacta del formato oficial) ────────────────────
@@ -1022,7 +1018,7 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
   }
 
   const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo('xlsx'))
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(extra.archivo || titulo, 'inventario-inmuebles', 'xlsx'))
 }
 
 // Trae todos los registros que cumplen los filtros actuales (paginado)
@@ -1217,24 +1213,10 @@ export function ModalReporte({ onClose, dark, t, categorias, seleccionados, filt
             {/* Alcance */}
             <div>
               <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-              <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
-                <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
-                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s',
-                    background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent',
-                    border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent',
-                    color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
-                  <i className="ti ti-square-check" style={{ fontSize:'16px' }} />
-                  {seleccionados.length} seleccionado{seleccionados.length !== 1 ? 's' : ''}
-                </button>
-                <button onClick={() => setAlcance('todos')}
-                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s',
-                    background: alcance === 'todos' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent',
-                    border: alcance === 'todos' ? `1px solid ${t.cardBorder}` : '1px solid transparent',
-                    color: alcance === 'todos' ? t.text1 : t.text3 }}>
-                  <i className="ti ti-list" style={{ fontSize:'16px' }} />
-                  Todos ({totalFiltrados.toLocaleString()})
-                </button>
-              </div>
+              <Deslizable dark={dark} t={t} valor={alcance} onCambio={setAlcance} opciones={[
+                { id: 'seleccion', icon: 'ti-square-check', label: `${seleccionados.length} seleccionado${seleccionados.length !== 1 ? 's' : ''}`, disabled: !haySel },
+                { id: 'todos',     icon: 'ti-list',         label: `Todos (${totalFiltrados.toLocaleString()})` },
+              ]} />
               <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', marginTop:'7px' }}>
                 {alcance === 'seleccion'
                   ? 'Solo los registros que marcaste con checkbox.'
@@ -1496,7 +1478,7 @@ export async function exportarEnajenacionesPDF(desinc, incorp, titulo = '') {
   startY = renderSeccion(desinc, 'DESINCORPORACIONES DEL REGIMEN DEL DOMINIO PUBLICO MUNICIPAL DE LA ADMINISTRACION MUNICIPAL DE NOGALES, SONORA', startY)
   renderSeccion(incorp, 'INCORPORACIONES AL REGIMEN DEL DOMINIO PUBLICO MUNICIPAL DE LA ADMINISTRACION MUNICIPAL DE NOGALES, SONORA', startY)
 
-  doc.save(`enajenaciones-${new Date().toISOString().slice(0,10)}.pdf`)
+  doc.save(nombreArchivo(titulo, 'enajenaciones', 'pdf'))
 }
 
 export async function exportarEnajenacionesExcel(desinc, incorp, titulo = '') {
@@ -1590,7 +1572,7 @@ export async function exportarEnajenacionesExcel(desinc, incorp, titulo = '') {
 
   const buf = await wb.xlsx.writeBuffer()
   const { saveAs: save } = await import('file-saver')
-  save(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `enajenaciones-${new Date().toISOString().slice(0,10)}.xlsx`)
+  save(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(titulo, 'enajenaciones', 'xlsx'))
 }
 
 // ── Página ────────────────────────────────────────────────────────────────────
@@ -2086,7 +2068,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
     })
   }
 
-  const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg   = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const card = { background:t.cardBg, border:`1px solid ${t.cardBorder}`, backdropFilter:t.cardBlur, WebkitBackdropFilter:t.cardBlur, borderRadius:'14px' }
 
   const cols = [

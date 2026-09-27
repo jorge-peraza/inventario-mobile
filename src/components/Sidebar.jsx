@@ -5,8 +5,10 @@ const NAV_MUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'dashboard' },
   { icon:'ti-armchair',         label:'Bienes Muebles', id:'bienes',    page:'bienes' },
   { icon:'ti-arrows-exchange',  label:'Traspasos',      id:'traspasos', page:'traspasos' },
-  // El administrador ve las bajas desde Reportes, como siempre: aquí no lleva
-  // entrada propia. La página /bajas existe solo para las dependencias.
+  // La gestión de bajas salió de Reportes: cada lista tiene su entrada.
+  // (La página /bajas es otra: la consulta de bajas de las dependencias.)
+  { icon:'ti-circle-minus',     label:'Solicitud de baja',  id:'solicitudes-baja',  page:'solicitudes-baja' },
+  { icon:'ti-circle-x',         label:'Bajas confirmadas',  id:'bajas-confirmadas', page:'bajas-confirmadas' },
   { icon:'ti-chart-bar',        label:'Reportes',       id:'reportes',  page:'reportes' },
   // Dependencias queda oculta por ahora; la página y su ruta siguen vivas y
   // basta con descomentar esta línea para volver a mostrarla en el menú.
@@ -19,6 +21,9 @@ const NAV_MUEBLES = [
 const NAV_INMUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',           id:'inicio',    page:'dashboard-inmuebles' },
   { icon:'ti-building',         label:'Bienes Inmuebles', id:'inmuebles', page:'inmuebles' },
+  // Salieron de Reportes: cada lista tiene su entrada
+  { icon:'ti-progress',         label:'En proceso de desincorporación', id:'desinc-proceso',  page:'desinc-proceso' },
+  { icon:'ti-circle-minus',     label:'Desincorporado',   id:'desincorporados', page:'desincorporados' },
   { icon:'ti-chart-bar',        label:'Reportes',         id:'reportes',  page:'reportes' },
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
 ]
@@ -57,12 +62,9 @@ export default function Sidebar({ user, active = 'inicio', onNavigate }) {
       {/* Header */}
       <div style={{ padding:'1.25rem 1rem', borderBottom:`1px solid ${t.divider}`, display:'flex', alignItems:'center', justifyContent: sidebarOpen ? 'space-between' : 'center', gap:'10px', flexShrink:0, height:'68px' }}>
         {sidebarOpen && (
-          <div style={{ display:'flex', alignItems:'center', gap:'10px', overflow:'hidden' }}>
-            <div style={{ width:'36px', height:'36px', borderRadius:'10px', flexShrink:0, background:t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <i className="ti ti-building-community" style={{ fontSize:'18px', color:t.text1 }} />
-            </div>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', overflow:'hidden', paddingLeft:'4px' }}>
             <div>
-              <p style={{ fontSize:'14px', fontWeight:600, color:t.text1, lineHeight:1.2, whiteSpace:'nowrap' }}>Inventarios</p>
+              <p style={{ fontSize:'14px', fontWeight:600, color:t.text1, lineHeight:1.2, whiteSpace:'nowrap' }}>{user?.rol === 'admin_inmuebles' ? 'Bienes Inmuebles' : 'Bienes Muebles'}</p>
               <p style={{ fontSize:'12px', color:t.text3, whiteSpace:'nowrap' }}>Nogales</p>
             </div>
           </div>
@@ -86,7 +88,9 @@ export default function Sidebar({ user, active = 'inicio', onNavigate }) {
               onMouseLeave={e=>{ if(!isActive && !off){e.currentTarget.style.background='transparent';e.currentTarget.style.color=t.text3;e.currentTarget.style.border='1px solid transparent'} }}
             >
               <i className={`ti ${item.icon}`} style={{ fontSize:'20px', flexShrink:0, color:isActive?t.text1:t.text4 }} />
-              <span style={{ opacity: sidebarOpen ? 1 : 0, maxWidth: sidebarOpen ? '200px' : '0px', overflow: 'hidden', transition: 'opacity 0.2s cubic-bezier(0.4,0,0.2,1), max-width 0.25s cubic-bezier(0.4,0,0.2,1)', pointerEvents: 'none', flexShrink: 0 }}>{item.label}</span>
+              {/* Abierto, un nombre largo ("En proceso de desincorporación") baja a
+                  un segundo renglón en vez de cortarse */}
+              <span style={{ opacity: sidebarOpen ? 1 : 0, maxWidth: sidebarOpen ? '200px' : '0px', overflow: 'hidden', transition: 'opacity 0.2s cubic-bezier(0.4,0,0.2,1), max-width 0.25s cubic-bezier(0.4,0,0.2,1)', pointerEvents: 'none', flexShrink: sidebarOpen ? 1 : 0, minWidth: 0, whiteSpace: sidebarOpen ? 'normal' : 'nowrap', lineHeight: 1.25 }}>{item.label}</span>
             </button>
           )
         })}

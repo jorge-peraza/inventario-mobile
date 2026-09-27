@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from '../supabase'
-import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './ui'
+import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion, Deslizable } from './ui'
 import { exportarExcelMuebles, exportarPDFMuebles } from './BienesMuebles'
 import { bienesDeArea } from '../movil/datos'
 import { reabrirRemoto } from '../movil/sincronizar'
+import { verificarContrasena } from '../auth'
 
 // ── Reconteo (escritorio) ────────────────────────────────────────────────────
 // El conteo físico se levanta desde el celular; aquí se consulta lo que quedó.
@@ -45,26 +46,6 @@ function chipEstado(dark, tipo) {
     ajeno:   { color: dark ? '#f4a1a1' : '#c0392b', bg: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.1)',   label: 'De otra área' },
   }[tipo]
   return { style: { fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '20px', display: 'inline-block', background: c.bg, color: c.color, border: `1px solid ${c.color}44`, whiteSpace: 'nowrap' }, label: c.label }
-}
-
-// Control de tres estados: el fondo se desliza al que se elige
-function Deslizante({ valor, onCambio, opciones, dark, t }) {
-  const i = Math.max(0, opciones.findIndex(o => o.id === valor))
-  return (
-    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: `repeat(${opciones.length}, minmax(0,1fr))`, gap: '4px', padding: '4px', borderRadius: '12px', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.035)', border: `1px solid ${t.cardBorder}`, minWidth: '330px' }}>
-      <div aria-hidden style={{ position: 'absolute', top: '4px', bottom: '4px', left: `calc(4px + ${i} * ((100% - 8px) / ${opciones.length}))`, width: `calc((100% - 8px) / ${opciones.length})`, borderRadius: '9px', background: dark ? 'rgba(255,255,255,0.09)' : '#fff', border: `1px solid ${dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)'}`, boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.07)', transition: 'left 0.25s cubic-bezier(0.4,0,0.2,1)' }} />
-      {opciones.map(o => {
-        const activo = o.id === valor
-        return (
-          <button key={o.id} onClick={() => onCambio(o.id)}
-            style={{ position: 'relative', zIndex: 1, padding: '7px 6px', borderRadius: '9px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', color: activo ? t.text1 : t.text3, transition: 'color 0.15s' }}>
-            <b style={{ fontSize: '16px', fontWeight: 600 }}>{o.total?.toLocaleString() ?? '—'}</b>
-            <span style={{ fontSize: '11.5px', fontWeight: 500 }}>{o.label}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 // ── Reporte de un reconteo ───────────────────────────────────────────────────
@@ -175,14 +156,8 @@ function ModalReporteReconteo({ reconteo, onClose, dark, t }) {
           {/* Qué bienes entran */}
           <div>
             <p style={lbl}>Bienes a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
-              {ALCANCES.map(a => (
-                <button key={a.id} onClick={() => setAlcance(a.id)}
-                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'8px 10px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: alcance === a.id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === a.id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === a.id ? t.text1 : t.text3 }}>
-                  {a.label} ({cargando ? '…' : conteo[a.id].toLocaleString()})
-                </button>
-              ))}
-            </div>
+            <Deslizable dark={dark} t={t} valor={alcance} onCambio={setAlcance}
+              opciones={ALCANCES.map(a => ({ ...a, label: `${a.label} (${cargando ? '…' : conteo[a.id].toLocaleString()})` }))} />
           </div>
 
           {/* Título */}
@@ -388,7 +363,7 @@ function Detalle({ reconteo, onVolver, onCambio, dark, t, card }) {
 
       {/* Los tres estados + búsqueda */}
       <div className="barra-fit" style={{ ...card, padding: '0.85rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-        <Deslizante valor={pestana} onCambio={setPestana} opciones={opciones} dark={dark} t={t} />
+        <Deslizable valor={pestana} onCambio={setPestana} opciones={opciones} dark={dark} t={t} style={{ minWidth: '330px' }} />
         <div style={{ ...searchBoxStyle(dark), flex: 1, minWidth: '220px' }}>
           <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
           <input type="text" placeholder="Buscar por clave, bien, resguardo u observación..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
@@ -519,44 +494,55 @@ function Detalle({ reconteo, onVolver, onCambio, dark, t, card }) {
   )
 }
 
-// ── Confirmación para quitar un reconteo del historial ───────────────────────
-function ModalBorrar({ reconteo, onClose, onBorrado, dark, t }) {
-  const [borrando, setBorrando] = useState(false)
+// ── Mandar un reconteo a la papelera ─────────────────────────────────────────
+// Ya no se borra: se marca con la fecha y se puede regresar desde la Papelera.
+// Pide la contraseña del administrador que tiene la sesión abierta, para que no
+// salga del historial por un clic accidental.
+function ModalPapelera({ reconteo, onClose, onHecho, dark, t }) {
+  const [clave, setClave] = useState('')
+  const [moviendo, setMoviendo] = useState(false)
   const [err, setErr] = useState(null)
 
-  async function borrar() {
-    setBorrando(true); setErr(null)
+  async function mover(e) {
+    e?.preventDefault()
+    if (moviendo) return
+    setMoviendo(true); setErr(null)
     try {
-      // Las filas del conteo cuelgan del reconteo y se van con él
-      const { error } = await supabase.from('reconteos').delete().eq('idreconteo', reconteo.idreconteo)
-      if (error) throw error
-      onBorrado()
-    } catch (e) { setErr(e.message); setBorrando(false) }
+      await verificarContrasena(clave)
+      const { error } = await supabase.from('reconteos')
+        .update({ en_papelera: new Date().toISOString() }).eq('idreconteo', reconteo.idreconteo)
+      if (error) throw new Error(/en_papelera/i.test(error.message || '')
+        ? 'Falta aplicar supabase/papelera-reconteos.sql en la base.' : error.message)
+      onHecho()
+    } catch (x) { setErr(x.message); setMoviendo(false) }
   }
 
   return createPortal(
     <>
-      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
-      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '460px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+      <div onClick={moviendo ? undefined : onClose} className="telon" style={{ zIndex: 300 }} />
+      <form onSubmit={mover} onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '460px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.5rem' }}>
-          <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111', marginBottom: '8px' }}>¿Borrar este reconteo del historial?</p>
+          <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111', marginBottom: '8px' }}>¿Mover este reconteo del historial a la papelera?</p>
           <p style={{ fontSize: '13px', color: t.text3, lineHeight: 1.55 }}>
-            Se quita el conteo de {reconteo.nombrearea} del {fmtFecha(reconteo.inicio)}, con todo lo que se
-            verificó ese día. No se borra ningún bien y las observaciones que se anotaron siguen en el
-            inventario; lo que se pierde es el registro del conteo.
+            Se moverá el conteo de "{reconteo.nombrearea}" hacia la papelera.
           </p>
-          {err && <p style={{ fontSize: '12.5px', color: dark ? '#f8a8a8' : '#b91c1c', marginTop: '10px' }}>{err}</p>}
+          <p style={{ fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '16px 0 6px' }}>Contraseña del administrador</p>
+          <div style={{ ...searchBoxStyle(dark) }}>
+            <i className="ti ti-lock" style={{ fontSize: '16px', color: t.text4 }} />
+            <input type="password" autoFocus value={clave} onChange={e => setClave(e.target.value)} autoComplete="current-password"
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
+          </div>
+          {err && <p style={{ fontSize: '12.5px', color: dark ? '#f8a8a8' : '#b91c1c', marginTop: '10px' }}><i className="ti ti-alert-circle" style={{ marginRight: '5px' }} />{err}</p>}
         </div>
         <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
-          <button onClick={onClose} disabled={borrando}
+          <button type="button" onClick={onClose} disabled={moviendo}
             style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={borrar} disabled={borrando}
-            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', color: dark ? '#f4a1a1' : '#c0392b' }}>
-            {borrando ? 'Borrando…' : 'Sí, borrar'}
+          <button type="submit" disabled={moviendo || !clave}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: moviendo || !clave ? 'not-allowed' : 'pointer', opacity: clave ? 1 : 0.55, background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+            {moviendo ? 'Verificando…' : 'Mover a la papelera'}
           </button>
         </div>
-      </div>
-      
+      </form>
     </>,
     document.body
   )
@@ -586,7 +572,8 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
       if (areaIds) q = q.in('idarea', areaIds.length ? areaIds : [-1])
       const { data, error } = await q
       if (error) throw error
-      setLista(data || [])
+      // Los que están en la papelera se consultan desde la Papelera
+      setLista((data || []).filter(r => !r.en_papelera))
     } catch (e) {
       setError(/does not exist|Could not find the table/i.test(e.message)
         ? 'Falta crear las tablas de reconteo en la base: aplica supabase/persistencia-muebles.sql.'
@@ -618,10 +605,8 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
   const hayFiltro = busqueda || dep || desde || hasta || estado !== 'Todos'
   function limpiar() { setBusqueda(''); setDep(''); setDesde(''); setHasta(''); setEstado('Todos') }
 
-  const totalVerificados = filtrados.reduce((s, r) => s + (r.encontrados || 0), 0)
-  const totalEsperados   = filtrados.reduce((s, r) => s + (r.esperados || 0), 0)
 
-  const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
   return (
@@ -638,10 +623,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', gap: '12px', flexWrap: 'wrap' }}>
               <div>
                 <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Reconteo</h1>
-                <p style={{ fontSize: '14px', color: t.text3 }}>
-                  Historial de conteos físicos · {cargando ? 'Cargando…' : `${filtrados.length} reconteo${filtrados.length !== 1 ? 's' : ''}`}
-                  {!cargando && totalEsperados > 0 && ` · ${totalVerificados.toLocaleString()} de ${totalEsperados.toLocaleString()} bienes verificados`}
-                </p>
+                <p style={{ fontSize: '14px', color: t.text3 }}>Historial de conteos físicos</p>
               </div>
               <button onClick={cargar}
                 style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
@@ -715,7 +697,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
                       : filtrados.length === 0
                         ? <tr><td colSpan={10} style={{ padding: '3rem', textAlign: 'center', color: t.text4 }}>
                             <i className="ti ti-history" style={{ fontSize: '28px', display: 'block', marginBottom: '8px' }} />
-                            {lista.length === 0 ? 'Todavía no hay reconteos levantados' : 'Sin resultados'}
+                            {lista.length === 0 ? 'Aún no se han registrado reconteos' : 'Sin resultados'}
                           </td></tr>
                         : filtrados.map((r, i) => {
                             const faltan = Math.max(0, (r.esperados || 0) - (r.encontrados || 0))
@@ -765,7 +747,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
                                     {/* Igual que en el celular: el historial se puede depurar.
                                         Una dependencia solo consulta, así que no le aparece. */}
                                     {!soloLectura && (
-                                      <button onClick={e => { e.stopPropagation(); setBorrar(r) }} title="Borrar del historial"
+                                      <button onClick={e => { e.stopPropagation(); setBorrar(r) }} title="Mover a la papelera"
                                         style={btnAccion(dark, 'baja')}
                                         onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                         <i className="ti ti-trash" style={{ fontSize: '14px' }} />
@@ -782,16 +764,16 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
             </div>
 
             <p style={{ fontSize: '12.5px', color: t.text4, marginTop: '14px', lineHeight: 1.6 }}>
-              Los reconteos se levantan desde el dispositivo movil escaneando la etiqueta de cada bien.
+              Los reconteos se llevan a cabo desde la aplicación móvil.
             </p>
           </>
         )}
       </main>
 
       {borrar && (
-        <ModalBorrar reconteo={borrar} dark={dark} t={t}
+        <ModalPapelera reconteo={borrar} dark={dark} t={t}
           onClose={() => setBorrar(null)}
-          onBorrado={() => { setBorrar(null); cargar() }} />
+          onHecho={() => { setBorrar(null); cargar() }} />
       )}
 
       {reporte && <ModalReporteReconteo reconteo={reporte} dark={dark} t={t} onClose={() => setReporte(null)} />}

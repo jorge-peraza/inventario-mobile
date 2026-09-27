@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from 'react'
-import { iStyle, sStyle, searchBoxStyle, btnBarra, barraSticky, panelStyle, tituloSec, btnAccion, thBase, tdBase, MenuFila } from './ui'
+import { iStyle, sStyle, searchBoxStyle, btnBarra, barraSticky, panelStyle, tituloSec, btnAccion, thBase, tdBase, MenuFila, Deslizable, useTituloAuto } from './ui'
 export { iStyle, sStyle, searchBoxStyle, btnBarra, barraSticky, panelStyle, tituloSec, btnAccion, thBase, tdBase, MenuFila } from './ui'
-import { cargarExcel, cargarPdf } from '../exportadores'
+import { cargarExcel, cargarPdf, nombreArchivo, textoPeriodo } from '../exportadores'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from "../supabase";
 import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria, ESTADO_PAPELERA } from '../claves'
+import PapeleraReconteos from './PapeleraReconteos'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 export function estadoInfo(obs, dark) {
@@ -1157,8 +1158,11 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
     <>
       <Overlay onClick={close} />
       <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-        <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '480px', background: dark ? '#1e1e20' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', overflow: 'hidden', animation: anim }}>
-          <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* Ancho y en dos columnas: a una sola columna el modal quedaba tan alto
+            que en pantallas bajas los botones se salían de la vista. El cuerpo
+            se desplaza y los botones quedan siempre abajo, a la vista. */}
+        <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '760px', maxHeight: 'calc(100vh - 2rem)', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', overflow: 'hidden', animation: anim }}>
+          <div style={{ flexShrink: 0, padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(255,213,128,0.15)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <i className="ti ti-arrows-exchange" style={{ fontSize: '18px', color: dark ? '#ffd580' : '#b7790a' }} />
@@ -1172,6 +1176,7 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
               <i className="ti ti-x" style={{ fontSize: '15px' }} />
             </button>
           </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: '1rem' }}>
           <div style={{ margin: '1rem 1.5rem', padding: '10px 14px', borderRadius: '10px', background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', border: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
             <p style={{ fontSize: '13px', fontWeight: 500, color: dark ? '#f0f0f0' : '#111' }}>{bien.nombrebien}</p>
             <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop: '2px' }}>Origen: {bien.area} — {bien.resguardatario}</p>
@@ -1203,36 +1208,33 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
                 </p>
               </div>
             )}
-            <MField label="Nuevo resguardatario" dark={dark}>
-              <input type="text" placeholder="Nombre completo" value={resg} onChange={e => setResg(e.target.value)} style={iStyle(dark)} />
-            </MField>
-            <MField label="Puesto del nuevo resguardatario" dark={dark}>
-              <input type="text" placeholder="Cargo o puesto" value={puesto} onChange={e => setPuesto(e.target.value)} style={iStyle(dark)} />
-            </MField>
-            <MField label="Oficio del traspaso" dark={dark}>
-              <input type="text" placeholder="Ej. 1022ADM-488" value={oficio} onChange={e => setOficio(e.target.value)} style={iStyle(dark)} />
-            </MField>
-            <MField label="Fecha de traspaso" dark={dark}>
-              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
-            </MField>
+            <div className="dos-columnas">
+              <MField label="Nuevo resguardatario" dark={dark}>
+                <input type="text" placeholder="Nombre completo" value={resg} onChange={e => setResg(e.target.value)} style={iStyle(dark)} />
+              </MField>
+              <MField label="Puesto del nuevo resguardatario" dark={dark}>
+                <input type="text" placeholder="Cargo o puesto" value={puesto} onChange={e => setPuesto(e.target.value)} style={iStyle(dark)} />
+              </MField>
+              <MField label="Oficio del traspaso" dark={dark}>
+                <input type="text" placeholder="Ej. 1022ADM-488" value={oficio} onChange={e => setOficio(e.target.value)} style={iStyle(dark)} />
+              </MField>
+              <MField label="Fecha de traspaso" dark={dark}>
+                <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={iStyle(dark)} />
+              </MField>
+            </div>
             {/* Antes era una lista cerrada de cinco motivos y no dejaba capturar lo
                 que va en el inventario. El oficio y la fecha llenan las columnas
                 del apartado de traspasos, que se leen de este texto. */}
             <MField label="Motivo del traspaso" dark={dark}>
               <input type="text" placeholder="Opcional" value={motivo} onChange={e => setMotivo(e.target.value)} style={iStyle(dark)} />
             </MField>
-            <p style={{ fontSize: '11px', color: t.text4, marginTop: '-6px', lineHeight: 1.45 }}>
-              Queda anotado en los dos bienes, sin borrar lo que ya tenían:<br />
-              <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>
-                TRASPASO AL INVENTARIO DE …{oficio.trim() ? ' MEDIANTE OFICIO ' + oficio.trim().toUpperCase() : ''}{fechaTexto(fecha) ? ' ' + fechaTexto(fecha) : ''}
-              </span>
-            </p>
           </div>
-          <div style={{ padding: '1rem 1.5rem', marginTop: '1rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
+          </div>
+          <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)' }}>
             {err && <p style={{ fontSize: '12px', color: dark ? '#f4a1a1' : '#c0392b', marginBottom: '10px' }}><i className="ti ti-alert-circle" style={{ marginRight: '5px' }} />{err}</p>}
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={close} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={confirmar} disabled={guardando || !dep} style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.35)' : '1px solid rgba(183,121,10,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#ffd580' : '#b45309', fontFamily: 'inherit', cursor: guardando || !dep ? 'not-allowed' : 'pointer', opacity: !dep ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <button onClick={close} style={{ flex: 1, padding: '12px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={confirmar} disabled={guardando || !dep} style={{ flex: 1, padding: '12px', background: dark ? 'rgba(255,213,128,0.18)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.35)' : '1px solid rgba(183,121,10,0.35)', borderRadius: '9px', fontSize: '14px', fontWeight: 600, color: dark ? '#ffd580' : '#b45309', fontFamily: 'inherit', cursor: guardando || !dep ? 'not-allowed' : 'pointer', opacity: !dep ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                 {guardando
                   ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Traspasando…</>
                   : <><i className="ti ti-arrows-exchange" style={{ fontSize: '15px' }} />Confirmar Traspaso</>}
@@ -2375,9 +2377,6 @@ async function fetchPorIdsMuebles(ids) {
   return todos
 }
 
-function nombreArchivoM(ext) {
-  return `inventario-muebles-${new Date().toISOString().slice(0, 10)}.${ext}`
-}
 
 // Cambia el estadobien de varios bienes ('ACTIVO' | 'SOLICITUD BAJA' | 'BAJA')
 export async function actualizarEstadoBienes(ids, nuevoEstado) {
@@ -2756,7 +2755,7 @@ export async function exportarPDFMuebles(rows, cols, titulo = '') {
     alternateRowStyles: { fillColor: [242, 242, 242] },
     margin: { left: 18, right: 18 },
   })
-  doc.save(nombreArchivoM('pdf'))
+  doc.save(nombreArchivo(titulo, 'inventario-muebles', 'pdf'))
 }
 
 export async function exportarExcelMuebles(rows, cols, titulo = '') {
@@ -2939,7 +2938,7 @@ export async function exportarExcelMuebles(rows, cols, titulo = '') {
   }
 
   const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivoM('xlsx'))
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(titulo, 'inventario-muebles', 'xlsx'))
 }
 
 // ── ADQUISICIONES: agrupación y exportación ────────────────────────────────────
@@ -3080,7 +3079,7 @@ async function exportarAdquisicionesPDF(grupos, titulo, anio) {
     alternateRowStyles: { fillColor: [242, 242, 242] },
     margin: { left: margin, right: margin },
   })
-  doc.save(`adquisiciones-${anio}.pdf`)
+  doc.save(nombreArchivo(titulo, `adquisiciones-${anio}`, 'pdf'))
 }
 
 async function exportarAdquisicionesExcel(grupos, titulo, anio) {
@@ -3336,7 +3335,7 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
   }
 
   const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `adquisiciones-${anio}.xlsx`)
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(titulo, `adquisiciones-${anio}`, 'xlsx'))
 }
 
 // ── Modal Adquisiciones ──────────────────────────────────────────────────────────
@@ -3344,7 +3343,8 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
   const hoy = new Date()
   const [desde, setDesde]   = useState(`${hoy.getFullYear()}-01-01`)
   const [hasta, setHasta]   = useState(`${hoy.getFullYear()}-12-31`)
-  const [titulo, setTitulo] = useState(`ADQUISICIONES ${hoy.getFullYear()}`)
+  // El título y el nombre del archivo llevan el periodo que se eligió
+  const [titulo, setTitulo] = useTituloAuto(`REPORTE DE CONCILIACIÓN ${textoPeriodo(desde, hasta)}`.trim())
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
 
@@ -3430,7 +3430,8 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
   const COLS = colsReporte(modo, traspasos)
   const haySel = seleccionados.length > 0
   const [colsSel, setColsSel] = useState(() => new Set(COLS.map(c => c.key)))
-  const [titulo, setTitulo]   = useState('')
+  const nombreModo = traspasos ? 'TRASPASOS' : (MODOS.find(m => m.id === modo)?.label || 'BIENES MUEBLES').toUpperCase()
+  const [titulo, setTitulo]   = useState(`INVENTARIO DE ${nombreModo}`)
   const [alcance, setAlcance] = useState(haySel ? 'seleccion' : 'todos')
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
@@ -3480,19 +3481,21 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
 
         {/* Cuerpo desplazable */}
         <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+          {/* Título */}
+          <div>
+            <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Título del reporte</p>
+            <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej. INVENTARIO DE MOBILIARIO"
+              style={{ ...iStyle(dark), fontSize:'13px', boxSizing:'border-box' }} />
+            <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', marginTop:'6px' }}>Va arriba del documento y es el nombre del archivo.</p>
+          </div>
+
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
-              <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
-                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
-                <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{seleccionados.length} seleccionado{seleccionados.length !== 1 ? 's' : ''}
-              </button>
-              <button onClick={() => setAlcance('todos')}
-                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: alcance === 'todos' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'todos' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'todos' ? t.text1 : t.text3 }}>
-                <i className="ti ti-list" style={{ fontSize:'16px' }} />Todos ({totalFiltrados.toLocaleString()})
-              </button>
-            </div>
+            <Deslizable dark={dark} t={t} valor={alcance} onCambio={setAlcance} opciones={[
+              { id: 'seleccion', icon: 'ti-square-check', label: `${seleccionados.length} seleccionado${seleccionados.length !== 1 ? 's' : ''}`, disabled: !haySel },
+              { id: 'todos',     icon: 'ti-list',         label: `Todos (${totalFiltrados.toLocaleString()})` },
+            ]} />
             <p style={{ fontSize:'11px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', marginTop:'7px' }}>
               {alcance === 'seleccion' ? 'Solo los registros que marcaste con checkbox.' : 'Todos los registros que cumplen los filtros actuales.'}
             </p>
@@ -3843,14 +3846,11 @@ function ModalConfirmaTitular({ resumen, onClose, onConfirm, dark, t, guardando 
           <div style={{ padding:'12px 1.5rem', borderBottom: sep, fontSize:'12.5px', lineHeight:1.6 }}>
             <p style={{ color: dark ? '#f0f0f0' : '#111', fontWeight:600 }}>Se Actualizarán {resumen.bienes} {resumen.bienes === 1 ? 'Bien' : 'Bienes'}</p>
             <p style={{ color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              Del Titular {resumen.sale} a {resumen.nombre} en {resumen.area}.
+              Se cambiará el titular "{resumen.sale}" en "{resumen.dependencia}" por "{resumen.nombre}".
             </p>
             {resumen.otros > 0 && <p style={{ color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
               Los {resumen.otros} de los demás resguardantes de esta área no se tocan.
             </p>}
-            <p style={{ color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)', marginTop:'6px' }}>
-              Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
-            </p>
           </div>
           {dato('Área', resumen.area)}
           {dato('Titular que deja el área', resumen.sale)}
@@ -3916,7 +3916,9 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
     setConfirma(false)
   }
 
-  const areaNom = allAreas.find(a => String(a.idarea) === String(idarea))?.nombrearea || ''
+  const areaSel = allAreas.find(a => String(a.idarea) === String(idarea))
+  const areaNom = areaSel?.nombrearea || ''
+  const depNom  = areaSel?.nombredependencia || areaNom
   const listo = sale && nombre.trim() && !guardando
 
   async function aplicar() {
@@ -4036,13 +4038,10 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
                   {nombre.trim() && (
                     <div style={{ fontSize:'12.5px', lineHeight:1.6 }}>
                       <p style={{ color:t.text1, fontWeight:600 }}>Se Actualizarán {sale.bienes} {sale.bienes === 1 ? 'Bien' : 'Bienes'}</p>
-                      <p style={{ color:t.text3 }}>Del Titular {sale.nombre} a {nombre.trim().toUpperCase()} en {areaNom}.</p>
+                      <p style={{ color:t.text3 }}>Se cambiará el titular "{sale.nombre}" en "{depNom}" por "{nombre.trim().toUpperCase()}".</p>
                       {datos.lista.length > 1 && <p style={{ color:t.text3 }}>
                         Los {datos.total - sale.bienes - datos.sinTitular} de los demás resguardantes de esta área no se tocan.
                       </p>}
-                      <p style={{ color:t.text4, marginTop:'6px' }}>
-                        Tampoco se tocan las bajas ni los traspasos, ni los bienes que esta persona tenga en otras áreas.
-                      </p>
                     </div>
                   )}
                 </>
@@ -4072,6 +4071,7 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
         <ModalConfirmaTitular dark={dark} t={t} guardando={guardando}
           resumen={{
             area: areaNom,
+            dependencia: depNom,
             sale: sale.nombre,
             nombre: nombre.trim().toUpperCase(),
             puesto: puesto.trim(),
@@ -4598,6 +4598,10 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   const [modalTrasp, setModalTrasp]         = useState(null)
   const [modalTitularArea, setModalTitularArea] = useState(false)
   const [modalNuevo, setModalNuevo]         = useState(false)
+  // La papelera guarda dos cosas: registros de bienes y reconteos
+  const [seccionPapelera, setSeccionPapelera] = useState('registros')
+  const [totalReconteosPap, setTotalReconteosPap] = useState(null)
+  const verReconteosPap = papelera && seccionPapelera === 'reconteos'
 
   const skipDebounce = useRef(true)
 
@@ -4755,7 +4759,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   function solicitarBaja()      { if (seleccionados.size > 0) setModalSolicitar([...seleccionados.values()]) }
   function solicitarBajaUno(b)  { setModalSolicitar([b]) }
 
-  const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg   = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
   return (
@@ -4769,9 +4773,15 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : traspasos ? 'Traspasos' : bajas ? 'Bajas' : 'Bienes Muebles'}</h1>
             <p style={{ fontSize: '14px', color: t.text3 }}>
-              {papelera ? 'Bienes capturados por error · ' : traspasos ? 'Bienes traspasados · ' : bajas ? 'Bienes dados de baja · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}
+              {verReconteosPap
+                ? (totalReconteosPap == null ? 'Cargando…' : `${totalReconteosPap.toLocaleString()} reconteo${totalReconteosPap !== 1 ? 's' : ''}`)
+                : <>{papelera ? '' : traspasos ? 'Bienes traspasados · ' : bajas ? 'Bienes dados de baja · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}</>}
             </p>
           </div>
+          {papelera && (
+            <Deslizable dark={dark} t={t} valor={seccionPapelera} onCambio={setSeccionPapelera} style={{ minWidth: '280px' }}
+              opciones={[{ id: 'registros', icon: 'ti-armchair', label: 'Registros' }, { id: 'reconteos', icon: 'ti-refresh', label: 'Reconteos' }]} />
+          )}
           {/* Una dependencia solo consulta: no da de alta ni cambia titulares */}
           {!papelera && !traspasos && !bajas && !soloLectura && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -4787,6 +4797,9 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
           )}
         </div>
 
+        {verReconteosPap ? (
+          <PapeleraReconteos dark={dark} t={t} card={card} onConteo={setTotalReconteosPap} />
+        ) : (<>
         {/* Filtros */}
         <div className="barra-fit" style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', overflow: 'visible', position: 'relative', zIndex: 100 }}>
           <div style={{ ...searchBoxStyle(dark), flex: 1, minWidth: '180px' }}>
@@ -5098,6 +5111,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             </div>
           </div>
         </div>
+        </>)}
       </main>
 
       <style>{`input::placeholder { color: ${dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}; }`}</style>

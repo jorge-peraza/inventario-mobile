@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { barraSticky, btnBarra, sStyle, iStyle, panelStyle, tituloSec } from './ui'
 import { fetchDependencias, fetchAreasPorDependencia, fetchResguardos, guardarEncargado } from '../encargados'
 
@@ -174,7 +174,7 @@ export default function Dependencias({ user, onNavigate }) {
   const conEncargado = deps.filter(d => d.encargado).length
 
   const bg = dark
-    ? 'linear-gradient(145deg, #111113 0%, #1c1c1e 50%, #222224 100%)'
+    ? FONDO_OSCURO
     : 'linear-gradient(145deg, #e0e0e2 0%, #ebebed 50%, #e4e4e6 100%)'
   const cardTabla = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,

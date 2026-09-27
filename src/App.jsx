@@ -160,6 +160,11 @@ function App() {
     if (page === 'dashboard-inmuebles') return <DashboardInmuebles key={recarga} user={user} onNavigate={navigate} />
     if (page === 'inmuebles')           return <BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo} abrirReporte={!!navState.abrirReporte} />
     if (page === 'reportes')            return user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />
+    // Las listas que salieron de Reportes: la misma pantalla, fija en una vista
+    if (page === 'solicitudes-baja')    return <Reportes key={`sol-${recarga}`} user={user} onNavigate={navigate} vistaFija="solicitudes" />
+    if (page === 'bajas-confirmadas')   return <Reportes key={`baj-${recarga}`} user={user} onNavigate={navigate} vistaFija="confirmadas" />
+    if (page === 'desinc-proceso')      return <ReportesInmuebles key={`pro-${recarga}`} user={user} onNavigate={navigate} vistaFija="proceso" />
+    if (page === 'desincorporados')     return <ReportesInmuebles key={`des-${recarga}`} user={user} onNavigate={navigate} vistaFija="desincorporado" />
     // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
     // misma key React reutilizaba la instancia y mostraba los datos del otro
     if (page === 'papelera')            return <BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera />

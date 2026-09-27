@@ -24,3 +24,33 @@ export function cargarPdf() {
   }
   return pdf
 }
+
+// ── Nombre del archivo ──────────────────────────────────────────────────────
+// Sale del título del documento, así cada reporte se descarga con su nombre
+// ("REPORTE MENSUAL BIENES MUEBLES DEL 1 DE AGOSTO…pdf") en vez de que todos se
+// llamen igual. Sin título se usa el respaldo con la fecha del día.
+export function nombreArchivo(titulo, respaldo, ext) {
+  const limpio = String(titulo || '')
+    .replace(/[\/:*?"<>|]+/g, '-')   // lo que Windows no acepta en un nombre
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 150)
+  const base = limpio || `${respaldo}-${new Date().toISOString().slice(0, 10)}`
+  return `${base}.${ext}`
+}
+
+// ── Periodo en palabras ─────────────────────────────────────────────────────
+// "DEL 1 DE AGOSTO DE 2026 AL 31 DE AGOSTO DE 2026". Con una sola fecha dice
+// "DESDE EL…" o "HASTA EL…"; sin fechas, nada.
+const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
+export function fechaEnPalabras(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
+  return m ? `${Number(m[3])} DE ${MESES[Number(m[2]) - 1] || ''} DE ${m[1]}` : ''
+}
+export function textoPeriodo(desde, hasta) {
+  const a = fechaEnPalabras(desde), b = fechaEnPalabras(hasta)
+  if (a && b) return `DEL ${a} AL ${b}`
+  if (a) return `DESDE EL ${a}`
+  if (b) return `HASTA EL ${b}`
+  return ''
+}

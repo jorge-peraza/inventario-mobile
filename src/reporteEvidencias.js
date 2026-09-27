@@ -1,5 +1,5 @@
 
-import { cargarExcel, cargarPdf } from './exportadores'
+import { cargarExcel, cargarPdf, nombreArchivo } from './exportadores'
 const GRIS = 'BFBFBF', NEGRO = '000000'
 
 // Carga imagen (logos) a dataURL + dimensiones
@@ -45,7 +45,6 @@ function agrupar(items) {
   return m
 }
 
-function nombreArchivo(ext) { return `reporte-inmuebles-evidencias-${new Date().toISOString().slice(0, 10)}.${ext}` }
 
 const RGB_GRIS = [191, 191, 191]
 
@@ -77,7 +76,7 @@ export async function exportarEvidenciasPDF(items, titulo = '') {
   const { jsPDF } = await cargarPdf()
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   await dibujarEvidenciasPDF(doc, items, titulo)
-  doc.save(nombreArchivo('pdf'))
+  doc.save(nombreArchivo(titulo, 'reporte-inmuebles-evidencias', 'pdf'))
 }
 
 // Dibuja la sección de evidencias en la página actual del documento
@@ -140,7 +139,7 @@ export async function exportarEvidenciasExcel(items, titulo = '') {
   const wb = new ExcelJS.Workbook()
   await llenarHojaEvidencias(wb, items, titulo)
   const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo('xlsx'))
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(titulo, 'reporte-inmuebles-evidencias', 'xlsx'))
 }
 
 async function llenarHojaEvidencias(wb, items, titulo = '') {

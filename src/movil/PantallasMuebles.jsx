@@ -3,7 +3,8 @@ import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
-import { Cargando, Vacio, Confirmar, useProgresivo } from './comunes'
+import { Cargando, Vacio, Confirmar, ConfirmarConContrasena, useProgresivo } from './comunes'
+import { verificarContrasena } from '../auth'
 import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien, resumenInventario, TIPOS } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
@@ -849,7 +850,7 @@ export function ListaReconteo({ idarea, usuario }) {
         } />
 
       <div className="contenido">
-        <div className="pestanas">
+        <div className="pestanas" style={{ '--i': ['todos', 'faltan', 'ok'].indexOf(pestana) }}>
           <button className={pestana === 'todos' ? 'activo' : ''} onClick={() => setPestana('todos')}>
             <b>{s.total}</b>Todos
           </button>
@@ -1173,12 +1174,12 @@ export function DetalleReconteo({ idreconteo }) {
             </button>
           )}
         <button className="boton peligro" onClick={() => setConfirma('borrar')}>
-          <i className="ti ti-trash" style={{ fontSize: '18px' }} />Borrar del historial
+          <i className="ti ti-trash" style={{ fontSize: '18px' }} />Mover a la papelera
         </button>
 
         {bienes === null ? <Cargando /> : (
           <>
-            <div className="pestanas">
+            <div className="pestanas" style={{ '--i': ['todos', 'ok', 'faltan'].indexOf(pestana) }}>
               <button className={pestana === 'todos' ? 'activo' : ''} onClick={() => setPestana('todos')}>
                 <b>{total}</b>Todos
               </button>
@@ -1245,11 +1246,15 @@ export function DetalleReconteo({ idreconteo }) {
           onCerrar={() => setConfirma(null)} />
       )}
       {confirma === 'borrar' && (
-        <Confirmar
-          titulo="¿Borrar este reconteo del historial?"
-          detalle={`Se quita el conteo de ${cab.nombrearea} del ${fechaCorta(cab.inicio)}. No se borra ningún bien y las observaciones siguen en el inventario; se pierde el registro del conteo, también para la computadora.`}
-          textoOk="Sí, borrar" peligro
-          onOk={async () => { await borrarRemoto(cab.idreconteo).catch(() => {}); irA('m', 'historial') }}
+        <ConfirmarConContrasena
+          titulo="¿Mover este reconteo del historial a la papelera?"
+          detalle={`Se moverá el conteo de "${cab.nombrearea}" hacia la papelera.`}
+          textoOk="Mover a la papelera"
+          onOk={async clave => {
+            await verificarContrasena(clave)
+            await borrarRemoto(cab.idreconteo)
+            irA('m', 'historial')
+          }}
           onCerrar={() => setConfirma(null)} />
       )}
     </>

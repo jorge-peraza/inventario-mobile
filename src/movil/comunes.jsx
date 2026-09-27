@@ -35,6 +35,45 @@ export function Confirmar({ titulo, detalle, textoOk, peligro, onOk, onCerrar })
   )
 }
 
+// La misma hoja, pero pide la contraseña de quien tiene la sesión abierta antes
+// de seguir. `onOk(contraseña)` puede fallar: el error se enseña y la hoja se
+// queda abierta para volver a intentarlo.
+export function ConfirmarConContrasena({ titulo, detalle, textoOk, onOk, onCerrar }) {
+  useBloquearScroll()
+  const [clave, setClave] = useState('')
+  const [err, setErr] = useState(null)
+  const [ocupado, setOcupado] = useState(false)
+  async function aceptar(e) {
+    e?.preventDefault()
+    if (ocupado) return
+    setOcupado(true); setErr(null)
+    try { await onOk(clave); onCerrar() }
+    catch (x) { setErr(x.message || 'No se pudo completar'); setOcupado(false) }
+  }
+  return (
+    <>
+      <div className="movil-telon" onClick={ocupado ? undefined : onCerrar} />
+      <form className="movil-hoja" onSubmit={aceptar}>
+        <div className="asa" />
+        <div style={{ padding: '4px 16px 12px' }}>
+          <p style={{ fontSize: '16px', fontWeight: 600 }}>{titulo}</p>
+          {detalle && <p style={{ fontSize: '13px', color: 'var(--texto-3)', marginTop: '6px', lineHeight: 1.5 }}>{detalle}</p>}
+          <div className="buscador" style={{ marginTop: '12px' }}>
+            <i className="ti ti-lock" />
+            <input type="password" value={clave} onChange={e => setClave(e.target.value)}
+              placeholder="Contraseña del administrador" autoComplete="current-password" />
+          </div>
+          {err && <p style={{ fontSize: '12.5px', color: 'var(--falta)', marginTop: '8px' }}>{err}</p>}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', padding: '0 16px' }}>
+          <button type="button" className="boton suave" onClick={onCerrar} disabled={ocupado}>Cancelar</button>
+          <button type="submit" className="boton peligro" disabled={ocupado || !clave}>{ocupado ? 'Verificando…' : textoOk}</button>
+        </div>
+      </form>
+    </>
+  )
+}
+
 // ── Listas largas, por tramos ────────────────────────────────────────────────
 // Una categoría como Equipamientos trae 910 inmuebles; pintarlos todos de golpe
 // dejaba la pantalla congelada un momento y el scroll a tirones. Así se pintan

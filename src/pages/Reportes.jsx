@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
-import { barraSticky, btnBarra, sStyle } from './ui'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
+import { barraSticky, sStyle, Deslizable, TarjetaReporte, rejillaReportes, etiquetaSeccion, useTituloAuto } from './ui'
+import { textoPeriodo } from '../exportadores'
 import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, fechasDeBaja, setFechaBaja, subirFechasBajasPendientes, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { sesionActual } from '../auth'
 import { listarReportes, guardarReporteRemoto, borrarReporteRemoto, getLocales } from '../reportesPersonalizados'
@@ -188,7 +189,7 @@ function searchBoxStyle(dark) {
 }
 function fmt(n) { return n ? '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$ —' }
 
-function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInicial, esConfirmadas = true }) {
+function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, esConfirmadas = true }) {
   const haySel = seleccionados.length > 0
   // En bajas confirmadas el periodo va por la fecha en que cabildo autorizó la
   // baja; en solicitudes, por la fecha en que se pidió.
@@ -203,10 +204,13 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
 
   const [colsSel, setColsSel] = useState(() => new Set(COLS.map(c => c.key)))
   const [alcance, setAlcance] = useState(haySel ? 'seleccion' : 'todos')
-  const [titulo, setTitulo]   = useState(tituloInicial || '')
   // Vacías = todas las bajas, que es como venía funcionando
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
+  // Con periodo, el título (y el nombre del archivo) dice de qué fechas es
+  const tituloBase = esConfirmadas ? 'BAJAS CONFIRMADAS HAN' : 'SOLICITUD DE BAJAS HAN'
+  const tituloInicial = `${tituloBase} ${(desde || hasta) ? textoPeriodo(desde, hasta) : mesAnioActual()}`
+  const [titulo, setTitulo] = useTituloAuto(tituloInicial)
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
 
@@ -316,16 +320,10 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
-              <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
-                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
-                <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{totalSel} seleccionado{totalSel !== 1 ? 's' : ''}
-              </button>
-              <button onClick={() => setAlcance('todos')}
-                style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: alcance === 'todos' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'todos' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'todos' ? t.text1 : t.text3 }}>
-                <i className="ti ti-list" style={{ fontSize:'16px' }} />Todos ({totalTodos.toLocaleString()})
-              </button>
-            </div>
+            <Deslizable dark={dark} t={t} valor={alcance} onCambio={setAlcance} opciones={[
+              { id: 'seleccion', icon: 'ti-square-check', label: `${totalSel} seleccionado${totalSel !== 1 ? 's' : ''}`, disabled: !haySel },
+              { id: 'todos',     icon: 'ti-list',         label: `Todos (${totalTodos.toLocaleString()})` },
+            ]} />
           </div>
 
           {/* Columnas */}
@@ -435,14 +433,6 @@ function periodoDeCorte(hoy = new Date()) {
   }
 }
 
-function textoPeriodo(desde, hasta) {
-  const arma = s => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '')
-    return m ? `${Number(m[3])} DE ${MESES[Number(m[2]) - 1] || ''} DE ${m[1]}` : ''
-  }
-  const a = arma(desde), b = arma(hasta)
-  return a && b ? `DEL ${a} AL ${b}`.toUpperCase() : ''
-}
 
 // Un solo reporte de altas con cuatro formas de elegir el periodo:
 //
@@ -566,14 +556,7 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
           {/* Periodo */}
           <div>
             <p style={lbl}>Periodo</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
-              {MODOS_ALTAS.map(m => (
-                <button key={m.id} onClick={() => setModo(m.id)}
-                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', transition:'all 0.15s', background: modo === m.id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: modo === m.id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: modo === m.id ? t.text1 : t.text3 }}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <Deslizable dark={dark} t={t} valor={modo} onCambio={setModo} opciones={MODOS_ALTAS} />
           </div>
 
           {/* Trimestre o semestre + año */}
@@ -646,7 +629,7 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   const [hasta, setHasta] = useState(r0.hasta)
   const [areasSelec, setAreasSelec] = useState([])
   const etiqueta = { mensual: 'MENSUAL', trimestral: 'TRIMESTRAL', anual: 'ANUAL', bienes: 'BIENES' }[tipo]
-  const [titulo, setTitulo] = useState(`REPORTE ${etiqueta} BIENES MUEBLES ${mesAnioActual()}`)
+  const [titulo, setTitulo] = useTituloAuto(`REPORTE ${etiqueta} BIENES MUEBLES ${textoPeriodo(desde, hasta)}`.trim())
   const [generando, setGenerando] = useState(null)
   const [err, setErr] = useState(null)
 
@@ -714,9 +697,11 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
   )
 }
 
-export default function Reportes({ user, onNavigate }) {
+// La misma pantalla sirve para Reportes y para las dos listas de bajas, que
+// ahora tienen su propia entrada en el menú lateral (vistaFija).
+export default function Reportes({ user, onNavigate, vistaFija = null }) {
   const { dark, t, sidebarOpen } = useTheme()
-  const [vista, setVista]   = useState('inicio')   // 'inicio' | 'solicitudes' | 'confirmadas'
+  const [vista, setVista]   = useState(vistaFija || 'inicio')   // 'inicio' | 'solicitudes' | 'confirmadas'
   const [datos, setDatos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [panelBien, setPanelBien] = useState(null)
@@ -726,7 +711,6 @@ export default function Reportes({ user, onNavigate }) {
   const [filtroBien, setFiltroBien] = useState('')
   const [areasSelec, setAreasSelec] = useState([])
   const [allAreas, setAllAreas]   = useState([])
-  const [conteos, setConteos] = useState({ solicitud: null, baja: null })
   const [pagina, setPagina]   = useState(0)
   const [porPagina, setPorPagina] = useState(20)
   const OPCIONES_POR_PAGINA = [10, 15, 20]
@@ -743,6 +727,7 @@ export default function Reportes({ user, onNavigate }) {
   const [usuario, setUsuario]   = useState(null)
 
   useEffect(() => {
+    if (vistaFija) return
     let vivo = true
     ;(async () => {
       const perfil = await sesionActual().catch(() => null)
@@ -771,9 +756,8 @@ export default function Reportes({ user, onNavigate }) {
     await borrarReporteRemoto(id).catch(console.error)
   }
 
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
   const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
-  const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
 
   const esConfirmadas = vista === 'confirmadas'
   const estadoActual = esConfirmadas ? 'BAJA' : 'SOLICITUD BAJA'
@@ -783,17 +767,11 @@ export default function Reportes({ user, onNavigate }) {
   // modales de reporte siguen recibiendo el catálogo completo.
   const areasDeLista = useMemo(() => areasConConteo(allAreas, datos), [allAreas, datos])
 
-  const cargarConteos = useCallback(async () => {
-    try {
-      const [sol, baj] = await Promise.all([fetchBienesPorEstado('SOLICITUD BAJA'), fetchBienesPorEstado('BAJA')])
-      setConteos({ solicitud: sol.length, baja: baj.length })
-    } catch { /* noop */ }
-  }, [])
-
-  useEffect(() => { cargarConteos() }, [cargarConteos])
   useEffect(() => { fetchAreas().then(setAllAreas).catch(console.error) }, [])
   useEffect(() => {
-    (async () => {
+    // Las listas de bajas no enseñan las tarjetas: no hace falta contar
+    if (vistaFija) return
+    ;(async () => {
       try {
         const [m, tr, a] = await Promise.all([
           contarPorFechaFactura(rangoPeriodo('mensual')),
@@ -822,7 +800,6 @@ export default function Reportes({ user, onNavigate }) {
     try {
       await actualizarEstadoBienes([b.idbien], 'ACTIVO')   // regresa a inventario activo
       await cargar('SOLICITUD BAJA')
-      cargarConteos()
     } catch (e) { console.error(e) }
     finally { setProcId(null) }
   }
@@ -833,11 +810,6 @@ export default function Reportes({ user, onNavigate }) {
   function toggleModoSeleccion() {
     setModoSeleccion(m => { if (m) setSeleccionados(new Set()); return !m })
   }
-
-  const cards = [
-    { id: 'solicitudes',    icon: 'ti-circle-minus',  label: 'Solicitud de bajas',    value: conteos.solicitud, hint: 'Bienes propuestos para baja', color: t.colorYellow },
-    { id: 'confirmadas',    icon: 'ti-circle-minus',  label: 'Bajas confirmadas',      value: conteos.baja,      hint: 'Bienes dados de baja',        color: t.colorRed },
-  ]
 
   const q = busqueda.toLowerCase(), qb = filtroBien.toLowerCase()
   const areasSet = new Set(areasSelec)
@@ -889,13 +861,13 @@ export default function Reportes({ user, onNavigate }) {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg, transition: 'background 0.3s' }}>
-      <Sidebar user={user} active="reportes" onNavigate={onNavigate} />
+      <Sidebar user={user} active={vistaFija === 'solicitudes' ? 'solicitudes-baja' : vistaFija === 'confirmadas' ? 'bajas-confirmadas' : 'reportes'} onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
-          {vista !== 'inicio' && (
+          {vista !== 'inicio' && !vistaFija && (
             <button onClick={() => setVista('inicio')} title="Volver"
               style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text1 }}>
               <i className="ti ti-arrow-left" style={{ fontSize: '18px' }} />
@@ -903,103 +875,63 @@ export default function Reportes({ user, onNavigate }) {
           )}
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>
-              {vista === 'inicio' ? 'Reportes' : (esConfirmadas ? 'Bajas confirmadas' : 'Solicitud de bajas')}
+              {vista === 'inicio' ? 'Reportes' : (esConfirmadas ? 'Bajas confirmadas' : 'Solicitud de baja')}
             </h1>
             {vista === 'inicio'
-              ? <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em' }}>GESTIÓN DE BAJAS DE BIENES MUEBLES</p>
+              ? <p style={etiquetaSeccion(t)}>Generación de reportes de bienes muebles</p>
               : <p style={{ fontSize: '14px', color: t.text3 }}>{`Bienes muebles · ${loading ? 'Cargando…' : `${filtrados.length} registros`}`}</p>
             }
           </div>
         </div>
 
         {vista === 'inicio' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
-            {cards.map(c => (
-              <button key={c.id} onClick={() => { if (c.id === 'adquisiciones') { setModalAdquisiciones(true) } else { setVista(c.id); setBusqueda(''); setFiltroBien(''); setAreasSelec([]); setModoSeleccion(false); setSeleccionados(new Set()) } }}
-                style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
-                  <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className={`ti ${c.icon}`} style={{ fontSize: '22px', color: c.color }} />
-                  </div>
-                  <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{c.label}</p>
-                </div>
-                {c.id !== 'adquisiciones' && <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.value == null ? '…' : c.value.toLocaleString()}</p>}
-                <p style={{ fontSize: '12px', color: t.text4 }}>{c.hint}</p>
-              </button>
-            ))}
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
             {/* Reportes por periodo (por fecha de factura) */}
-            <div style={{ gridColumn: '1 / -1', marginTop: '0.75rem' }}>
-              <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: '10px' }}>Reportes</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+            <section>
+              <p style={{ ...etiquetaSeccion(t), marginBottom: '10px' }}>Reportes</p>
+              <div style={rejillaReportes}>
                 {[
-                  { id: 'mensual',    icon: 'ti-file-text',    label: 'Reporte Mensual',       hint: 'Facturas del último mes',      value: conteoPeriodo.mensual,    color: t.text2 },
-                  { id: 'trimestral', icon: 'ti-file-text',    label: 'Reporte Trimestral',    hint: 'Facturas de 3 meses',          value: conteoPeriodo.trimestral, color: t.text2 },
-                  { id: 'anual',      icon: 'ti-file-text',    label: 'Reporte Anual',         hint: 'Facturas del último año',      value: conteoPeriodo.anual,      color: t.text2 },
-                  { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Conciliación', hint: 'Altas por factura y capítulo', value: null,                     color: t.text2 },
-                  { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',        hint: 'Inventario detallado por fecha',  value: null,                  color: t.text2 },
+                  { id: 'mensual',    icon: 'ti-file-text',     label: 'Reporte Mensual',      hint: 'Facturas del último mes',        value: conteoPeriodo.mensual },
+                  { id: 'trimestral', icon: 'ti-file-text',     label: 'Reporte Trimestral',   hint: 'Facturas de 3 meses',            value: conteoPeriodo.trimestral },
+                  { id: 'anual',      icon: 'ti-file-text',     label: 'Reporte Anual',        hint: 'Facturas del último año',        value: conteoPeriodo.anual },
+                  { id: 'adquisiciones', icon: 'ti-file-invoice', label: 'Reporte Conciliación', hint: 'Altas por factura y capítulo' },
+                  { id: 'bienes',     icon: 'ti-list-numbers',  label: 'Reporte Bienes',       hint: 'Inventario detallado por fecha' },
                   // Va por fecha de alta, no por fecha de factura. Adentro se
                   // elige el periodo: mes, trimestre, semestre o fechas libres.
-                  { id: 'altas', icon: 'ti-calendar-plus', label: 'Reporte de Altas', hint: 'Mes · trimestre · semestre', value: null, color: t.text2 },
+                  { id: 'altas',      icon: 'ti-calendar-plus', label: 'Reporte de Altas',     hint: 'Mes · trimestre · semestre' },
                 ].map(p => (
-                  <button key={p.id} onClick={() => {
-                    if (p.id === 'adquisiciones') setModalAdquisiciones(true)
-                    else if (p.id === 'altas')    setModalAltas(true)
-                    else                          setModalPeriodo(p.id)
-                  }}
-                    style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
-                      <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <i className={`ti ${p.icon}`} style={{ fontSize: '22px', color: p.color }} />
-                      </div>
-                      <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{p.label}</p>
-                    </div>
-                    {/* Las tarjetas sin conteo reservan el mismo alto que las
-                        demás, para que la fila quede pareja */}
-                    <p style={{ fontSize: '30px', fontWeight: 600, lineHeight: 1, marginBottom: '6px', color: p.value !== null ? t.text1 : 'transparent' }}>
-                      {p.value !== null ? (p.value == null ? '…' : p.value.toLocaleString()) : ' '}
-                    </p>
-                    <p style={{ fontSize: '12px', color: t.text4 }}>{p.hint}</p>
-                  </button>
+                  <TarjetaReporte key={p.id} t={t} icono={p.icon} titulo={p.label} detalle={p.hint} valor={p.value}
+                    onClick={() => {
+                      if (p.id === 'adquisiciones') setModalAdquisiciones(true)
+                      else if (p.id === 'altas')    setModalAltas(true)
+                      else                          setModalPeriodo(p.id)
+                    }} />
                 ))}
               </div>
-            </div>
+            </section>
 
             {/* Reportes personalizados (configuraciones guardadas) */}
-            <div style={{ gridColumn: '1 / -1', marginTop: '0.75rem' }}>
-              <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: '10px' }}>Reportes personalizados</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+            <section>
+              <p style={{ ...etiquetaSeccion(t), marginBottom: '10px' }}>Reportes personalizados</p>
+              <div style={rejillaReportes}>
                 {reportes.map(r => (
-                  <div key={r.id} onClick={() => setModalPreview(r)}
-                    style={{ ...card, minWidth: 0, cursor: 'pointer', position: 'relative', transition: 'opacity 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = '0.8'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                  <TarjetaReporte key={r.id} t={t} icono="ti-file-text" titulo={r.titulo}
+                    detalle={`${(r.modos || [r.modo]).map(labelModo).join(', ')} · ${r.cols.length} columnas`}
+                    onClick={() => setModalPreview(r)}>
                     <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '4px' }}>
-                      <button onClick={e => { e.stopPropagation(); setModalConfig(r) }} title="Editar" style={{ width: '26px', height: '26px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-pencil" style={{ fontSize: '13px' }} /></button>
-                      <button onClick={e => { e.stopPropagation(); borrarReporte(r.id) }} title="Eliminar" style={{ width: '26px', height: '26px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-trash" style={{ fontSize: '13px' }} /></button>
+                      <button onClick={e => { e.stopPropagation(); setModalConfig(r) }} title="Editar" style={{ width: '28px', height: '28px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-pencil" style={{ fontSize: '13px' }} /></button>
+                      <button onClick={e => { e.stopPropagation(); borrarReporte(r.id) }} title="Eliminar" style={{ width: '28px', height: '28px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-trash" style={{ fontSize: '13px' }} /></button>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem', paddingRight: '60px' }}>
-                      <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <i className="ti ti-file-text" style={{ fontSize: '22px', color: t.text2 }} />
-                      </div>
-                      <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.titulo}</p>
-                    </div>
-                    <p style={{ fontSize: '30px', fontWeight: 600, lineHeight: 1, marginBottom: '6px' }}><i className="ti ti-chevron-right" style={{ fontSize: '24px', color: t.text4 }} /></p>
-                    <p style={{ fontSize: '12px', color: t.text4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(r.modos || [r.modo]).map(labelModo).join(', ')} · {r.cols.length} columnas</p>
-                  </div>
+                  </TarjetaReporte>
                 ))}
-                {/* Card "+" para crear */}
-                <button onClick={() => setModalConfig('nuevo')}
-                  style={{ ...card, minHeight: '148px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', fontFamily: 'inherit', border: `2px dashed ${t.cardBorder}`, background: 'transparent', transition: 'opacity 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                {/* Tarjeta "+" para crear */}
+                <button onClick={() => setModalConfig('nuevo')} className="tarjeta-reporte"
+                  style={{ aspectRatio: '1 / 0.78', minHeight: '150px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', fontFamily: 'inherit', border: `2px dashed ${t.cardBorder}`, background: 'transparent' }}>
                   <i className="ti ti-plus" style={{ fontSize: '26px', color: t.text3 }} />
                   <span style={{ fontSize: '13px', fontWeight: 500, color: t.text3 }}>Nuevo reporte</span>
                 </button>
               </div>
-            </div>
+            </section>
           </div>
         ) : (
           <>
@@ -1192,7 +1124,6 @@ export default function Reportes({ user, onNavigate }) {
             await actualizarEstadoBienes([modalConfirmar.idbien], 'BAJA')
             await setFechaBaja([modalConfirmar.idbien], 'confirmacion', hoyISO())
             await cargar('SOLICITUD BAJA')
-            cargarConteos()
           }} />
       )}
       {modalAdquisiciones && <ModalAdquisicionesMuebles onClose={() => setModalAdquisiciones(false)} dark={dark} t={t} filtros={{ filtroAreaIds: [] }} />}
@@ -1202,7 +1133,7 @@ export default function Reportes({ user, onNavigate }) {
       {modalPreview && <ModalPreviewReporte config={modalPreview} onClose={() => setModalPreview(null)} dark={dark} t={t} />}
       {modalReporte && <ModalReporteBajas onClose={() => setModalReporte(false)} dark={dark} t={t} datos={filtrados} seleccionados={[...seleccionados]}
         esConfirmadas={esConfirmadas}
-        tituloInicial={`${esConfirmadas ? 'BAJAS CONFIRMADAS' : 'SOLICITUD DE BAJAS'} HAN ${mesAnioActual()}`} />}
+ />}
       
     </div>
   )

@@ -167,3 +167,89 @@ export function MenuFila({ menu, onClose, dark, t, acciones = [] }) {
     document.body,
   )
 }
+
+// ── Control deslizable ──────────────────────────────────────────────────────
+// Dos o más opciones en una sola pieza; el fondo de la elegida se desliza a la
+// nueva. Se mueve con transform, que no vuelve a acomodar la página.
+//   opciones: [{ id, label, icon?, total?, disabled? }]
+// Con `total` cada opción enseña su número arriba del nombre.
+export function Deslizable({ opciones, valor, onCambio, dark, t, style }) {
+  const n = opciones.length
+  const i = Math.max(0, opciones.findIndex(o => o.id === valor))
+  const conTotal = opciones.some(o => o.total !== undefined)
+  return (
+    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0,1fr))`, gap: '4px', padding: '4px',
+      borderRadius: '12px', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.035)', border: `1px solid ${t.cardBorder}`, ...style }}>
+      <div aria-hidden style={{
+        position: 'absolute', top: '4px', bottom: '4px', left: '4px',
+        width: `calc((100% - 8px - ${(n - 1) * 4}px) / ${n})`,
+        transform: `translateX(calc(${i} * (100% + 4px)))`,
+        borderRadius: '9px', background: dark ? 'rgba(255,255,255,0.12)' : '#fff',
+        border: `1px solid ${dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.08)'}`,
+        boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+        transition: 'transform 0.28s cubic-bezier(0.34,1.2,0.64,1)', willChange: 'transform',
+      }} />
+      {opciones.map(o => {
+        const activo = o.id === valor
+        return (
+          <button key={o.id} type="button" onClick={() => !o.disabled && onCambio(o.id)} disabled={o.disabled}
+            style={{ position: 'relative', zIndex: 1, padding: conTotal ? '7px 6px' : '8px 10px', borderRadius: '9px', background: 'none', border: 'none',
+              cursor: o.disabled ? 'not-allowed' : 'pointer', opacity: o.disabled ? 0.4 : 1, fontFamily: 'inherit',
+              display: 'flex', flexDirection: conTotal ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', gap: conTotal ? '1px' : '7px',
+              fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap', color: activo ? t.text1 : t.text3, transition: 'color 0.2s' }}>
+            {conTotal && <b style={{ fontSize: '16px', fontWeight: 600 }}>{o.total == null ? '—' : o.total.toLocaleString()}</b>}
+            {!conTotal && o.icon && <i className={`ti ${o.icon}`} style={{ fontSize: '16px' }} />}
+            <span style={conTotal ? { fontSize: '11.5px' } : undefined}>{o.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Encabezado de sección ───────────────────────────────────────────────────
+// La letra chica en mayúsculas que titula cada bloque de Reportes. Muebles e
+// inmuebles la usan igual, para que las dos pantallas se lean parejas.
+export function etiquetaSeccion(t) {
+  return { fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em' }
+}
+
+// ── Tarjeta de reporte ──────────────────────────────────────────────────────
+// Casi cuadrada: arriba el ícono y, si lo hay, el número; abajo el nombre y el
+// detalle. Todas miden lo mismo, tengan conteo o no.
+export function TarjetaReporte({ icono, color, titulo, detalle, valor, onClick, t, children }) {
+  // Con botones propios adentro (editar, borrar) va como div: un botón no
+  // puede llevar otros botones dentro.
+  const Tag = children ? 'div' : 'button'
+  return (
+    <Tag type={children ? undefined : 'button'} role={children ? 'button' : undefined} onClick={onClick} className="tarjeta-reporte"
+      style={{ position: 'relative', aspectRatio: '1 / 0.78', minHeight: '150px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        gap: '12px', padding: '1.1rem', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', borderRadius: '12px',
+        background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+        <div style={{ width: '44px', height: '44px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <i className={`ti ${icono}`} style={{ fontSize: '22px', color: color || t.text2 }} />
+        </div>
+        {valor !== undefined && (
+          <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1 }}>{valor == null ? '…' : valor.toLocaleString()}</p>
+        )}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis' }}>{titulo}</p>
+        {detalle && <p style={{ fontSize: '12px', color: t.text4, marginTop: '4px', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detalle}</p>}
+      </div>
+      {children}
+    </Tag>
+  )
+}
+
+// Rejilla de las tarjetas de reporte: se reparte sola según el ancho
+export const rejillaReportes = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '14px' }
+
+// ── Título que sigue a las fechas ───────────────────────────────────────────
+// Mientras nadie lo toca, el título se arma solo con el periodo elegido; en
+// cuanto se escribe en él, se respeta lo escrito (aunque quede vacío).
+export function useTituloAuto(auto) {
+  const [propio, setPropio] = useState(null)
+  return [propio ?? auto, setPropio]
+}

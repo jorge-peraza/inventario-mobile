@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from '../supabase'
+import { useDatosEnCache } from '../cache'
 
 // Tipos (mismos que Bienes Muebles)
 // Deben cubrir TODAS las categorías activas: si falta alguna, el total de la dona
@@ -80,61 +81,56 @@ export default function Dashboard({
   const { dark, t, sidebarOpen } = useTheme()
   const fecha = useFecha()
 
-  const [stats, setStats]   = useState(null)
-  const [tipos, setTipos]   = useState([])
-  const [loading, setLoading] = useState(true)
   const [hoverTipo, setHoverTipo] = useState(null)
 
-  useEffect(() => {
-    // Mientras no se sepan las áreas de la dependencia no se consulta nada: así
-    // no alcanza a verse ni un número del inventario de otra.
-    if (esperando) { setLoading(true); return }
-    async function cargar() {
-      setLoading(true)
-      try {
-        const BATCH = 1000
+  // Lo último que se leyó se enseña al instante al volver al inicio; se relee
+  // en silencio si ya pasó un rato (src/cache.js). Mientras no se sepan las
+  // áreas de la dependencia no se consulta nada: así no alcanza a verse ni un
+  // número del inventario de otra.
+  const { valor: datosDash, cargando: loading } = useDatosEnCache(
+    `dashboard-muebles:${areaIds ? areaIds.join(',') : 'todo'}`,
+    async () => {
+      const BATCH = 1000
 
-        // Una sola pasada paginada sobre bienes activos
-        let todos = [], desde = 0
-        while (true) {
-          let q = supabase
-            .from('bienes')
-            .select('categoriainventario, observaciones, facturas ( costoinicial )')
-            .eq('estadobien', 'ACTIVO')
-          if (areaIds) q = q.in('idarea', areaIds.length ? areaIds : [-1])
-          const { data, error } = await q.range(desde, desde + BATCH - 1)
-          if (error || !data || data.length === 0) break
-          todos = [...todos, ...data]
-          if (data.length < BATCH) break
-          desde += BATCH
-        }
-
-        const total      = todos.length
-        const valorTotal = todos.reduce((s, b) => s + (b.facturas?.costoinicial || 0), 0)
-        let bueno = 0, deteriorado = 0, noverificado = 0
-        const conteoTipo = {}
-        for (const b of todos) {
-          const est = clasificarEstado(b.observaciones)
-          if (est === 'bueno') bueno++
-          else if (est === 'deteriorado') deteriorado++
-          else noverificado++
-          const modo = CAT_A_MODO[b.categoriainventario]
-          if (modo) conteoTipo[modo] = (conteoTipo[modo] || 0) + 1
-        }
-
-        setStats({ total, valorTotal, bueno, deteriorado, noverificado })
-
-        const maxTipo = Math.max(1, ...TIPOS.map(t => conteoTipo[t.id] || 0))
-        setTipos(TIPOS.map(t => ({ ...t, total: conteoTipo[t.id] || 0, pct: Math.round((conteoTipo[t.id] || 0) / maxTipo * 100) })))
-
-      } catch (e) {
-        console.error(e)
-      } finally {
-        setLoading(false)
+      // Una sola pasada paginada sobre bienes activos
+      let todos = [], desde = 0
+      while (true) {
+        let q = supabase
+          .from('bienes')
+          .select('categoriainventario, observaciones, facturas ( costoinicial )')
+          .eq('estadobien', 'ACTIVO')
+        if (areaIds) q = q.in('idarea', areaIds.length ? areaIds : [-1])
+        const { data, error } = await q.range(desde, desde + BATCH - 1)
+        // Un error no se guarda como si fueran ceros: se avisa y se reintenta
+        if (error) throw error
+        if (!data || data.length === 0) break
+        todos = [...todos, ...data]
+        if (data.length < BATCH) break
+        desde += BATCH
       }
-    }
-    cargar()
-  }, [esperando, areaIds ? areaIds.join(',') : ''])
+
+      const total      = todos.length
+      const valorTotal = todos.reduce((s, b) => s + (b.facturas?.costoinicial || 0), 0)
+      let bueno = 0, deteriorado = 0, noverificado = 0
+      const conteoTipo = {}
+      for (const b of todos) {
+        const est = clasificarEstado(b.observaciones)
+        if (est === 'bueno') bueno++
+        else if (est === 'deteriorado') deteriorado++
+        else noverificado++
+        const modo = CAT_A_MODO[b.categoriainventario]
+        if (modo) conteoTipo[modo] = (conteoTipo[modo] || 0) + 1
+      }
+
+      const maxTipo = Math.max(1, ...TIPOS.map(t => conteoTipo[t.id] || 0))
+      return {
+        stats: { total, valorTotal, bueno, deteriorado, noverificado },
+        tipos: TIPOS.map(t => ({ ...t, total: conteoTipo[t.id] || 0, pct: Math.round((conteoTipo[t.id] || 0) / maxTipo * 100) })),
+      }
+    },
+    { activo: !esperando })
+  const stats = datosDash?.stats || null
+  const tipos = datosDash?.tipos || []
 
   const card = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
@@ -143,7 +139,7 @@ export default function Dashboard({
   }
 
   const lightBg = 'linear-gradient(145deg, #e0e0e2 0%, #ebebed 50%, #e4e4e6 100%)'
-  const darkBg  = 'linear-gradient(145deg, #111113 0%, #1c1c1e 50%, #222224 100%)'
+  const darkBg  = FONDO_OSCURO
 
   const kpis = [
     { label: 'Total bienes',  icon: 'ti-box',           iconColor: t.text1,       value: loading ? '…' : stats?.total.toLocaleString() ?? '—',        hint: 'activos en inventario',   estado: 'Todos' },

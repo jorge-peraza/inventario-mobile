@@ -16,8 +16,8 @@ export const DEPENDENCIA_VE_MOVIMIENTOS = false
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
-  admin:           ['dashboard', 'bienes', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
-  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'reportes'],
+  admin:           ['dashboard', 'bienes', 'traspasos', 'solicitudes-baja', 'bajas-confirmadas', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
+  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'desinc-proceso', 'desincorporados', 'reportes'],
   // Una dependencia consulta lo suyo: su inicio y el inventario vigente, de
   // donde además saca sus reportes. No entra a papelera, reconteo ni usuarios.
   dependencia:     ['index-dep', 'bienes', ...(DEPENDENCIA_VE_MOVIMIENTOS ? ['traspasos', 'bajas'] : [])],
@@ -127,6 +127,18 @@ export async function sesionActual() {
     const u = data?.session?.user
     return u ? perfilDesdeUser(u) : null
   } catch { return null }
+}
+
+// Confirma que quien está frente a la pantalla es el administrador de la sesión
+// abierta: su contraseña se vuelve a validar con Supabase. Se pide antes de
+// quitar algo del historial, para que no pase por un clic accidental.
+export async function verificarContrasena(password) {
+  if (!password) throw new Error('Escribe tu contraseña')
+  const { data } = await supabase.auth.getUser()
+  const email = data?.user?.email
+  if (!email) throw new Error('No hay una sesión de administrador abierta')
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw new Error('La contraseña no es correcta')
 }
 
 export function cerrarSesion() {

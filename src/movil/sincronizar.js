@@ -130,6 +130,11 @@ export async function subirPendientes() {
   return subidos
 }
 
+// Los reconteos que se mandaron a la papelera siguen en la base (se pueden
+// regresar), pero para el celular es como si no existieran. Se filtra aquí y
+// no en la consulta: así funciona igual antes de que exista la columna.
+const vigente = r => !r.en_papelera
+
 // El historial de todos los equipos, no solo el de este teléfono.
 export async function historialRemoto({ limite = 60, idarea = null } = {}) {
   let q = supabase.from('reconteos').select('*').order('inicio', { ascending: false }).limit(limite)
@@ -139,7 +144,7 @@ export async function historialRemoto({ limite = 60, idarea = null } = {}) {
     if (noHayTablas(error)) return null
     throw error
   }
-  return data || []
+  return (data || []).filter(vigente)
 }
 
 // Deshacer una marca: el bien vuelve a contar como no encontrado. Se escribe en
@@ -158,9 +163,9 @@ export async function quitarMarca(idreconteo, clave) {
 export async function reconteoAbiertoRemoto(idarea) {
   const { data, error } = await supabase.from('reconteos').select('*')
     .eq('idarea', Number(idarea)).is('fin', null)
-    .order('inicio', { ascending: false }).limit(1)
+    .order('inicio', { ascending: false }).limit(10)
   if (error) { if (noHayTablas(error)) return null; throw error }
-  return (data && data[0]) || null
+  return (data || []).find(vigente) || null
 }
 
 // Vuelve a abrir un conteo terminado
@@ -173,9 +178,10 @@ export async function reabrirRemoto(idreconteo) {
 // Pone al teléfono al día con la base: lo que ya no está allá se borra de aquí,
 // para que no vuelva a subirse ni reaparezca en el historial.
 export async function sincronizarBorrados() {
-  const { data, error } = await supabase.from('reconteos').select('idreconteo')
+  const { data, error } = await supabase.from('reconteos').select('*')
   if (error) return 0
-  return depurarBorrados((data || []).map(r => r.idreconteo))
+  // Lo que está en la papelera cuenta como quitado: se suelta del teléfono
+  return depurarBorrados((data || []).filter(vigente).map(r => r.idreconteo))
 }
 
 // Los renglones de un reconteo. Se pagina porque un área grande pasa del tope
@@ -207,9 +213,14 @@ export async function ajenosRemotos(idreconteo) {
   return data || []
 }
 
-// Borra el reconteo de la base y del teléfono, para que no vuelva a subirse
+// Manda el reconteo a la papelera —no lo borra: desde la Papelera de la
+// computadora se puede regresar al historial— y lo suelta del teléfono.
 export async function borrarRemoto(idreconteo) {
-  const { error } = await supabase.from('reconteos').delete().eq('idreconteo', idreconteo)
-  if (error && !noHayTablas(error)) throw error
+  const { error } = await supabase.from('reconteos')
+    .update({ en_papelera: new Date().toISOString() }).eq('idreconteo', idreconteo)
+  if (error) {
+    if (/en_papelera/i.test(error.message || '')) throw new Error('Falta aplicar supabase/papelera-reconteos.sql en la base')
+    if (!noHayTablas(error)) throw error
+  }
   borrarReconteo(idreconteo)
 }

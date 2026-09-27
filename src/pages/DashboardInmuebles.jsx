@@ -1,8 +1,9 @@
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import { useState, useEffect } from 'react'
 import { supabaseInmuebles } from '../supabaseInmuebles'
+import { useDatosEnCache } from '../cache'
 import { ID_PROCESO, ID_DESINC, CATS_FUERA, CATS_SALIDA } from '../desincorporaciones'
 
 function useFecha() {
@@ -31,83 +32,71 @@ export default function DashboardInmuebles({ user, onNavigate }) {
   const { dark, t, sidebarOpen } = useTheme()
   const fecha = useFecha()
 
-  const [stats, setStats]         = useState(null)
-  const [categorias, setCategorias] = useState([])
-  const [loading, setLoading]     = useState(true)
+  // Lo último que se leyó se enseña al instante al volver al inicio; se relee
+  // en silencio si ya pasó un rato (src/cache.js)
+  const { valor: datosDash, cargando: loading } = useDatosEnCache('dashboard-inmuebles', async () => {
+    const BATCH = 1000
 
-  useEffect(() => {
-    async function cargar() {
-      setLoading(true)
-      try {
-        const BATCH = 1000
+    // Paginar todos los registros
+    let todos = [], desde = 0
+    while (true) {
+      const { data: batch, error } = await supabaseInmuebles
+        .from('bienesinmuebles')
+        .select('valorcatastral, documentopropiedad, espendiente, idcategoria, fecha_enajenacion')
+        .range(desde, desde + BATCH - 1)
+      // Un error no se guarda como si fueran ceros: se avisa y se reintenta
+      if (error) throw error
+      if (!batch || batch.length === 0) break
+      todos = [...todos, ...batch]
+      if (batch.length < BATCH) break
+      desde += BATCH
+    }
+    if (!todos.length) return { stats: null, categorias: [] }
 
-        // Paginar todos los registros
-        let todos = [], desde = 0
-        while (true) {
-          const { data: batch, error } = await supabaseInmuebles
-            .from('bienesinmuebles')
-            .select('valorcatastral, documentopropiedad, espendiente, idcategoria, fecha_enajenacion')
-            .range(desde, desde + BATCH - 1)
-          if (error || !batch || batch.length === 0) break
-          todos = [...todos, ...batch]
-          if (batch.length < BATCH) break
-          desde += BATCH
-        }
+    // El patrimonio son los inmuebles del HAN: no cuentan los que están en
+    // comodato ni los que salieron (en proceso / desincorporados).
+    const patrimonio = todos.filter(r => !CATS_FUERA.includes(r.idcategoria))
+    const total      = patrimonio.length
+    const valorTotal = patrimonio.reduce((s, r) => s + (r.valorcatastral || 0), 0)
+    const enProceso  = todos.filter(r => r.idcategoria === ID_PROCESO).length
+    // Incorporaciones del año: movimientos de este año que no son salidas
+    const anio = String(new Date().getFullYear())
+    const incorporaciones = todos.filter(r =>
+      String(r.fecha_enajenacion || '').startsWith(anio) && !CATS_SALIDA.includes(r.idcategoria)
+    ).length
 
-        if (todos.length) {
-          // El patrimonio son los inmuebles del HAN: no cuentan los que están en
-          // comodato ni los que salieron (en proceso / desincorporados).
-          const patrimonio = todos.filter(r => !CATS_FUERA.includes(r.idcategoria))
-          const total      = patrimonio.length
-          const valorTotal = patrimonio.reduce((s, r) => s + (r.valorcatastral || 0), 0)
-          const enProceso  = todos.filter(r => r.idcategoria === ID_PROCESO).length
-          // Incorporaciones del año: movimientos de este año que no son salidas
-          const anio = String(new Date().getFullYear())
-          const incorporaciones = todos.filter(r =>
-            String(r.fecha_enajenacion || '').startsWith(anio) && !CATS_SALIDA.includes(r.idcategoria)
-          ).length
-          setStats({ total, valorTotal, incorporaciones, enProceso })
-
-          // Conteo y valor total por categoría (client-side)
-          const mapaConteo = {}
-          const mapaValor  = {}
-          for (const r of todos) {
-            if (r.idcategoria) {
-              mapaConteo[r.idcategoria] = (mapaConteo[r.idcategoria] || 0) + 1
-              mapaValor[r.idcategoria]  = (mapaValor[r.idcategoria]  || 0) + (r.valorcatastral || 0)
-            }
-          }
-
-          // Nombres de categorías
-          const { data: cats } = await supabaseInmuebles
-            .from('categoriasinmuebles')
-            .select('idcategoria, nombrecategoria')
-            .order('nombrecategoria', { ascending: true })
-
-          if (cats) {
-            // Se listan TODAS las categorías, incluidas comodato y desincorporado.
-            // Ojo: esas dos no son patrimonio del HAN, así que los conteos de las
-            // tarjetas no suman el total de arriba.
-            const lista = cats
-              .map(c => ({
-                ...c,
-                total:      mapaConteo[c.idcategoria] || 0,
-                valorTotal: mapaValor[c.idcategoria]  || 0,
-              }))
-              .filter(c => c.total > 0)
-              .sort((a, b) => b.total - a.total)
-            setCategorias(lista)
-          }
-        }
-
-      } catch (e) {
-        console.error(e)
-      } finally {
-        setLoading(false)
+    // Conteo y valor total por categoría (client-side)
+    const mapaConteo = {}
+    const mapaValor  = {}
+    for (const r of todos) {
+      if (r.idcategoria) {
+        mapaConteo[r.idcategoria] = (mapaConteo[r.idcategoria] || 0) + 1
+        mapaValor[r.idcategoria]  = (mapaValor[r.idcategoria]  || 0) + (r.valorcatastral || 0)
       }
     }
-    cargar()
-  }, [])
+
+    // Nombres de categorías
+    const { data: cats } = await supabaseInmuebles
+      .from('categoriasinmuebles')
+      .select('idcategoria, nombrecategoria')
+      .order('nombrecategoria', { ascending: true })
+
+    // Se listan TODAS las categorías, incluidas comodato y desincorporado.
+    // Ojo: esas dos no son patrimonio del HAN, así que los conteos de las
+    // tarjetas no suman el total de arriba.
+    const categorias = (cats || [])
+      .map(c => ({
+        ...c,
+        total:      mapaConteo[c.idcategoria] || 0,
+        valorTotal: mapaValor[c.idcategoria]  || 0,
+      }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total)
+
+    return { stats: { total, valorTotal, incorporaciones, enProceso }, categorias }
+  })
+  const stats      = datosDash?.stats || null
+  const categorias = datosDash?.categorias || []
 
   const card = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
@@ -116,7 +105,7 @@ export default function DashboardInmuebles({ user, onNavigate }) {
   }
 
   const bg = dark
-    ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)'
+    ? FONDO_OSCURO
     : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
 
   const kpis = [

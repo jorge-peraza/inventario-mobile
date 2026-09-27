@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from '../supabase'
 import { usuariosDependencia } from '../auth'
 import { sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './ui'
@@ -328,7 +328,7 @@ export default function Usuarios({ user, onNavigate }) {
     })
   }, [usuarios, busqueda, depFiltro])
 
-  const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
   return (

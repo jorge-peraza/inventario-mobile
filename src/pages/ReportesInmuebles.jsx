@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
 import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
-import { barraSticky, btnBarra, sStyle, MenuFila } from './ui'
+import { barraSticky, btnBarra, sStyle, MenuFila, Deslizable, TarjetaReporte, rejillaReportes, etiquetaSeccion, useTituloAuto } from './ui'
+import { textoPeriodo, fechaEnPalabras } from '../exportadores'
 import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { siguienteClaveInmueble } from './BienesInmuebles'
-import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 function mesAnioActual() { const d = new Date(); return `${MESES[d.getMonth()]} ${d.getFullYear()}` }
@@ -214,9 +215,11 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
   )
 }
 
-export default function ReportesInmuebles({ user, onNavigate }) {
+// La misma pantalla sirve para Reportes y para las dos listas de
+// desincorporación, que ahora tienen su propia entrada en el menú (vistaFija).
+export default function ReportesInmuebles({ user, onNavigate, vistaFija = null }) {
   const { dark, t, sidebarOpen } = useTheme()
-  const [vista, setVista]   = useState('inicio')   // 'inicio' | 'proceso' | 'desincorporado'
+  const [vista, setVista]   = useState(vistaFija || 'inicio')   // 'inicio' | 'proceso' | 'desincorporado'
   const [datos, setDatos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [panel, setPanel]   = useState(null)
@@ -230,7 +233,6 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [confirmar, setConfirmar] = useState(null)   // { inm, accion }
   const [modoSeleccion, setModoSeleccion] = useState(false)
   const [seleccionados, setSeleccionados] = useState(() => new Map())   // idinmueble -> bien
-  const [conteos, setConteos] = useState({ proceso: null, desinc: null })
   const [categorias, setCategorias] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [m2Min, setM2Min] = useState('')
@@ -239,21 +241,13 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [porPagina, setPorPagina] = useState(20)
   const OPCIONES = [10, 15, 20]
 
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
   const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
-  const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
+  const bg = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const bordeIzq = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)'
 
   const esDesinc = vista === 'desincorporado'
   const idCatActual = esDesinc ? ID_DESINC : ID_PROCESO
 
-  const cargarConteos = useCallback(async () => {
-    try {
-      const [p, d] = await Promise.all([contarCategoria(ID_PROCESO), contarCategoria(ID_DESINC)])
-      setConteos({ proceso: p, desinc: d })
-    } catch { /* noop */ }
-  }, [])
-  useEffect(() => { cargarConteos() }, [cargarConteos])
   useEffect(() => {
     supabaseInmuebles.from('categoriasinmuebles').select('idcategoria, nombrecategoria, clavecategoria')
       .then(({ data }) => setCategorias(data || [])).catch(console.error)
@@ -280,7 +274,6 @@ export default function ReportesInmuebles({ user, onNavigate }) {
     await cambiarCategoria([b.idinmueble], ID_DESINC)   // pasa a "DESINCORPORADO DEL HAN"
     setModalDesinc(null)
     await cargar(ID_PROCESO)
-    cargarConteos()
   }
 
   function toggleSeleccion(b) { setSeleccionados(prev => { const n = new Map(prev); n.has(b.idinmueble) ? n.delete(b.idinmueble) : n.set(b.idinmueble, b); return n }) }
@@ -309,7 +302,6 @@ export default function ReportesInmuebles({ user, onNavigate }) {
       await cambiarCategoria([b.idinmueble], ID_PROCESO)
     }
     await cargar(esDesinc ? ID_DESINC : ID_PROCESO)
-    cargarConteos()
   }
 
   const q = busqueda.toLowerCase()
@@ -367,20 +359,14 @@ export default function ReportesInmuebles({ user, onNavigate }) {
     setSeleccionados(prev => { const n = new Map(prev); if (todosEnPag) paginados.forEach(b => n.delete(b.idinmueble)); else paginados.forEach(b => n.set(b.idinmueble, b)); return n })
   }
 
-  const cards = [
-    { id: 'proceso',        icon: 'ti-progress',     label: 'En Proceso de Desincorporación', value: conteos.proceso, hint: 'Inmuebles en trámite', color: t.colorYellow },
-    { id: 'desincorporado', icon: 'ti-circle-minus',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
-    { id: 'enajenaciones',  icon: 'ti-transfer',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
-    { id: 'tesoreria',      icon: 'ti-building-bank', label: 'Reporte de Tesorería',          value: null, accion: true, hint: 'Enajenaciones del periodo', color: t.text2 },
-  ]
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg, transition: 'background 0.3s' }}>
-      <Sidebar user={user} active="reportes" onNavigate={onNavigate} />
+      <Sidebar user={user} active={vistaFija === 'proceso' ? 'desinc-proceso' : vistaFija === 'desincorporado' ? 'desincorporados' : 'reportes'} onNavigate={onNavigate} />
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
-          {vista !== 'inicio' && (
+          {vista !== 'inicio' && !vistaFija && (
             <button onClick={() => setVista('inicio')} title="Volver"
               style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text1 }}>
               <i className="ti ti-arrow-left" style={{ fontSize: '18px' }} />
@@ -388,35 +374,25 @@ export default function ReportesInmuebles({ user, onNavigate }) {
           )}
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>
-              {vista === 'inicio' ? 'Reportes' : (esDesinc ? 'Desincorporado' : 'En Proceso de Desincorporación')}
+              {vista === 'inicio' ? 'Reportes' : (esDesinc ? 'Desincorporado' : 'En proceso de desincorporación')}
             </h1>
-            <p style={{ fontSize: '14px', color: t.text3 }}>
-              {vista === 'inicio' ? 'GENERACIÓN DE REPORTES DE BIENES INMUEBLES' : `Bienes inmuebles · ${loading ? 'Cargando…' : `${filtrados.length} registros`}`}
-            </p>
+            {/* Misma letra que Reportes de bienes muebles */}
+            {vista === 'inicio'
+              ? <p style={etiquetaSeccion(t)}>Generación de reportes de bienes inmuebles</p>
+              : <p style={{ fontSize: '14px', color: t.text3 }}>{`Bienes inmuebles · ${loading ? 'Cargando…' : `${filtrados.length} registros`}`}</p>}
           </div>
         </div>
 
         {vista === 'inicio' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
-            {cards.map(c => (
-              <button key={c.id} onClick={() => {
-                if (c.id === 'enajenaciones') setModalEnaj(true)
-                else if (c.id === 'tesoreria') setModalTes(true)
-                else { setVista(c.id); setBusqueda(''); setModoSeleccion(false); setSeleccionados(new Map()) }
-              }}
-                style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
-                  <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className={`ti ${c.icon}`} style={{ fontSize: '22px', color: c.color }} />
-                  </div>
-                  <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{c.label}</p>
-                </div>
-                {!c.accion && <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.value == null ? '…' : c.value.toLocaleString()}</p>}
-                <p style={{ fontSize: '12px', color: t.text4 }}>{c.hint}</p>
-              </button>
-            ))}
-          </div>
+          <section>
+            <p style={{ ...etiquetaSeccion(t), marginBottom: '10px' }}>Reportes</p>
+            <div style={rejillaReportes}>
+              <TarjetaReporte t={t} icono="ti-transfer" titulo="Reporte de Enajenaciones"
+                detalle="Desincorporaciones e incorporaciones por periodo" onClick={() => setModalEnaj(true)} />
+              <TarjetaReporte t={t} icono="ti-building-bank" titulo="Reporte de Tesorería"
+                detalle="Enajenaciones del periodo" onClick={() => setModalTes(true)} />
+            </div>
+          </section>
         ) : (
           <>
             {/* Filtros */}
@@ -771,6 +747,11 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
     try {
       const extra = {
         subtitulo,
+        // El título del formato es siempre el mismo; el archivo se nombra por
+        // el periodo para que no se encimen los de distintas fechas
+        archivo: alcance === 'hasta'
+          ? `REPORTE DE TESORERÍA INMUEBLES HASTA EL ${fechaEnPalabras(corte)}`
+          : `REPORTE DE TESORERÍA INMUEBLES ${subtitulo}`,
         dependencia: TES_DEPENDENCIA,
         monto: { etiqueta: TES_MONTO, valor: sumaTexto },
         firmas: TES_FIRMAS,
@@ -807,14 +788,8 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
           <div>
             <p style={lbl}>Qué bienes</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
-              {[['hasta','Hasta la fecha'],['periodo','En el periodo']].map(([id, lab]) => (
-                <button key={id} onClick={() => setAlcance(id)}
-                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: alcance === id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === id ? t.text1 : t.text3 }}>
-                  {lab}
-                </button>
-              ))}
-            </div>
+            <Deslizable dark={dark} t={t} valor={alcance} onCambio={setAlcance}
+              opciones={[{ id: 'hasta', label: 'Hasta la fecha' }, { id: 'periodo', label: 'En el periodo' }]} />
             <p style={{ fontSize:'11px', color:t.text4, marginTop:'6px' }}>
               {alcance === 'hasta'
                 ? 'Todo lo que el municipio ya tenía al cerrar. Es el que va con el estado financiero.'
@@ -824,14 +799,8 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
 
           <div>
             <p style={lbl}>Periodo</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', marginBottom:'10px' }}>
-              {[['anio','Año'],['mes','Mes'],['fechas','Fechas']].map(([id, lab]) => (
-                <button key={id} onClick={() => setModo(id)}
-                  style={{ flex:1, padding:'8px 6px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: modo === id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: modo === id ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: modo === id ? t.text1 : t.text3 }}>
-                  {lab}
-                </button>
-              ))}
-            </div>
+            <Deslizable dark={dark} t={t} valor={modo} onCambio={setModo} style={{ marginBottom: '10px' }}
+              opciones={[{ id: 'anio', label: 'Año' }, { id: 'mes', label: 'Mes' }, { id: 'fechas', label: 'Fechas' }]} />
             {modo === 'fechas' ? (
               // Acumulado: solo importa la fecha de cierre, así que se pide una
               alcance === 'hasta' ? (
@@ -901,7 +870,6 @@ function ModalEnajenaciones({ onClose, dark, t }) {
   const [trimestre, setTrim]  = useState('1')
   const [desde, setDesde]     = useState('')
   const [hasta, setHasta]     = useState('')
-  const [titulo, setTitulo]   = useState('')
   const [generando, setGen]   = useState(null)
 
   function calcRango() {
@@ -909,15 +877,17 @@ function ModalEnajenaciones({ onClose, dark, t }) {
     if (modo === 'semestre') {
       const d = semestre === '1' ? `${anio}-01-01` : `${anio}-07-01`
       const h = semestre === '1' ? `${anio}-06-30` : `${anio}-12-31`
-      return { d, h, lbl: `${semestre}ER SEMESTRE DEL ${anio}` }
+      return { d, h, lbl: `${semestre === '1' ? '1ER' : '2DO'} SEMESTRE DEL ${anio}` }
     }
     if (modo === 'trimestre') {
       const ini = ['01-01','04-01','07-01','10-01'][trimestre - 1]
       const fin = ['03-31','06-30','09-30','12-31'][trimestre - 1]
-      return { d: `${anio}-${ini}`, h: `${anio}-${fin}`, lbl: `${trimestre}ER TRIMESTRE DEL ${anio}` }
+      return { d: `${anio}-${ini}`, h: `${anio}-${fin}`, lbl: `${['1ER', '2DO', '3ER', '4TO'][trimestre - 1]} TRIMESTRE DEL ${anio}` }
     }
-    return { d: desde, h: hasta, lbl: desde && hasta ? `${desde} AL ${hasta}` : '' }
+    return { d: desde, h: hasta, lbl: desde && hasta ? textoPeriodo(desde, hasta) : '' }
   }
+  // El título (y el nombre del archivo) sigue al periodo mientras no se escriba otro
+  const [titulo, setTitulo] = useTituloAuto(`ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${calcRango().lbl}`.trim())
 
   async function generar(formato) {
     const { d, h, lbl } = calcRango()
@@ -937,7 +907,7 @@ function ModalEnajenaciones({ onClose, dark, t }) {
       const marcar = (r, tipo) => ({ ...r, tipo_mov: tipo })
       const desinc = rows.filter(esSalida).map(r => marcar(r, 'DESINCORPORACIÓN'))
       const incorp = rows.filter(r => !esSalida(r)).map(r => marcar(r, 'INCORPORACIÓN'))
-      const tit = titulo.trim() || `ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${lbl}`
+      const tit = titulo.trim() || `ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${lbl}`.trim()
       if (formato === 'pdf') await exportarEnajenacionesPDF(desinc, incorp, tit)
       else                   await exportarEnajenacionesExcel(desinc, incorp, tit)
       onClose()
@@ -971,14 +941,8 @@ function ModalEnajenaciones({ onClose, dark, t }) {
         {/* Tipo de periodo */}
         <div>
           {lbl('Filtrar por')}
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[['anio','Año'],['semestre','Semestre'],['trimestre','Trimestre'],['fechas','Fechas']].map(([id, lab]) => (
-              <button key={id} onClick={() => setModo(id)}
-                style={{ flex: 1, padding: '7px', borderRadius: '8px', fontSize: '12px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: modo === id ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: modo === id ? `1px solid ${t.cardBorder}` : `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}`, color: modo === id ? (dark ? '#fff' : '#111') : (dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)') }}>
-                {lab}
-              </button>
-            ))}
-          </div>
+          <Deslizable dark={dark} t={t} valor={modo} onCambio={setModo}
+            opciones={[{ id: 'anio', label: 'Año' }, { id: 'semestre', label: 'Semestre' }, { id: 'trimestre', label: 'Trimestre' }, { id: 'fechas', label: 'Fechas' }]} />
         </div>
 
         {/* Controles según modo */}
@@ -1019,8 +983,8 @@ function ModalEnajenaciones({ onClose, dark, t }) {
 
         {/* Título opcional */}
         <div>
-          {lbl('Título (opcional)')}
-          <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={`ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${calcRango().lbl}`} style={iStyle} />
+          {lbl('Título del documento')}
+          <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES" style={iStyle} />
         </div>
 
         {/* Botones */}

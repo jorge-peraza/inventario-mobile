@@ -36,11 +36,18 @@ export function useTheme() {
   return useContext(ThemeContext)
 }
 
+// Fondo del modo oscuro. El degradado va de #111113 a #222224: tan pocos tonos
+// en toda la pantalla que el monitor los pinta en escalones y se ven rayas
+// diagonales. Un grano finísimo encima (±2 tonos, no se alcanza a ver como
+// textura) los mezcla y el degradado queda liso.
+const GRANO = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.05'/%3E%3C/svg%3E\")"
+export const FONDO_OSCURO = `${GRANO}, linear-gradient(145deg, #111113 0%, #1c1c1e 50%, #222224 100%)`
+
 // Tokens por modo
 export function tokens(dark) {
   if (dark) {
     return {
-      bg:           'linear-gradient(145deg, #111113 0%, #1c1c1e 50%, #222224 100%)',
+      bg:           FONDO_OSCURO,
       cardBg:       'rgba(255,255,255,0.07)',
       cardBorder:   'rgba(255,255,255,0.12)',
       cardBlur:     'blur(16px)',

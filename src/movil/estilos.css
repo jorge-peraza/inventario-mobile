@@ -204,7 +204,20 @@
   transition: background 0.15s, color 0.15s;
 }
 .movil .pestanas button b { font-size: 16px; font-weight: 600; }
-.movil .pestanas button.activo { background: var(--campo); color: var(--texto-1); box-shadow: var(--sombra); }
+.movil .pestanas button.activo { color: var(--texto-1); }
+/* El fondo de la pestaña elegida se desliza a la nueva (--i = su posición) */
+.movil .pestanas { position: relative; }
+.movil .pestanas::before {
+  content: '';
+  position: absolute; top: 4px; bottom: 4px; left: 4px;
+  width: calc((100% - 16px) / 3);
+  border-radius: 10px;
+  background: var(--campo);
+  box-shadow: var(--sombra);
+  transform: translateX(calc(var(--i, 0) * (100% + 4px)));
+  transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+.movil .pestanas button { position: relative; z-index: 1; }
 
 .movil .boton {
   display: flex; align-items: center; justify-content: center; gap: 8px;
