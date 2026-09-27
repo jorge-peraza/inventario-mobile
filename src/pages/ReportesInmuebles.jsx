@@ -4,11 +4,11 @@ import Sidebar from '../components/Sidebar'
 import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
 import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
-import { barraSticky, btnBarra, sStyle, MenuFila, Deslizable, TarjetaReporte, rejillaReportes, etiquetaSeccion, useTituloAuto } from './ui'
+import { barraSticky, btnBarra, sStyle, MenuFila, Deslizable, useTituloAuto } from './ui'
 import { textoPeriodo, fechaEnPalabras } from '../exportadores'
 import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { siguienteClaveInmueble } from './BienesInmuebles'
-import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 function mesAnioActual() { const d = new Date(); return `${MESES[d.getMonth()]} ${d.getFullYear()}` }
@@ -215,13 +215,14 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
   )
 }
 
-// La misma pantalla sirve para Reportes y para las dos listas de
-// desincorporación, que ahora tienen su propia entrada en el menú (vistaFija).
+// La misma pantalla sirve para Reportes y para Movimientos: en Movimientos las
+// tarjetas son En proceso de desincorporación y Desincorporado.
 // soloLectura: usuario de inmuebles con permiso de solo consulta; ve las listas
 // y saca reportes, sin mover inmuebles entre trámite, desincorporado e inventario.
-export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, soloLectura = false }) {
+export default function ReportesInmuebles({ user, onNavigate, seccion = 'reportes', soloLectura = false }) {
+  const esMovimientos = seccion === 'movimientos'
   const { dark, t, sidebarOpen } = useTheme()
-  const [vista, setVista]   = useState(vistaFija || 'inicio')   // 'inicio' | 'proceso' | 'desincorporado'
+  const [vista, setVista]   = useState('inicio')   // 'inicio' | 'proceso' | 'desincorporado'
   const [datos, setDatos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [panel, setPanel]   = useState(null)
@@ -235,6 +236,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
   const [confirmar, setConfirmar] = useState(null)   // { inm, accion }
   const [modoSeleccion, setModoSeleccion] = useState(false)
   const [seleccionados, setSeleccionados] = useState(() => new Map())   // idinmueble -> bien
+  const [conteos, setConteos] = useState({ proceso: null, desinc: null })
   const [categorias, setCategorias] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [m2Min, setM2Min] = useState('')
@@ -243,6 +245,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
   const [porPagina, setPorPagina] = useState(20)
   const OPCIONES = [10, 15, 20]
 
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
   const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
   const bg = dark ? FONDO_OSCURO : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const bordeIzq = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)'
@@ -250,6 +253,14 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
   const esDesinc = vista === 'desincorporado'
   const idCatActual = esDesinc ? ID_DESINC : ID_PROCESO
 
+  const cargarConteos = useCallback(async () => {
+    if (!esMovimientos) return
+    try {
+      const [p, d] = await Promise.all([contarCategoria(ID_PROCESO), contarCategoria(ID_DESINC)])
+      setConteos({ proceso: p, desinc: d })
+    } catch { /* noop */ }
+  }, [esMovimientos])
+  useEffect(() => { cargarConteos() }, [cargarConteos])
   useEffect(() => {
     supabaseInmuebles.from('categoriasinmuebles').select('idcategoria, nombrecategoria, clavecategoria')
       .then(({ data }) => setCategorias(data || [])).catch(console.error)
@@ -276,6 +287,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
     await cambiarCategoria([b.idinmueble], ID_DESINC)   // pasa a "DESINCORPORADO DEL HAN"
     setModalDesinc(null)
     await cargar(ID_PROCESO)
+    cargarConteos()
   }
 
   function toggleSeleccion(b) { setSeleccionados(prev => { const n = new Map(prev); n.has(b.idinmueble) ? n.delete(b.idinmueble) : n.set(b.idinmueble, b); return n }) }
@@ -304,6 +316,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
       await cambiarCategoria([b.idinmueble], ID_PROCESO)
     }
     await cargar(esDesinc ? ID_DESINC : ID_PROCESO)
+    cargarConteos()
   }
 
   const q = busqueda.toLowerCase()
@@ -362,13 +375,21 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
   }
 
 
+  const cards = esMovimientos ? [
+    { id: 'proceso',        icon: 'ti-progress',     label: 'En Proceso de Desincorporación', value: conteos.proceso, hint: 'Inmuebles en trámite', color: t.colorYellow },
+    { id: 'desincorporado', icon: 'ti-circle-minus',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
+  ] : [
+    { id: 'enajenaciones',  icon: 'ti-transfer',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
+    { id: 'tesoreria',      icon: 'ti-building-bank', label: 'Reporte de Tesorería',          value: null, accion: true, hint: 'Enajenaciones del periodo', color: t.text2 },
+  ]
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg, transition: 'background 0.3s' }}>
-      <Sidebar user={user} active={vistaFija === 'proceso' ? 'desinc-proceso' : vistaFija === 'desincorporado' ? 'desincorporados' : 'reportes'} onNavigate={onNavigate} />
+      <Sidebar user={user} active={esMovimientos ? 'movimientos' : 'reportes'} onNavigate={onNavigate} />
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
-          {vista !== 'inicio' && !vistaFija && (
+          {vista !== 'inicio' && (
             <button onClick={() => setVista('inicio')} title="Volver"
               style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text1 }}>
               <i className="ti ti-arrow-left" style={{ fontSize: '18px' }} />
@@ -376,25 +397,35 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, 
           )}
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>
-              {vista === 'inicio' ? 'Reportes' : (esDesinc ? 'Desincorporado' : 'En proceso de desincorporación')}
+              {vista === 'inicio' ? (esMovimientos ? 'Movimientos' : 'Reportes') : (esDesinc ? 'Desincorporado' : 'En Proceso de Desincorporación')}
             </h1>
-            {/* Misma letra que Reportes de bienes muebles */}
             {vista === 'inicio'
-              ? <p style={etiquetaSeccion(t)}>Generación de reportes de bienes inmuebles</p>
+              ? <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em' }}>{esMovimientos ? 'DESINCORPORACIÓN DE BIENES INMUEBLES' : 'GENERACIÓN DE REPORTES DE BIENES INMUEBLES'}</p>
               : <p style={{ fontSize: '14px', color: t.text3 }}>{`Bienes inmuebles · ${loading ? 'Cargando…' : `${filtrados.length} registros`}`}</p>}
           </div>
         </div>
 
         {vista === 'inicio' ? (
-          <section>
-            <p style={{ ...etiquetaSeccion(t), marginBottom: '10px' }}>Reportes</p>
-            <div style={rejillaReportes}>
-              <TarjetaReporte t={t} icono="ti-transfer" titulo="Reporte de Enajenaciones"
-                detalle="Desincorporaciones e incorporaciones por periodo" onClick={() => setModalEnaj(true)} />
-              <TarjetaReporte t={t} icono="ti-building-bank" titulo="Reporte de Tesorería"
-                detalle="Enajenaciones del periodo" onClick={() => setModalTes(true)} />
-            </div>
-          </section>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+            {cards.map(c => (
+              <button key={c.id} onClick={() => {
+                if (c.id === 'enajenaciones') setModalEnaj(true)
+                else if (c.id === 'tesoreria') setModalTes(true)
+                else { setVista(c.id); setBusqueda(''); setModoSeleccion(false); setSeleccionados(new Map()) }
+              }}
+                style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '0.75'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className={`ti ${c.icon}`} style={{ fontSize: '22px', color: c.color }} />
+                  </div>
+                  <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{c.label}</p>
+                </div>
+                {!c.accion && <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.value == null ? '…' : c.value.toLocaleString()}</p>}
+                <p style={{ fontSize: '12px', color: t.text4 }}>{c.hint}</p>
+              </button>
+            ))}
+          </div>
         ) : (
           <>
             {/* Filtros */}

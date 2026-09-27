@@ -4764,12 +4764,21 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
-      <Sidebar user={user} active={papelera ? 'papelera' : traspasos ? 'traspasos' : bajas ? 'bajas' : 'bienes'} onNavigate={onNavigate} />
+      <Sidebar user={user} active={papelera ? 'papelera' : traspasos ? (user?.rol === 'admin' ? 'movimientos' : 'traspasos') : bajas ? 'bajas' : 'bienes'} onNavigate={onNavigate} />
 
       <main style={{ flex: 1, marginLeft: sidebarOpen ? '230px' : '72px', padding: '2rem 1.25rem', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Traspasos se abre desde Movimientos: la flecha regresa ahí, igual
+              que las listas de bajas */}
+          {traspasos && user?.rol === 'admin' && (
+            <button onClick={() => onNavigate('movimientos')} title="Volver"
+              style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text1 }}>
+              <i className="ti ti-arrow-left" style={{ fontSize: '18px' }} />
+            </button>
+          )}
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>{papelera ? 'Papelera' : traspasos ? 'Traspasos' : bajas ? 'Bajas' : 'Bienes Muebles'}</h1>
             <p style={{ fontSize: '14px', color: t.text3 }}>
@@ -4777,6 +4786,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
                 ? (totalReconteosPap == null ? 'Cargando…' : `${totalReconteosPap.toLocaleString()} reconteo${totalReconteosPap !== 1 ? 's' : ''}`)
                 : <>{papelera ? '' : traspasos ? 'Bienes traspasados · ' : bajas ? 'Bienes dados de baja · ' : 'Inventario Municipal · '}{loading ? 'Cargando…' : `${totalRegistros.toLocaleString()} registros`}</>}
             </p>
+          </div>
           </div>
           {papelera && (
             <Deslizable dark={dark} t={t} valor={seccionPapelera} onCambio={setSeccionPapelera} style={{ minWidth: '280px' }}

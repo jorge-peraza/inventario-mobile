@@ -215,7 +215,7 @@
   background: var(--campo);
   box-shadow: var(--sombra);
   transform: translateX(calc(var(--i, 0) * (100% + 4px)));
-  transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .movil .pestanas button { position: relative; z-index: 1; }
 

@@ -17,8 +17,8 @@ export const DEPENDENCIA_VE_MOVIMIENTOS = false
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
-  admin:           ['dashboard', 'bienes', 'traspasos', 'solicitudes-baja', 'bajas-confirmadas', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
-  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'desinc-proceso', 'desincorporados', 'reportes', 'usuarios'],
+  admin:           ['dashboard', 'bienes', 'movimientos', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
+  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'movimientos', 'reportes', 'usuarios'],
   // Una dependencia consulta lo suyo: su inicio y el inventario vigente, de
   // donde además saca sus reportes. No entra a papelera, reconteo ni usuarios.
   dependencia:     ['index-dep', 'bienes', ...(DEPENDENCIA_VE_MOVIMIENTOS ? ['traspasos', 'bajas'] : [])],
