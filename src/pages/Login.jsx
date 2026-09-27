@@ -24,8 +24,9 @@ export default function Login({ onLogin }) {
     }
   }
 
+  // Sin el tono guinda de la esquina: el mismo fondo oscuro del sistema
   const bg = dark
-    ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 60%,#1A0A14 100%)'
+    ? t.bg
     : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
 
   return (
