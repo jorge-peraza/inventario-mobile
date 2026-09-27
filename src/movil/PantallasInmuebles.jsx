@@ -321,7 +321,7 @@ function HojaSuperficie({ m2, onElegir, onCerrar }) {
 }
 
 // ── Ficha de un inmueble ─────────────────────────────────────────────────────
-export function FichaInmueble({ clave = '', idinmueble = '' }) {
+export function FichaInmueble({ clave = '', idinmueble = '', soloLectura = false }) {
   const [inm, setInm] = useState(null)
   const [cargando, setCargando] = useState(true)
 
@@ -348,7 +348,7 @@ export function FichaInmueble({ clave = '', idinmueble = '' }) {
   return (
     <>
       <Cabecera titulo="Inmueble" sub={inm?.clave || clave} atras
-        accion={inm && (
+        accion={inm && !soloLectura && (
           <button className="icono-btn" onClick={() => irA('i', 'editar', inm.idinmueble)} aria-label="Modificar">
             <i className="ti ti-pencil" />
           </button>

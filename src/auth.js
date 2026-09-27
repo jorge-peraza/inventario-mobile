@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { supabaseInmuebles } from './supabaseInmuebles'
 
 // Cuentas del sistema: nombre de usuario → cuenta registrada en Supabase Auth
 // (Authentication → Users). Las contraseñas NO viven en el código: las valida
@@ -17,10 +18,23 @@ export const DEPENDENCIA_VE_MOVIMIENTOS = false
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
   admin:           ['dashboard', 'bienes', 'traspasos', 'solicitudes-baja', 'bajas-confirmadas', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
-  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'desinc-proceso', 'desincorporados', 'reportes'],
+  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'desinc-proceso', 'desincorporados', 'reportes', 'usuarios'],
   // Una dependencia consulta lo suyo: su inicio y el inventario vigente, de
   // donde además saca sus reportes. No entra a papelera, reconteo ni usuarios.
   dependencia:     ['index-dep', 'bienes', ...(DEPENDENCIA_VE_MOVIMIENTOS ? ['traspasos', 'bajas'] : [])],
+}
+
+// Lo que puede abrir esta persona. Los usuarios que da de alta el administrador
+// de inmuebles entran con su mismo rol —ven y, si se les permite, editan lo
+// mismo—, pero nunca la pantalla de Usuarios: no pueden crear otras cuentas.
+export function paginasPermitidas(user) {
+  const base = PAGINAS_POR_ROL[user?.rol] || []
+  return user?.subusuario ? base.filter(p => p !== 'usuarios') : base
+}
+
+// Solo consulta: no da de alta, no modifica ni desincorpora
+export function esSoloConsulta(user) {
+  return !!user?.subusuario && user.permiso !== 'editar'
 }
 
 export function paginaInicio(rol) {
@@ -95,12 +109,51 @@ async function entrarComoDependencia(usuario, password) {
   return perfil
 }
 
+// ── Usuarios de Bienes Inmuebles ─────────────────────────────────────────────
+// Los da de alta el administrador de inmuebles (tabla usuarios_inmuebles, en la
+// base de inmuebles). Entran con el rol del administrador de inmuebles y con
+// el permiso que él les dio: 'consultar' o 'editar'.
+const SESION_INM = 'sesion-inmuebles'
+
+function perfilInmuebles(fila) {
+  const nombre = fila.nombre || fila.usuario
+  const edita = fila.permiso === 'editar'
+  return {
+    nombre,
+    rol: 'admin_inmuebles',
+    subusuario: true,
+    permiso: edita ? 'editar' : 'consultar',
+    idusuario: fila.idusuario,
+    usuario: fila.usuario,
+    puesto: fila.puesto || '',
+    dependencia: edita ? 'Edición · Inmuebles' : 'Consulta · Inmuebles',
+    iniciales: nombre.replace(/[^A-Za-zÁÉÍÓÚÑ]/gi, '').slice(0, 2).toUpperCase() || 'US',
+  }
+}
+
+async function entrarComoInmuebles(usuario, password) {
+  const { data, error } = await supabaseInmuebles.rpc('usuarios_inm_verificar', {
+    p_usuario: usuario,
+    p_clave: password,
+  })
+  // Sin la tabla (falta supabase/usuarios-inmuebles.sql) se sigue de largo
+  if (error) return null
+  const fila = Array.isArray(data) ? data[0] : data
+  if (!fila) return null
+  const perfil = perfilInmuebles(fila)
+  try { localStorage.setItem(SESION_INM, JSON.stringify(perfil)) } catch { /* modo privado */ }
+  return perfil
+}
+
 export async function iniciarSesion(usuario, password) {
   const key = (usuario || '').trim().toLowerCase()
 
-  // Primero las dependencias; si no es una de ellas, se intenta con Supabase Auth
+  // Primero las dependencias, luego los usuarios de inmuebles; si no es
+  // ninguno de ellos, se intenta con Supabase Auth
   const dep = await entrarComoDependencia(key, password)
   if (dep) return dep
+  const inm = await entrarComoInmuebles(key, password)
+  if (inm) return inm
 
   // Acepta el nombre de usuario del sistema o directamente un correo de Supabase
   const email = CUENTAS[key] || (key.includes('@') ? key : null)
@@ -118,7 +171,7 @@ export async function iniciarSesion(usuario, password) {
 export async function sesionActual() {
   // La dependencia no tiene sesión de Supabase: la suya se guarda aquí
   try {
-    const guardada = localStorage.getItem(SESION_DEP)
+    const guardada = localStorage.getItem(SESION_DEP) || localStorage.getItem(SESION_INM)
     if (guardada) return JSON.parse(guardada)
   } catch { /* modo privado o dato corrupto */ }
 
@@ -142,7 +195,7 @@ export async function verificarContrasena(password) {
 }
 
 export function cerrarSesion() {
-  try { localStorage.removeItem(SESION_DEP) } catch { /* noop */ }
+  try { localStorage.removeItem(SESION_DEP); localStorage.removeItem(SESION_INM) } catch { /* noop */ }
   supabase.auth.signOut().catch(() => {})
 }
 
@@ -163,4 +216,21 @@ export const usuariosDependencia = {
     rpc('usuarios_editar', { p_idusuario: idusuario, p_usuario: usuario, p_nombre: nombre, p_iddependencia: iddependencia, p_puesto: puesto, p_activo: activo }),
   cambiarClave: (idusuario, clave)                 => rpc('usuarios_clave', { p_idusuario: idusuario, p_clave: clave }),
   borrar:       idusuario                          => rpc('usuarios_borrar', { p_idusuario: idusuario }),
+}
+
+// ── Administración de usuarios de inmuebles ──────────────────────────────────
+async function rpcInm(nombre, params) {
+  const { data, error } = await supabaseInmuebles.rpc(nombre, params)
+  if (error) throw new Error(error.message.replace(/^.*?:\s*/, ''))
+  return data
+}
+
+export const usuariosInmuebles = {
+  listar:       ()                                            => rpcInm('usuarios_inm_listar'),
+  crear:        ({ usuario, nombre, puesto, permiso, clave }) =>
+    rpcInm('usuarios_inm_crear', { p_usuario: usuario, p_nombre: nombre, p_puesto: puesto, p_permiso: permiso, p_clave: clave }),
+  editar:       ({ idusuario, usuario, nombre, puesto, permiso, activo }) =>
+    rpcInm('usuarios_inm_editar', { p_idusuario: idusuario, p_usuario: usuario, p_nombre: nombre, p_puesto: puesto, p_permiso: permiso, p_activo: activo }),
+  cambiarClave: (idusuario, clave)                            => rpcInm('usuarios_inm_clave', { p_idusuario: idusuario, p_clave: clave }),
+  borrar:       idusuario                                     => rpcInm('usuarios_inm_borrar', { p_idusuario: idusuario }),
 }

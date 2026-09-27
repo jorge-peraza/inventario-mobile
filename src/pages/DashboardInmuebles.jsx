@@ -28,7 +28,7 @@ function fmt(n) {
   return '$ ' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 0 })
 }
 
-export default function DashboardInmuebles({ user, onNavigate }) {
+export default function DashboardInmuebles({ user, onNavigate, soloLectura = false }) {
   const { dark, t, sidebarOpen } = useTheme()
   const fecha = useFecha()
 
@@ -167,13 +167,14 @@ export default function DashboardInmuebles({ user, onNavigate }) {
         {/* Acciones rápidas */}
         <div style={{ marginBottom:'1.25rem' }}>
           <p style={{ fontSize:'11px', fontWeight:600, color:t.text4, textTransform:'uppercase', letterSpacing:'0.09em', marginBottom:'10px' }}>Acciones rápidas</p>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'10px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:`repeat(${soloLectura ? 2 : 3},1fr)`, gap:'10px' }}>
             {[
               { icon:'ti-table',         label:'Ver inventario',   desc:'Tabla completa de inmuebles',    page:'inmuebles' },
               { icon:'ti-file-export',   label:'Exportar reporte', desc:'PDF o Excel del inventario',     page:'inmuebles', estado:{ abrirReporte:true } },
               // Va al final (derecha) y entra directo al formulario de alta
               { icon:'ti-building-plus', label:'Nuevo Inmueble',   desc:'Alta de bien inmueble municipal', page:'inmuebles', estado:{ abrirNuevo:true } },
-            ].map((a, i) => (
+            // Quien solo consulta no da de alta
+            ].filter(a => !(soloLectura && a.estado?.abrirNuevo)).map((a, i) => (
               <button key={i} onClick={() => a.page && onNavigate(a.page, a.estado || {})}
                 style={{ ...card, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'1rem 1.25rem', cursor:'pointer', textAlign:'left', transition:'opacity 0.15s' }}
                 onMouseEnter={e => e.currentTarget.style.opacity='0.75'}

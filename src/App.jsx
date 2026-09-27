@@ -35,7 +35,7 @@ const AppMovil           = lazy(cargas.AppMovil)
 
 const PRECARGA_POR_ROL = {
   admin:           ['Dashboard', 'BienesMuebles', 'Reportes', 'Reconteo', 'Usuarios'],
-  admin_inmuebles: ['DashboardInmuebles', 'BienesInmuebles', 'ReportesInmuebles'],
+  admin_inmuebles: ['DashboardInmuebles', 'BienesInmuebles', 'ReportesInmuebles', 'Usuarios'],
   dependencia:     ['IndexDependencia', 'BienesMuebles'],
 }
 function precargar(rol, esMovil) {
@@ -52,7 +52,7 @@ function Esperando() {
 }
 import { useEsMovil } from './movil/useEsMovil'
 import { useRuta, irA, reemplazarRuta } from './rutas'
-import { PAGINAS_POR_ROL, paginaInicio, cerrarSesion, sesionActual } from './auth'
+import { paginasPermitidas, esSoloConsulta, paginaInicio, cerrarSesion, sesionActual } from './auth'
 
 function App() {
   const [user, setUser]         = useState(null)
@@ -67,6 +67,8 @@ function App() {
   // consultas. Mientras se leen, la lista va vacía y no se muestra nada ajeno.
   const [areasDeDependencia, setAreasDeDependencia] = useState([])
   const esDependencia = user?.rol === 'dependencia'
+  // Usuario de inmuebles con permiso de solo consulta
+  const soloConsulta = esSoloConsulta(user)
 
   useEffect(() => {
     if (!esDependencia || !user?.iddependencia) { setAreasDeDependencia([]); return }
@@ -89,7 +91,7 @@ function App() {
   // sus propias direcciones (#/m/…, #/i/…), así que aquí no se tocan.
   useEffect(() => {
     if (!user || esMovil) return
-    const permitidas = PAGINAS_POR_ROL[user.rol] || []
+    const permitidas = paginasPermitidas(user)
     const destino = ruta.pagina
 
     if (!destino) { reemplazarRuta(paginaInicio(user.rol)); return }
@@ -106,7 +108,7 @@ function App() {
   function navigate(to, state = {}) {
     if (to === 'login') { cerrarSesion(); setUser(null); setNavState({}); setPage('login'); reemplazarRuta('login'); return }
     // Cada usuario solo puede entrar a las páginas permitidas por su rol
-    const permitidas = PAGINAS_POR_ROL[user?.rol] || []
+    const permitidas = paginasPermitidas(user)
     if (!permitidas.includes(to)) return
     // En transición: si la pantalla nueva todavía se está descargando, la actual
     // se queda a la vista (con su menú lateral) hasta que la otra está lista, en
@@ -157,14 +159,14 @@ function App() {
       /* Mientras cargan las áreas se manda una imposible: así no alcanza a verse
          ni un renglón de otra dependencia. */
       areasPermitidas={esDependencia ? (areasDeDependencia.length ? areasDeDependencia : [-1]) : null} />
-    if (page === 'dashboard-inmuebles') return <DashboardInmuebles key={recarga} user={user} onNavigate={navigate} />
-    if (page === 'inmuebles')           return <BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo} abrirReporte={!!navState.abrirReporte} />
-    if (page === 'reportes')            return user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />
+    if (page === 'dashboard-inmuebles') return <DashboardInmuebles key={recarga} user={user} onNavigate={navigate} soloLectura={soloConsulta} />
+    if (page === 'inmuebles')           return <BienesInmuebles key={recarga}    user={user} onNavigate={navigate} initialCatFilter={navState.catIds ?? []} abrirNuevo={!!navState.abrirNuevo && !soloConsulta} abrirReporte={!!navState.abrirReporte} soloLectura={soloConsulta} />
+    if (page === 'reportes')            return user.rol === 'admin_inmuebles' ? <ReportesInmuebles key={recarga} user={user} onNavigate={navigate} soloLectura={soloConsulta} /> : <Reportes key={recarga} user={user} onNavigate={navigate} />
     // Las listas que salieron de Reportes: la misma pantalla, fija en una vista
     if (page === 'solicitudes-baja')    return <Reportes key={`sol-${recarga}`} user={user} onNavigate={navigate} vistaFija="solicitudes" />
     if (page === 'bajas-confirmadas')   return <Reportes key={`baj-${recarga}`} user={user} onNavigate={navigate} vistaFija="confirmadas" />
-    if (page === 'desinc-proceso')      return <ReportesInmuebles key={`pro-${recarga}`} user={user} onNavigate={navigate} vistaFija="proceso" />
-    if (page === 'desincorporados')     return <ReportesInmuebles key={`des-${recarga}`} user={user} onNavigate={navigate} vistaFija="desincorporado" />
+    if (page === 'desinc-proceso')      return <ReportesInmuebles key={`pro-${recarga}`} user={user} onNavigate={navigate} vistaFija="proceso" soloLectura={soloConsulta} />
+    if (page === 'desincorporados')     return <ReportesInmuebles key={`des-${recarga}`} user={user} onNavigate={navigate} vistaFija="desincorporado" soloLectura={soloConsulta} />
     // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
     // misma key React reutilizaba la instancia y mostraba los datos del otro
     if (page === 'papelera')            return <BienesMuebles key={`papelera-${recarga}`} user={user} onNavigate={navigate} papelera />
@@ -175,7 +177,9 @@ function App() {
     if (page === 'bajas')               return <BienesMuebles key={`bajas-${recarga}`} user={user} onNavigate={navigate} bajas soloLectura={esDependencia}
       areasPermitidas={esDependencia ? (areasDeDependencia.length ? areasDeDependencia : [-1]) : null} />
     if (page === 'dependencias')        return <Dependencias key={recarga}       user={user} onNavigate={navigate} />
-    if (page === 'usuarios')            return <Usuarios key={recarga}           user={user} onNavigate={navigate} />
+    // Cada administrador da de alta a los suyos: muebles, cuentas de consulta
+    // por dependencia; inmuebles, cuentas que consultan o editan inmuebles
+    if (page === 'usuarios')            return <Usuarios key={recarga}           user={user} onNavigate={navigate} modulo={user.rol === 'admin_inmuebles' ? 'inmuebles' : 'muebles'} />
     // El reconteo se levanta desde el celular; aquí se consulta el historial
     if (page === 'reconteo')            return <Reconteo key={recarga}           user={user} onNavigate={navigate} />
 

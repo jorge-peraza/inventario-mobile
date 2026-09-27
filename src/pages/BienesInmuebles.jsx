@@ -1899,7 +1899,9 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
   )
 }
 
-export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [], abrirNuevo = false, abrirReporte = false }) {
+// soloLectura: usuario de inmuebles con permiso de solo consulta. Ve, busca y
+// saca reportes; no da de alta, no modifica y no desincorpora.
+export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [], abrirNuevo = false, abrirReporte = false, soloLectura = false }) {
   const { dark, t, sidebarOpen } = useTheme()
 
   const [datos, setDatos]                   = useState([])
@@ -2173,6 +2175,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
 
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
             {/* Siempre visible; atenuado mientras no haya registros marcados */}
+            {!soloLectura && <>
             <button onClick={() => seleccionados.size > 0 && setModalDesinc([...seleccionados])} disabled={seleccionados.size === 0}
               style={btnBarra(dark, t, seleccionados.size > 0)}>
               <i className="ti ti-progress" style={{ fontSize:'17px', color: dark ? '#ffd580' : '#b7790a' }} />Solicitar Desincorporación
@@ -2182,6 +2185,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                 background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
               <i className="ti ti-building-plus" style={{ fontSize:'17px' }} />Nuevo inmueble
             </button>
+            </>}
             <button onClick={() => setModalReporte(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
                 background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
@@ -2286,6 +2290,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                               >
                                 <i className="ti ti-eye" style={{ fontSize:'14px' }} />
                               </button>
+                              {!soloLectura && <>
                               <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }} title="Editar"
                                 style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)', border: dark ? '1px solid rgba(168,230,207,0.25)' : '1px solid rgba(30,126,74,0.18)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#a8e6cf' : '#1e7e4a' }}
                                 onMouseEnter={e => e.currentTarget.style.opacity='0.7'}
@@ -2302,6 +2307,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                               >
                                 <i className="ti ti-progress" style={{ fontSize:'14px' }} />
                               </button>
+                              </>}
                             </div>
                           </td>
                         </tr>
@@ -2357,8 +2363,8 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
           acciones={[
             { icon: 'ti-map-pin', label: 'Ir a página', accion: () => irAlInmueble(menuFila.bien) },
             { icon: 'ti-eye',     label: 'Consultar',   accion: () => setPanelInmueble(menuFila.bien) },
-            { icon: 'ti-pencil',  label: 'Modificar',   accion: () => setModalEditar(menuFila.bien) },
-            { icon: 'ti-progress', label: 'Solicitar desincorporación', accion: () => setModalDesinc([menuFila.bien.idinmueble]), separador: true },
+            { icon: 'ti-pencil',  label: 'Modificar',   accion: () => setModalEditar(menuFila.bien), visible: !soloLectura },
+            { icon: 'ti-progress', label: 'Solicitar desincorporación', accion: () => setModalDesinc([menuFila.bien.idinmueble]), separador: true, visible: !soloLectura },
           ]} />
       )}
       {panelInmueble && (

@@ -7,6 +7,7 @@ import { pantallaCompletaDisponible, enPantallaCompleta, alternarPantallaComplet
 import { InicioMuebles, BuscarBienes, FichaBien, EditarBien, ElegirArea, ListaReconteo, HistorialReconteos, DetalleReconteo } from './PantallasMuebles'
 import { Escaner, CapturarClave, LecturaBien } from './Escaner'
 import { InicioInmuebles, BuscarInmuebles, FichaInmueble, EditarInmueble, DesincorporacionesMovil } from './PantallasInmuebles'
+import { esSoloConsulta } from '../auth'
 
 // ── Armazón de la vista móvil ─────────────────────────────────────────────────
 // Una sola pantalla a la vez, barra de navegación abajo y un botón "Más" para
@@ -49,6 +50,8 @@ export default function AppMovil({ user, onSalir }) {
   const [hoja, setHoja] = useState(false)
 
   const inmuebles = user?.rol === 'admin_inmuebles'
+  // Usuario de inmuebles que solo consulta: ve las fichas, sin editarlas
+  const soloConsulta = esSoloConsulta(user)
   const raiz = inmuebles ? 'i/inicio' : 'm/inicio'
 
   // Sin dirección o con una que no existe, se manda al inicio sin dejar rastro
@@ -83,7 +86,7 @@ export default function AppMovil({ user, onSalir }) {
     if (seccion === 'b') {
       const clave = ruta.params[0] || ''
       return inmuebles
-        ? <FichaInmueble clave={clave} />
+        ? <FichaInmueble clave={clave} soloLectura={soloConsulta} />
         : <FichaBien clave={clave} usuario={user} />
     }
 
@@ -91,8 +94,9 @@ export default function AppMovil({ user, onSalir }) {
       switch (sub) {
         case 'inmuebles': return <BuscarInmuebles />
         case 'cat':       return <BuscarInmuebles idcategoria={arg} />
-        case 'inm':       return <FichaInmueble idinmueble={arg} />
-        case 'editar':    return <EditarInmueble idinmueble={arg} />
+        case 'inm':       return <FichaInmueble idinmueble={arg} soloLectura={soloConsulta} />
+        // Escribir la dirección de edición a mano no la abre para quien consulta
+        case 'editar':    return soloConsulta ? <FichaInmueble idinmueble={arg} soloLectura /> : <EditarInmueble idinmueble={arg} />
         case 'desinc':    return <DesincorporacionesMovil />
         default:          return <InicioInmuebles user={user} />
       }

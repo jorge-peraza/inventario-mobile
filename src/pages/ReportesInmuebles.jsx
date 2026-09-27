@@ -217,7 +217,9 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
 
 // La misma pantalla sirve para Reportes y para las dos listas de
 // desincorporación, que ahora tienen su propia entrada en el menú (vistaFija).
-export default function ReportesInmuebles({ user, onNavigate, vistaFija = null }) {
+// soloLectura: usuario de inmuebles con permiso de solo consulta; ve las listas
+// y saca reportes, sin mover inmuebles entre trámite, desincorporado e inventario.
+export default function ReportesInmuebles({ user, onNavigate, vistaFija = null, soloLectura = false }) {
   const { dark, t, sidebarOpen } = useTheme()
   const [vista, setVista]   = useState(vistaFija || 'inicio')   // 'inicio' | 'proceso' | 'desincorporado'
   const [datos, setDatos]   = useState([])
@@ -518,6 +520,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null }
                                     onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                     <i className="ti ti-eye" style={{ fontSize: '14px' }} />
                                   </button>
+                                  {!soloLectura && <>
                                   {/* Mismos campos editables que en el inventario principal */}
                                   <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }} title="Editar"
                                     style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)', border: dark ? '1px solid rgba(168,230,207,0.25)' : '1px solid rgba(30,126,74,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: dark ? '#a8e6cf' : '#1e7e4a' }}
@@ -549,6 +552,7 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null }
                                       <i className="ti ti-x" style={{ fontSize: '14px' }} />
                                     </button>
                                   )}
+                                  </>}
                                 </div>
                               </td>
                             </tr>
@@ -613,10 +617,10 @@ export default function ReportesInmuebles({ user, onNavigate, vistaFija = null }
         <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}
           acciones={[
             { icon: 'ti-eye',    label: 'Consultar', accion: () => setPanel(menuFila.bien) },
-            { icon: 'ti-pencil', label: 'Modificar', accion: () => setModalEditar(menuFila.bien) },
-            { icon: 'ti-circle-minus', label: 'Desincorporar', accion: () => setModalDesinc(menuFila.bien), visible: !esDesinc, separador: true },
-            { icon: 'ti-progress', label: 'Regresar a trámite', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'aProceso' }), visible: esDesinc, separador: true },
-            { icon: 'ti-arrow-back-up', label: 'Regresar al inventario', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'alInventario' }) },
+            { icon: 'ti-pencil', label: 'Modificar', accion: () => setModalEditar(menuFila.bien), visible: !soloLectura },
+            { icon: 'ti-circle-minus', label: 'Desincorporar', accion: () => setModalDesinc(menuFila.bien), visible: !esDesinc && !soloLectura, separador: true },
+            { icon: 'ti-progress', label: 'Regresar a trámite', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'aProceso' }), visible: esDesinc && !soloLectura, separador: true },
+            { icon: 'ti-arrow-back-up', label: 'Regresar al inventario', accion: () => setConfirmar({ inm: menuFila.bien, accion: 'alInventario' }), visible: !soloLectura },
           ]} />
       )}
       {confirmar && (

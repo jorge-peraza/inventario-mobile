@@ -1,5 +1,5 @@
 import { useTheme } from '../context/ThemeContext'
-import { PAGINAS_POR_ROL } from '../auth'
+import { paginasPermitidas } from '../auth'
 
 const NAV_MUEBLES = [
   { icon:'ti-layout-dashboard', label:'Inicio',         id:'inicio',    page:'dashboard' },
@@ -25,7 +25,7 @@ const NAV_INMUEBLES = [
   { icon:'ti-progress',         label:'En proceso de desincorporación', id:'desinc-proceso',  page:'desinc-proceso' },
   { icon:'ti-circle-minus',     label:'Desincorporado',   id:'desincorporados', page:'desincorporados' },
   { icon:'ti-chart-bar',        label:'Reportes',         id:'reportes',  page:'reportes' },
-  { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios',  disabled:true },
+  { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios' },
 ]
 
 // Una dependencia consulta lo suyo: su inicio y el inventario vigente de sus
@@ -53,7 +53,7 @@ export default function Sidebar({ user, active = 'inicio', onNavigate }) {
   // Y por si acaso: en el menú solo se enseña lo que el rol tiene permitido.
   // Así una entrada suelta no puede colarse aunque alguien la agregue a la
   // lista de arriba sin darse cuenta.
-  const permitidas = PAGINAS_POR_ROL[user?.rol] || []
+  const permitidas = paginasPermitidas(user)
   const navItems = menuDelRol.filter(i => permitidas.includes(i.page))
 
   return (

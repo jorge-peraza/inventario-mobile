@@ -3,13 +3,18 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from '../supabase'
-import { usuariosDependencia } from '../auth'
-import { sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './ui'
+import { usuariosDependencia, usuariosInmuebles } from '../auth'
+import { sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion, Deslizable } from './ui'
 
 // ── Usuarios de las dependencias ─────────────────────────────────────────────
 // El administrador de bienes muebles da de alta a quien va a consultar el
 // inventario de cada dependencia. Esas cuentas solo consultan y descargan
 // reportes: no dan de alta, no modifican y no dan de baja.
+//
+// La misma pantalla la usa el administrador de inmuebles (modulo='inmuebles')
+// para sus propias cuentas: ahí no hay dependencia, sino permiso —solo
+// consultar, o editar igual que él—. Ninguna de esas cuentas puede entrar a
+// esta pantalla, así que no pueden crear otras.
 //
 // Las contraseñas no se muestran nunca —ni siquiera al administrador—, porque
 // la base guarda el hash y no la contraseña. Si alguien la olvida, se le pone
@@ -22,8 +27,9 @@ function fmtFecha(iso) {
 }
 
 // ── Modal de alta y edición ──────────────────────────────────────────────────
-function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
+function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t, api, esInm }) {
   const esNuevo = !usuario
+  const [permiso, setPermiso] = useState(usuario?.permiso || 'consultar')
   const [nombre, setNombre]   = useState(usuario?.nombre || '')
   const [acceso, setAcceso]   = useState(usuario?.usuario || '')
   const [dep, setDep]         = useState(usuario?.iddependencia ?? '')
@@ -44,7 +50,7 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
   async function guardar() {
     if (!nombre.trim())  { setErr('Escribe el nombre de la persona'); return }
     if (!acceso.trim())  { setErr('Escribe el usuario con el que va a entrar'); return }
-    if (!dep)            { setErr('Elige la dependencia a la que pertenece'); return }
+    if (!esInm && !dep)  { setErr('Elige la dependencia a la que pertenece'); return }
     if (esNuevo) {
       if (clave.length < 6)   { setErr('La contraseña debe tener al menos 6 caracteres'); return }
       if (clave !== clave2)   { setErr('Las contraseñas no coinciden'); return }
@@ -52,14 +58,14 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
     setGuardando(true); setErr(null)
     try {
       if (esNuevo) {
-        await usuariosDependencia.crear({
+        await api.crear({
           usuario: acceso.trim(), nombre: nombre.trim(), iddependencia: Number(dep),
-          puesto: puesto.trim(), clave,
+          puesto: puesto.trim(), permiso, clave,
         })
       } else {
-        await usuariosDependencia.editar({
+        await api.editar({
           idusuario: usuario.idusuario, usuario: acceso.trim(), nombre: nombre.trim(),
-          iddependencia: Number(dep), puesto: puesto.trim(), activo,
+          iddependencia: Number(dep), puesto: puesto.trim(), permiso, activo,
         })
       }
       onGuardado()
@@ -84,7 +90,7 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
             <div>
               <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{esNuevo ? 'Nuevo Usuario' : 'Modificar Usuario'}</p>
               <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>
-                {esNuevo ? 'Acceso de consulta para una dependencia' : usuario.usuario}
+                {esNuevo ? (esInm ? 'Acceso al inventario de bienes inmuebles' : 'Acceso de consulta para una dependencia') : usuario.usuario}
               </p>
             </div>
           </div>
@@ -94,6 +100,19 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
         </div>
 
         <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflowY: 'auto' }}>
+          {esInm ? (
+          <div>{lbl('Qué puede hacer')}
+            <Deslizable dark={dark} t={t} valor={permiso} onCambio={setPermiso} opciones={[
+              { id: 'consultar', icon: 'ti-eye',    label: 'Solo consultar' },
+              { id: 'editar',    icon: 'ti-pencil', label: 'Puede editar' },
+            ]} />
+            <p style={{ fontSize: '12px', color: t.text3, marginTop: '6px' }}>
+              {permiso === 'editar'
+                ? 'Lo mismo que el administrador: altas, cambios y desincorporaciones. No puede crear usuarios.'
+                : 'Ve el inventario y descarga reportes, sin modificar nada.'}
+            </p>
+          </div>
+          ) : (
           <div>{lbl('Dependencia a la que pertenece')}
             <select value={dep} onChange={e => setDep(e.target.value)} style={sStyle(dark)}>
               <option value="">— Elige la dependencia —</option>
@@ -105,6 +124,7 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
               Es lo único que va a poder consultar. No verá los bienes de otras dependencias.
             </p>
           </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div>{lbl('Nombre de la persona')}
@@ -119,7 +139,7 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
 
           <div>{lbl('Usuario con el que entra')}
             <input value={acceso} onChange={e => setAcceso(e.target.value.toLowerCase())}
-              placeholder="bienestar.social" autoComplete="off" autoCapitalize="none" spellCheck={false}
+              placeholder={esInm ? 'nombre.apellido' : 'bienestar.social'} autoComplete="off" autoCapitalize="none" spellCheck={false}
               style={{ ...iStyle(dark), fontFamily: 'monospace' }} />
           </div>
 
@@ -177,7 +197,7 @@ function ModalUsuario({ usuario, dependencias, onClose, onGuardado, dark, t }) {
 }
 
 // ── Contraseña nueva ─────────────────────────────────────────────────────────
-function ModalClave({ usuario, onClose, dark, t }) {
+function ModalClave({ usuario, onClose, dark, t, api }) {
   const [clave, setClave]   = useState('')
   const [clave2, setClave2] = useState('')
   const [ver, setVer]       = useState(false)
@@ -190,7 +210,7 @@ function ModalClave({ usuario, onClose, dark, t }) {
     if (clave !== clave2) { setErr('Las contraseñas no coinciden'); return }
     setGuardando(true); setErr(null)
     try {
-      await usuariosDependencia.cambiarClave(usuario.idusuario, clave)
+      await api.cambiarClave(usuario.idusuario, clave)
       setHecho(true)
       setTimeout(onClose, 1600)
     } catch (e) { setErr(e.message); setGuardando(false) }
@@ -249,13 +269,13 @@ function ModalClave({ usuario, onClose, dark, t }) {
 }
 
 // ── Confirmación de baja ─────────────────────────────────────────────────────
-function ModalBorrar({ usuario, onClose, onBorrado, dark, t }) {
+function ModalBorrar({ usuario, onClose, onBorrado, dark, t, api }) {
   const [borrando, setBorrando] = useState(false)
   const [err, setErr] = useState(null)
 
   async function borrar() {
     setBorrando(true); setErr(null)
-    try { await usuariosDependencia.borrar(usuario.idusuario); onBorrado(); onClose() }
+    try { await api.borrar(usuario.idusuario); onBorrado(); onClose() }
     catch (e) { setErr(e.message); setBorrando(false) }
   }
 
@@ -287,8 +307,10 @@ function ModalBorrar({ usuario, onClose, onBorrado, dark, t }) {
 }
 
 // ── Pantalla ─────────────────────────────────────────────────────────────────
-export default function Usuarios({ user, onNavigate }) {
+export default function Usuarios({ user, onNavigate, modulo = 'muebles' }) {
   const { dark, t, sidebarOpen } = useTheme()
+  const esInm = modulo === 'inmuebles'
+  const api = esInm ? usuariosInmuebles : usuariosDependencia
 
   const [usuarios, setUsuarios] = useState([])
   const [dependencias, setDependencias] = useState([])
@@ -303,11 +325,13 @@ export default function Usuarios({ user, onNavigate }) {
 
   const cargar = () => {
     setCargando(true); setError(null)
-    usuariosDependencia.listar()
+    api.listar()
       .then(d => setUsuarios(d || []))
       .catch(e => setError(
-        /usuarios_listar/.test(e.message)
-          ? 'Falta crear las tablas de usuarios en la base: aplica supabase/usuarios.sql.'
+        /usuarios_(inm_)?listar/.test(e.message)
+          ? (esInm
+              ? 'Falta crear las tablas de usuarios en la base de inmuebles: aplica supabase/usuarios-inmuebles.sql.'
+              : 'Falta crear las tablas de usuarios en la base: aplica supabase/usuarios.sql.')
           : e.message))
       .finally(() => setCargando(false))
   }
@@ -315,6 +339,7 @@ export default function Usuarios({ user, onNavigate }) {
   useEffect(() => { cargar() }, [])
 
   useEffect(() => {
+    if (esInm) return
     supabase.from('dependencias').select('iddependencia, nombredependencia').order('nombredependencia')
       .then(({ data }) => setDependencias(data || []))
   }, [])
@@ -340,7 +365,7 @@ export default function Usuarios({ user, onNavigate }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 600, color: t.text1, marginBottom: '4px' }}>Usuarios</h1>
-            <p style={{ fontSize: '14px', color: t.text3 }}>Accesos de consulta por dependencia</p>
+            <p style={{ fontSize: '14px', color: t.text3 }}>{esInm ? 'Accesos al inventario de bienes inmuebles' : 'Accesos de consulta por dependencia'}</p>
           </div>
           <button onClick={() => setModalUsuario('nuevo')}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
@@ -352,14 +377,16 @@ export default function Usuarios({ user, onNavigate }) {
         <div className="barra-fit" style={{ ...card, padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ ...searchBoxStyle(dark), flex: 1, minWidth: '200px' }}>
             <i className="ti ti-search" style={{ fontSize: '16px', color: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)', flexShrink: 0 }} />
-            <input type="text" placeholder="Buscar por usuario, nombre o dependencia..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            <input type="text" placeholder={esInm ? 'Buscar por usuario o nombre...' : 'Buscar por usuario, nombre o dependencia...'} value={busqueda} onChange={e => setBusqueda(e.target.value)}
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: dark ? '#f0f0f0' : '#111', fontFamily: 'inherit' }} />
             {busqueda && <button onClick={() => setBusqueda('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.text3, padding: 0, display: 'flex' }}><i className="ti ti-x" style={{ fontSize: '14px' }} /></button>}
           </div>
-          <select value={depFiltro} onChange={e => setDepFiltro(e.target.value)} style={{ ...sStyle(dark), width: 'auto', minWidth: '220px' }}>
-            <option value="">Todas las dependencias</option>
-            {dependencias.map(d => <option key={d.iddependencia} value={d.iddependencia}>{d.nombredependencia}</option>)}
-          </select>
+          {!esInm && (
+            <select value={depFiltro} onChange={e => setDepFiltro(e.target.value)} style={{ ...sStyle(dark), width: 'auto', minWidth: '220px' }}>
+              <option value="">Todas las dependencias</option>
+              {dependencias.map(d => <option key={d.iddependencia} value={d.iddependencia}>{d.nombredependencia}</option>)}
+            </select>
+          )}
         </div>
 
         {error && (
@@ -376,7 +403,7 @@ export default function Usuarios({ user, onNavigate }) {
                 <tr style={{ borderBottom: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
                   <th style={thBase(dark)}>USUARIO</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>NOMBRE DE LA PERSONA</th>
-                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>DEPENDENCIA</th>
+                  <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>{esInm ? 'PERMISO' : 'DEPENDENCIA'}</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>PUESTO</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ESTADO</th>
                   <th style={{ ...thBase(dark), borderLeft: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)' }}>ÚLTIMO INGRESO</th>
@@ -391,7 +418,7 @@ export default function Usuarios({ user, onNavigate }) {
                   : lista.length === 0
                     ? <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: t.text4 }}>
                         <i className="ti ti-users" style={{ fontSize: '28px', display: 'block', marginBottom: '8px' }} />
-                        {usuarios.length === 0 ? 'Todavía no hay usuarios de dependencia' : 'Sin resultados'}
+                        {usuarios.length === 0 ? (esInm ? 'Todavía no hay usuarios de inmuebles' : 'Todavía no hay usuarios de dependencia') : 'Sin resultados'}
                       </td></tr>
                     : lista.map((u, i) => {
                       const bgFila = i % 2 === 0 ? 'transparent' : (dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)')
@@ -405,7 +432,18 @@ export default function Usuarios({ user, onNavigate }) {
                           <span style={{ fontFamily: 'monospace', fontSize: '11px', color: t.text3 }}>{u.usuario}</span>
                         </td>
                         <td style={tdBase()}><span style={{ color: t.text1, fontWeight: 500 }}>{u.nombre}</span></td>
-                        <td style={tdBase()}><span style={{ color: t.text2 }}>{u.dependencia || '—'}</span></td>
+                        <td style={tdBase()}>
+                          {esInm
+                            ? (() => {
+                                // Mismo chip que el estado: azul para quien edita, gris para consulta
+                                const edita = u.permiso === 'editar'
+                                const c = edita
+                                  ? { color: dark ? '#a8c5f8' : '#2563eb', bg: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.1)', borde: dark ? 'rgba(168,197,248,0.3)' : 'rgba(37,99,235,0.25)' }
+                                  : { color: t.text2, bg: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', borde: t.cardBorder }
+                                return <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '20px', display: 'inline-block', background: c.bg, color: c.color, border: `1px solid ${c.borde}` }}>{edita ? 'Puede editar' : 'Solo consulta'}</span>
+                              })()
+                            : <span style={{ color: t.text2 }}>{u.dependencia || '—'}</span>}
+                        </td>
                         <td style={tdBase()}><span style={{ color: t.text3 }}>{u.puesto || '—'}</span></td>
                         <td style={tdBase()}>
                           {(() => {
@@ -451,11 +489,11 @@ export default function Usuarios({ user, onNavigate }) {
       
 
       {modalUsuario && (
-        <ModalUsuario usuario={modalUsuario === 'nuevo' ? null : modalUsuario} dependencias={dependencias}
+        <ModalUsuario usuario={modalUsuario === 'nuevo' ? null : modalUsuario} dependencias={dependencias} api={api} esInm={esInm}
           onClose={() => setModalUsuario(null)} onGuardado={cargar} dark={dark} t={t} />
       )}
-      {modalClave && <ModalClave usuario={modalClave} onClose={() => setModalClave(null)} dark={dark} t={t} />}
-      {modalBorrar && <ModalBorrar usuario={modalBorrar} onClose={() => setModalBorrar(null)} onBorrado={cargar} dark={dark} t={t} />}
+      {modalClave && <ModalClave usuario={modalClave} api={api} onClose={() => setModalClave(null)} dark={dark} t={t} />}
+      {modalBorrar && <ModalBorrar usuario={modalBorrar} api={api} onClose={() => setModalBorrar(null)} onBorrado={cargar} dark={dark} t={t} />}
     </div>
   )
 }
