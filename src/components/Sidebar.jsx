@@ -64,7 +64,7 @@ export default function Sidebar({ user, active = 'inicio', onNavigate }) {
               <i className="ti ti-building-community" style={{ fontSize:'18px', color:t.text1 }} />
             </div>
             <div>
-              <p style={{ fontSize:'14px', fontWeight:600, color:t.text1, lineHeight:1.2, whiteSpace:'nowrap' }}>{user?.rol === 'admin_inmuebles' ? 'Bienes Inmuebles' : 'Bienes Muebles'}</p>
+              <p style={{ fontSize:'14px', fontWeight:600, color:t.text1, lineHeight:1.2, whiteSpace:'nowrap' }}>Inventarios</p>
               <p style={{ fontSize:'12px', color:t.text3, whiteSpace:'nowrap' }}>Nogales</p>
             </div>
           </div>

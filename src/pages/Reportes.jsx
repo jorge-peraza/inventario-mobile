@@ -833,7 +833,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
   }
 
   const cards = esMovimientos ? [
-    { id: 'traspasos',   icon: 'ti-arrows-exchange', label: 'Traspasos',          value: conteos.traspaso,  hint: 'Bienes traspasados',          color: t.colorBlue },
+    { id: 'traspasos',   icon: 'ti-arrows-exchange', label: 'Traspasos',          value: conteos.traspaso,  hint: 'Bienes traspasados',          color: t.text1 },
     { id: 'solicitudes', icon: 'ti-circle-minus',    label: 'Solicitud de bajas', value: conteos.solicitud, hint: 'Bienes propuestos para baja', color: t.colorYellow },
     { id: 'confirmadas', icon: 'ti-circle-minus',    label: 'Bajas confirmadas',  value: conteos.baja,      hint: 'Bienes dados de baja',        color: t.colorRed },
   ] : []
@@ -931,9 +931,9 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
             ))}
 
             {!esMovimientos && <>
-            {/* Reportes por periodo (por fecha de factura) */}
-            <div style={{ gridColumn: '1 / -1', marginTop: '0.75rem' }}>
-              <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: '10px' }}>Reportes</p>
+            {/* Reportes por periodo (por fecha de factura). Sin etiqueta: el
+                encabezado ya dice que es la generación de reportes */}
+            <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
                 {[
                   { id: 'mensual',    icon: 'ti-file-text',    label: 'Reporte Mensual',       hint: 'Facturas del último mes',      value: conteoPeriodo.mensual,    color: t.text2 },
