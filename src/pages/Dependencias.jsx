@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../context/ThemeContext'
-import { barraSticky, btnBarra, sStyle, iStyle, panelStyle, tituloSec } from './BienesMuebles'
+import { barraSticky, btnBarra, sStyle, iStyle, panelStyle, tituloSec } from './ui'
 import { fetchDependencias, fetchAreasPorDependencia, fetchResguardos, guardarEncargado } from '../encargados'
 
 const POR_PAGINA = [15, 25, 50, 100]
@@ -52,7 +52,7 @@ function ModalEncargado({ dep, resguardos, onClose, onSaved, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'480px', maxWidth:'92vw', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
@@ -178,7 +178,6 @@ export default function Dependencias({ user, onNavigate }) {
     : 'linear-gradient(145deg, #e0e0e2 0%, #ebebed 50%, #e4e4e6 100%)'
   const cardTabla = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
-    backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur,
     borderRadius: '14px', overflow: 'hidden',
   }
 

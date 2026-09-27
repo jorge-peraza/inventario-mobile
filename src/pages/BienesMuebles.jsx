@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from 'react'
+import { iStyle, sStyle, searchBoxStyle, btnBarra, barraSticky, panelStyle, tituloSec, btnAccion, thBase, tdBase, MenuFila } from './ui'
+export { iStyle, sStyle, searchBoxStyle, btnBarra, barraSticky, panelStyle, tituloSec, btnAccion, thBase, tdBase, MenuFila } from './ui'
+import { cargarExcel, cargarPdf } from '../exportadores'
 import { createPortal } from 'react-dom'
-import ExcelJS from 'exceljs'
-import { saveAs } from 'file-saver'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from "../supabase";
@@ -71,38 +70,8 @@ function unirObs(estado, resto) {
   return (r ? `${estado}. ${r}` : estado)
 }
 
-export function iStyle(dark) {
-  return {
-    padding: '9px 12px', borderRadius: '9px', outline: 'none',
-    width: '100%', fontFamily: 'inherit', fontSize: '14px',
-    background: dark ? '#2a2a2c' : '#ffffff',
-    border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
-    color: dark ? '#f0f0f0' : '#111111',
-    colorScheme: dark ? 'dark' : 'light',
-  }
-}
 // Estilo para <select>. La flecha nativa queda pegada al borde derecho; aquí se
 // dibuja una propia y se separa del borde con el mismo margen que tiene arriba.
-export function sStyle(dark) {
-  const c = dark ? '%23f0f0f0' : '%23111111'
-  return {
-    ...iStyle(dark),
-    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
-    paddingRight: '34px',
-    backgroundImage: `url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${c}' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 11px center',
-    backgroundSize: '15px 15px',
-  }
-}
-export function searchBoxStyle(dark) {
-  return {
-    display: 'flex', alignItems: 'center', gap: '8px',
-    padding: '9px 13px', borderRadius: '9px',
-    background: dark ? '#2a2a2c' : '#ffffff',
-    border: dark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.18)',
-  }
-}
 // Tarjeta que agrupa un bloque de campos dentro de un modal
 
 // Barra de acciones que queda fija al bajar en la tabla. En claro se usa un
@@ -110,44 +79,12 @@ export function searchBoxStyle(dark) {
 // el efecto de vidrio que sí se aprecia en oscuro.
 // Botón de la barra de acciones. Cuando no aplica (sin registros marcados) se
 // muestra igual pero atenuado, para que la barra no cambie de forma.
-export function btnBarra(dark, t, activo = true) {
-  return {
-    display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px',
-    fontSize: '14px', fontWeight: 500, fontFamily: 'inherit',
-    cursor: activo ? 'pointer' : 'not-allowed', opacity: activo ? 1 : 0.45,
-    background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1,
-    backdropFilter: 'blur(10px)', transition: 'opacity 0.15s',
-    // El reparto del renglón en ventana chica lo hace .barra-fit (index.css)
-    whiteSpace: 'nowrap', flexShrink: 0,
-  }
-}
 
-export function barraSticky(dark, t) {
-  return {
-    display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap',
-    position: 'sticky', top: '-1rem', zIndex: 90, padding: '0.7rem 1rem', borderRadius: '14px',
-    background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.45)',
-    border: `1px solid ${t.cardBorder}`,
-    backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
-    boxShadow: dark ? '0 6px 20px rgba(0,0,0,0.28)' : '0 6px 20px rgba(0,0,0,0.07)',
-  }
-}
 
-export function panelStyle(dark) {
-  return {
-    padding: '0.8rem 0.9rem 0.85rem',
-    borderRadius: '12px',
-    background: dark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.022)',
-    border: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)',
-  }
-}
-export function tituloSec(t) {
-  return { fontSize: '12px', fontWeight: 600, color: t.text2, marginBottom: '0.7rem' }
-}
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
 function Overlay({ onClick }) {
-  return <div onClick={onClick} style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+  return <div onClick={onClick} className="telon" style={{ zIndex: 150 }} />
 }
 
 // ── Hook para animar cierre de paneles laterales ──────────────────────────────
@@ -308,7 +245,7 @@ export function GroupedAreaSelector({ areas, selected, onChange, dark, etiquetaV
 
       {open && createPortal(
         <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+          <div onClick={() => setOpen(false)} className="telon" style={{ zIndex: 300 }} />
           <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '480px', maxWidth: '90vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
 
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -353,7 +290,7 @@ export function GroupedAreaSelector({ areas, selected, onChange, dark, etiquetaV
               </button>
             </div>
           </div>
-          <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-48%) scale(0.98)}}`}</style>
+          
         </>,
         document.body
       )}
@@ -654,7 +591,7 @@ export function ModalEditar({ bien, onClose, dark, t, onSaved }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}} @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      
     </>
   )
 }
@@ -791,7 +728,7 @@ function ModalResguardo({ bien, onClose, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      
     </>
   )
 }
@@ -875,7 +812,7 @@ export function PanelConsulta({ bien, onClose, t, dark, sinEtiqueta = false }) {
           )}
         </div>
       </div>
-      <style>{`@keyframes slideIn { from{transform:translateX(100%)} to{transform:translateX(0)} } @keyframes slideOut { from{transform:translateX(0)} to{transform:translateX(100%)} }`}</style>
+      
     </>
   )
 }
@@ -919,8 +856,8 @@ function ComboMotivo({ value, onChange, dark }) {
 // ── ModalBaja ─────────────────────────────────────────────────────────────────
 export function ModalBaja({ bien, onClose, dark, t, titulo = 'Dar de Baja', onConfirm }) {
   const { close, anim } = useClosing(onClose, 250,
-    'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
-    'fadeDown 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
+    'subeY 0.3s cubic-bezier(0.4,0,0.2,1)',
+    'bajaY 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
   )
   const [motivo, setMotivo]       = useState('')
   const [fecha, setFecha]         = useState('')
@@ -1049,7 +986,7 @@ export function ModalBaja({ bien, onClose, dark, t, titulo = 'Dar de Baja', onCo
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(20px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(20px) scale(0.98)}}`}</style>
+      
     </>
   )
 }
@@ -1057,8 +994,8 @@ export function ModalBaja({ bien, onClose, dark, t, titulo = 'Dar de Baja', onCo
 // ── ModalTraspaso ─────────────────────────────────────────────────────────────
 function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
   const { close, anim } = useClosing(onClose, 250,
-    'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
-    'fadeDown 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
+    'subeY 0.3s cubic-bezier(0.4,0,0.2,1)',
+    'bajaY 0.25s cubic-bezier(0.4,0,0.2,1) forwards'
   )
   const [dep, setDep]       = useState('')
   const [resg, setResg]     = useState('')
@@ -1304,7 +1241,7 @@ function ModalTraspaso({ bien, onClose, onDone, dark, t, allAreas }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(20px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes fadeDown{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(20px) scale(0.98)}}`}</style>
+      
     </>
   )
 }
@@ -1318,21 +1255,7 @@ function MField({ label, dark, children }) {
   )
 }
 
-export function btnAccion(dark, tipo) {
-  const c = {
-    consulta:  { color: dark ? '#a8c5f8' : '#2563eb', bg: dark ? 'rgba(168,197,248,0.12)' : 'rgba(37,99,235,0.07)',   border: dark ? 'rgba(168,197,248,0.25)' : 'rgba(37,99,235,0.18)'   },
-    editar:    { color: dark ? '#a8e6cf' : '#1e7e4a', bg: dark ? 'rgba(168,230,207,0.12)' : 'rgba(30,126,74,0.07)',   border: dark ? 'rgba(168,230,207,0.25)' : 'rgba(30,126,74,0.18)'   },
-    resguardo: { color: dark ? '#c8a8f8' : '#6b21a8', bg: dark ? 'rgba(200,168,248,0.12)' : 'rgba(107,33,168,0.07)', border: dark ? 'rgba(200,168,248,0.25)' : 'rgba(107,33,168,0.18)' },
-    traspaso:  { color: dark ? '#ffd580' : '#b7790a', bg: dark ? 'rgba(255,213,128,0.12)' : 'rgba(183,121,10,0.07)', border: dark ? 'rgba(255,213,128,0.25)' : 'rgba(183,121,10,0.18)' },
-    baja:      { color: dark ? '#f4a1a1' : '#c0392b', bg: dark ? 'rgba(244,161,161,0.12)' : 'rgba(192,57,43,0.07)',  border: dark ? 'rgba(244,161,161,0.25)' : 'rgba(192,57,43,0.18)'  },
-  }[tipo]
-  return { width: '30px', height: '30px', borderRadius: '7px', background: c.bg, border: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: c.color }
-}
 
-export function thBase(dark) {
-  return { padding: '9px 10px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', verticalAlign: 'middle', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }
-}
-export function tdBase() { return { padding: '10px 10px', verticalAlign: 'top' } }
 
 // ── Categorías ────────────────────────────────────────────────────────────────
 const CATS_BY_MODO = {
@@ -2537,7 +2460,7 @@ export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
   const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
@@ -2571,7 +2494,7 @@ export function ModalSolicitarBaja({ bienes, onClose, dark, t, onConfirm }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+      
     </>,
     document.body
   )
@@ -2612,7 +2535,7 @@ export function ModalConfirmaBien({ bien, accion, onClose, onConfirm, dark, t, a
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:400, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 400 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:401, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -2666,7 +2589,7 @@ export function ModalConfirmaBien({ bien, accion, onClose, onConfirm, dark, t, a
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -2770,6 +2693,7 @@ async function dibujarLogosPDF(doc, pageW, margin) {
 }
 
 export async function exportarPDFMuebles(rows, cols, titulo = '') {
+  const { jsPDF, autoTable } = await cargarPdf()
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 18
@@ -2836,6 +2760,7 @@ export async function exportarPDFMuebles(rows, cols, titulo = '') {
 }
 
 export async function exportarExcelMuebles(rows, cols, titulo = '') {
+  const { ExcelJS, saveAs } = await cargarExcel()
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('INVENTARIO BIENES MUEBLES')
   const nCols = cols.length
@@ -3116,6 +3041,7 @@ function valorAdq(col, g) {
 }
 
 async function exportarAdquisicionesPDF(grupos, titulo, anio) {
+  const { jsPDF, autoTable } = await cargarPdf()
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 18
@@ -3158,6 +3084,7 @@ async function exportarAdquisicionesPDF(grupos, titulo, anio) {
 }
 
 async function exportarAdquisicionesExcel(grupos, titulo, anio) {
+  const { ExcelJS, saveAs } = await cargarExcel()
   const FUENTE = 'Arial'
   const borde  = { style: 'thin', color: { argb: 'FF' + NEGRO } }
   const bordes = { top: borde, left: borde, bottom: borde, right: borde }
@@ -3437,7 +3364,7 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'480px', maxWidth:'94vw', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         {/* Header */}
@@ -3492,7 +3419,7 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+      
     </>,
     document.body
   )
@@ -3533,7 +3460,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -3556,7 +3483,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
               <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
                 style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
                 <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{seleccionados.length} seleccionado{seleccionados.length !== 1 ? 's' : ''}
@@ -3608,7 +3535,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+      
     </>,
     document.body
   )
@@ -3620,7 +3547,7 @@ function ModalTipoFilter({ modo, onSelect, onClose, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '440px', maxWidth: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ padding: '1.1rem 1.4rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -3655,7 +3582,7 @@ function ModalTipoFilter({ modo, onSelect, onClose, dark, t }) {
           })}
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}`}</style>
+      
     </>,
     document.body
   )
@@ -3894,7 +3821,7 @@ function ModalConfirmaTitular({ resumen, onClose, onConfirm, dark, t, guardando 
 
   return createPortal(
     <>
-      <div onClick={guardando ? undefined : onClose} style={{ position:'fixed', inset:0, zIndex:400, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={guardando ? undefined : onClose} className="telon" style={{ zIndex: 400 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:401, width:'520px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -3944,7 +3871,7 @@ function ModalConfirmaTitular({ resumen, onClose, onConfirm, dark, t, guardando 
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -4013,7 +3940,7 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={close} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={close} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'620px', maxWidth:'95vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation: anim, overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -4154,7 +4081,7 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
           onClose={() => { if (!guardando) setConfirma(false) }}
           onConfirm={aplicar} />
       )}
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+      
     </>,
     document.body
   )
@@ -4373,7 +4300,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'980px', maxWidth:'96vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         {/* Dos páginas dentro del mismo modal: se desliza el contenido completo */}
@@ -4544,7 +4471,7 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
 
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes entraDer{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}} @keyframes entraIzq{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}`}</style>
+      
     </>,
     document.body
   )
@@ -4579,7 +4506,7 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'480px', maxWidth:'94vw', maxHeight:'88vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', gap:'10px', flexShrink:0 }}>
@@ -4616,7 +4543,7 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}`}</style>
+      
     </>,
     document.body
   )
@@ -4625,78 +4552,6 @@ function ModalResguardosLote({ bienes, onClose, dark, t }) {
 // ── PÁGINA ────────────────────────────────────────────────────────────────────
 // ── Menú de clic derecho sobre un renglón ─────────────────────────────────────
 // Se ancla al puntero y se corrige solo si no cabe hacia abajo o a la derecha.
-export function MenuFila({ menu, onClose, dark, t, acciones = [] }) {
-  const ref = useRef(null)
-  const [pos, setPos] = useState({ x: menu.x, y: menu.y })
-  // onClose llega como función nueva en cada render del padre; con la ref el
-  // efecto de abajo se monta una sola vez.
-  const cerrarRef = useRef(onClose)
-  cerrarRef.current = onClose
-
-  useLayoutEffect(() => {
-    const el = ref.current; if (!el) return
-    const { width, height } = el.getBoundingClientRect()
-    setPos({
-      x: Math.min(menu.x, window.innerWidth  - width  - 8),
-      y: Math.min(menu.y, window.innerHeight - height - 8),
-    })
-  }, [menu.x, menu.y])
-
-  // Los listeners para cerrar se registran un tick después: el mismo clic
-  // derecho que abre el menú sigue subiendo hasta window, y si ya estuvieran
-  // puestos lo cerrarían de inmediato —el menú ni se alcanzaba a ver—.
-  useEffect(() => {
-    const fuera = () => cerrarRef.current()
-    const tecla = e => { if (e.key === 'Escape') cerrarRef.current() }
-    let puestos = false
-    const poner = () => {
-      puestos = true
-      window.addEventListener('click', fuera)
-      window.addEventListener('contextmenu', fuera)
-      window.addEventListener('scroll', fuera, true)
-      window.addEventListener('keydown', tecla)
-    }
-    const id = setTimeout(poner, 0)
-    return () => {
-      clearTimeout(id)
-      if (!puestos) return
-      window.removeEventListener('click', fuera)
-      window.removeEventListener('contextmenu', fuera)
-      window.removeEventListener('scroll', fuera, true)
-      window.removeEventListener('keydown', tecla)
-    }
-  }, [])
-
-  // Cada pantalla decide qué acciones ofrece sobre el renglón
-  const opciones = acciones.filter(o => o && (o.visible === undefined || o.visible))
-
-  return createPortal(
-    <div ref={ref} onClick={e => e.stopPropagation()} onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
-      style={{ position: 'fixed', top: pos.y, left: pos.x, zIndex: 400, minWidth: '188px', padding: '5px',
-        borderRadius: '11px', background: dark ? '#232325' : '#ffffff',
-        border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)',
-        boxShadow: dark ? '0 12px 34px rgba(0,0,0,0.5)' : '0 12px 34px rgba(0,0,0,0.16)',
-        transformOrigin: 'top left', animation: 'menuFila 0.14s cubic-bezier(0.4,0,0.2,1)' }}>
-      <style>{`@keyframes menuFila{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}`}</style>
-      <p style={{ fontSize: '10px', fontWeight: 700, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '6px 9px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {menu.bien.claveinventario || 'Bien'}
-      </p>
-      {opciones.map(o => (
-        <button key={o.label} onClick={() => { onClose(); o.accion() }}
-          style={{ display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '8px 9px', borderRadius: '8px',
-            background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-            fontSize: '13px', color: o.color || t.text1, textAlign: 'left',
-            borderTop: o.separador ? (dark ? '1px solid rgba(255,255,255,0.09)' : '1px solid rgba(0,0,0,0.07)') : 'none',
-            marginTop: o.separador ? '4px' : 0, paddingTop: o.separador ? '10px' : '8px' }}
-          onMouseEnter={e => e.currentTarget.style.background = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <i className={`ti ${o.icon}`} style={{ fontSize: '15px', color: o.color || t.text3 }} />{o.label}
-        </button>
-      ))}
-    </div>,
-    document.body,
-  )
-}
 
 export default function BienesMuebles({ user, onNavigate, initialModo = 'mobiliario', initialAreaFilter = [], initialEstado = 'Todos', initialBusqueda = '', papelera = false, traspasos = false, bajas = false, soloLectura = false, areasPermitidas = null }) {
   const { dark, t, sidebarOpen } = useTheme()
@@ -4901,7 +4756,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   function solicitarBajaUno(b)  { setModalSolicitar([b]) }
 
   const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
@@ -4922,10 +4777,10 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {/* Actúa sobre un área completa, por eso va aquí y no en la barra
                   de acciones, que trabaja sobre los registros seleccionados. */}
-              <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-users-group" style={{ fontSize: '18px' }} />Titular del área
               </button>
-              <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
               </button>
             </div>
@@ -4980,7 +4835,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         {!papelera && (
         <div className="barra-fit" style={barraSticky(dark, t)} data-barra="acciones">
           <div onClick={toggleModoSeleccion}
-            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none', whiteSpace:'nowrap' }}>
+            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, userSelect:'none', whiteSpace:'nowrap' }}>
             <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
             </div>
@@ -5245,7 +5100,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         </div>
       </main>
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} } input::placeholder { color: ${dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}; }`}</style>
+      <style>{`input::placeholder { color: ${dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}; }`}</style>
 
       {menuFila && (
         <MenuFila menu={menuFila} onClose={() => setMenuFila(null)} dark={dark} t={t}

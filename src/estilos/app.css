@@ -1,0 +1,64 @@
+/* ── Estilos compartidos de la aplicación ─────────────────────────────────────
+   Las animaciones vivían repetidas en un <style> dentro de cada modal —fadeUp
+   estaba escrita 27 veces, y en dos de ellas con otro recorrido, así que según
+   el orden en que se abrieran los modales unos pisaban a otros y saltaban—.
+   Aquí se definen una sola vez para todo el escritorio.
+
+   Todas animan transform y opacity: el navegador las resuelve en la tarjeta de
+   video sin volver a calcular el acomodo de la página, que es lo que hace que
+   se vean fluidas incluso con una tabla grande detrás. */
+
+/* ── Recorridos ──────────────────────────────────────────────────────────────── */
+
+/* Modales centrados con translate(-50%, -50%) */
+@keyframes fadeUp   { from { opacity: 0; transform: translate(-50%, -48%) scale(0.98) } to { opacity: 1; transform: translate(-50%, -50%) scale(1) } }
+@keyframes fadeDown { from { opacity: 1; transform: translate(-50%, -50%) scale(1) } to { opacity: 0; transform: translate(-50%, -48%) scale(0.98) } }
+
+/* Modales que ya vienen centrados por su contenedor (sin translate) */
+@keyframes subeY    { from { opacity: 0; transform: translateY(20px) scale(0.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
+@keyframes bajaY    { from { opacity: 1; transform: translateY(0) scale(1) } to { opacity: 0; transform: translateY(20px) scale(0.98) } }
+
+/* Paneles laterales */
+@keyframes slideIn  { from { transform: translateX(100%) } to { transform: translateX(0) } }
+@keyframes slideOut { from { transform: translateX(0) } to { transform: translateX(100%) } }
+
+/* Pasos de un asistente: adelante y atrás */
+@keyframes entraIzq { from { opacity: 0; transform: translateX(-40px) } to { opacity: 1; transform: translateX(0) } }
+@keyframes entraDer { from { opacity: 0; transform: translateX(40px) } to { opacity: 1; transform: translateX(0) } }
+
+/* Menú contextual de una fila */
+@keyframes menuFila { from { opacity: 0; transform: scale(0.96) } to { opacity: 1; transform: scale(1) } }
+
+@keyframes spin     { from { transform: rotate(0) } to { transform: rotate(360deg) } }
+@keyframes pulse    { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
+
+@keyframes telonEntra  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes paginaEntra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+
+/* ── Telón de los modales ─────────────────────────────────────────────────────
+   Antes difuminaba toda la pantalla (backdrop-filter: blur). Con una tabla
+   detrás, el navegador tenía que desenfocar cientos de celdas en cada cuadro
+   de la animación, y abrir un modal se trababa. Oscurecer con un fundido se
+   ve igual de limpio y cuesta casi nada. */
+.telon {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  animation: telonEntra 0.22s ease-out both;
+}
+
+/* ── Cada pantalla entra con un fundido corto ──────────────────────────────── */
+main {
+  animation: paginaEntra 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* El scroll de la pantalla no arrastra la página de atrás */
+  overscroll-behavior: contain;
+}
+
+/* ── Sin movimiento para quien lo pidió en su sistema ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

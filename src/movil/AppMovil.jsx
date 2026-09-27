@@ -61,6 +61,9 @@ export default function AppMovil({ user, onSalir }) {
   // ya recorrida: el encabezado quedaba fuera de vista y había que subir a mano.
   useEffect(() => {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'
+    // Solo mientras se usa la vista de celular: el escritorio no se toca
+    document.documentElement.classList.add('app-movil')
+    return () => document.documentElement.classList.remove('app-movil')
   }, [])
   useEffect(() => {
     window.scrollTo(0, 0)

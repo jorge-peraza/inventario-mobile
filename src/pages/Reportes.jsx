@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
-import { barraSticky, btnBarra, sStyle } from './BienesMuebles'
+import { barraSticky, btnBarra, sStyle } from './ui'
 import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, fechasDeBaja, setFechaBaja, subirFechasBajasPendientes, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { sesionActual } from '../auth'
 import { listarReportes, guardarReporteRemoto, borrarReporteRemoto, getLocales } from '../reportesPersonalizados'
@@ -40,7 +40,7 @@ function ModalConfigReporte({ config, allAreas, onClose, onGuardar, dark, t }) {
   const lbl = { fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '600px', maxWidth: '94vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.5rem', borderBottom: sep, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{config ? 'Editar reporte' : 'Nuevo reporte personalizado'}</p>
@@ -81,7 +81,7 @@ function ModalConfigReporte({ config, allAreas, onClose, onGuardar, dark, t }) {
           <button onClick={guardar} disabled={!titulo.trim() || colsSel.size === 0} style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', fontSize: '14px', fontWeight: 600, color: dark ? '#a8e6cf' : '#15803d', fontFamily: 'inherit', cursor: 'pointer' }}>Guardar</button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -117,7 +117,7 @@ function ModalPreviewReporte({ config, onClose, dark, t }) {
   const th = { padding: '8px 9px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)', textTransform: 'uppercase', whiteSpace: 'nowrap', background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderBottom: sep }
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '900px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.5rem', borderBottom: sep, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
@@ -147,7 +147,7 @@ function ModalPreviewReporte({ config, onClose, dark, t }) {
           <button onClick={() => generar('pdf')} disabled={generando || !rows} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '11px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: generando || !rows ? 'not-allowed' : 'pointer', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', color: dark ? '#f4a1a1' : '#c0392b' }}>{generando === 'pdf' ? <><i className="ti ti-loader-2" style={{ fontSize: '15px', animation: 'spin 1s linear infinite' }} />Generando…</> : <><i className="ti ti-file-type-pdf" style={{ fontSize: '16px' }} />PDF</>}</button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -255,7 +255,7 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -316,7 +316,7 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
               <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
                 style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
                 <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{totalSel} seleccionado{totalSel !== 1 ? 's' : ''}
@@ -364,7 +364,7 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
           </div>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -546,7 +546,7 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'540px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'visible' }}>
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
@@ -634,7 +634,7 @@ function ModalReporteAltas({ allAreas, onClose, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -672,7 +672,7 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'520px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'visible' }}>
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
@@ -708,7 +708,7 @@ function ModalReportePeriodo({ tipo, allAreas, onClose, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -771,8 +771,8 @@ export default function Reportes({ user, onNavigate }) {
     await borrarReporteRemoto(id).catch(console.error)
   }
 
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
-  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px', padding: '1.25rem' }
+  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
 
   const esConfirmadas = vista === 'confirmadas'
@@ -1023,7 +1023,7 @@ export default function Reportes({ user, onNavigate }) {
             {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
             <div className="barra-fit" style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {modoSeleccion && <i className="ti ti-check" style={{ fontSize: '11px', color: dark ? '#1c1c1e' : '#fff' }} />}
                 </div>
@@ -1041,7 +1041,7 @@ export default function Reportes({ user, onNavigate }) {
                 </button>
               )}
               <button onClick={() => setModalReporte(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
+                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1 }}>
                 <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Generar Reporte
               </button>
             </div>
@@ -1203,7 +1203,7 @@ export default function Reportes({ user, onNavigate }) {
       {modalReporte && <ModalReporteBajas onClose={() => setModalReporte(false)} dark={dark} t={t} datos={filtrados} seleccionados={[...seleccionados]}
         esConfirmadas={esConfirmadas}
         tituloInicial={`${esConfirmadas ? 'BAJAS CONFIRMADAS' : 'SOLICITUD DE BAJAS'} HAN ${mesAnioActual()}`} />}
-      <style>{`@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} } @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}} @keyframes slideOut{from{transform:translateX(0)}to{transform:translateX(100%)}}`}</style>
+      
     </div>
   )
 }

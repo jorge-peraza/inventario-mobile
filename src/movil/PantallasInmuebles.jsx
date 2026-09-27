@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
+import { useProgresivo } from './comunes'
 import {
   categoriasInmuebles, conteoPorCategoria, inmueblesDeCategoria, estadisticasInmuebles,
   buscarInmuebles, conteosDesincorporacion, inmueblePorClave, inmueblePorId, actualizarInmueble,
@@ -171,6 +172,7 @@ export function BuscarInmuebles({ idcategoria = '' }) {
     return r
   }, [datos, cat, q, min, max, hayM2])
   const nombreCat = cats.find(c => Number(c.idcategoria) === Number(cat))?.nombrecategoria
+  const { visibles, fin } = useProgresivo(lista, { reinicio: [cat, q, m2.min, m2.max] })
   // Corto a propósito: al lado del de categorías no hay sitio para más, y con
   // un rango largo el botón se salía de la pantalla.
   const textoM2 = !hayM2 ? 'm²'
@@ -213,7 +215,7 @@ export function BuscarInmuebles({ idcategoria = '' }) {
 
         {lista.length > 0 && (
           <div className="tarjeta plana">
-            {lista.map(i => (
+            {visibles.map(i => (
               <button key={i.idinmueble} className="fila" onClick={() => irA('i', 'inm', i.idinmueble)}>
                 <div className="crece">
                   <p className="clave">{i.clave}</p>
@@ -226,6 +228,7 @@ export function BuscarInmuebles({ idcategoria = '' }) {
             ))}
           </div>
         )}
+        {fin}
       </div>
 
       {hojaCats && (

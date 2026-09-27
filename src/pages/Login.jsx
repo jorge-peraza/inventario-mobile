@@ -33,7 +33,7 @@ export default function Login({ onLogin }) {
       <div style={{ position:'absolute',top:'1.25rem',right:'1.25rem',zIndex:10 }}><ThemeToggle /></div>
       <div style={{ position:'absolute',width:'500px',height:'500px',borderRadius:'50%', background:dark?'rgba(255,255,255,0.025)':'rgba(0,0,0,0.025)', filter:'blur(80px)',top:'-100px',left:'-100px',pointerEvents:'none' }} />
       <div style={{ position:'absolute',width:'400px',height:'400px',borderRadius:'50%', background:dark?'rgba(255,255,255,0.03)':'rgba(0,0,0,0.03)', filter:'blur(80px)',bottom:'-80px',right:'-80px',pointerEvents:'none' }} />
-      <div style={{ position:'relative',zIndex:2,width:'100%',maxWidth:'400px', background:t.cardBg, border:`1px solid ${t.cardBorder}`, backdropFilter:'blur(28px)',WebkitBackdropFilter:'blur(28px)', borderRadius:'20px',padding:'2.5rem', boxShadow:dark?'0 8px 40px rgba(0,0,0,0.5)':'0 4px 24px rgba(0,0,0,0.1)', transition:'background 0.3s,border-color 0.3s' }}>
+      <div style={{ position:'relative',zIndex:2,width:'100%',maxWidth:'400px', background:t.cardBg, border:`1px solid ${t.cardBorder}`,WebkitBackdropFilter:'blur(28px)', borderRadius:'20px',padding:'2.5rem', boxShadow:dark?'0 8px 40px rgba(0,0,0,0.5)':'0 4px 24px rgba(0,0,0,0.1)', transition:'background 0.3s,border-color 0.3s' }}>
         <div style={{ display:'flex',alignItems:'center',gap:'14px',marginBottom:'2rem' }}>
           <div style={{ width:'50px',height:'50px',borderRadius:'13px',flexShrink:0, background:t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex',alignItems:'center',justifyContent:'center' }}>
             <i className="ti ti-building-community" style={{ fontSize:'24px',color:t.text1 }} />
@@ -67,7 +67,7 @@ export default function Login({ onLogin }) {
               <span style={{ fontSize:'13px', color: dark ? '#f4a1a1' : '#c0392b' }}>{error}</span>
             </div>
           )}
-          <button type="submit" disabled={cargando} style={{ marginTop:'6px',padding:'13px',background:t.btnBg,border:`1px solid ${t.btnBorder}`,borderRadius:'11px',color:t.text1,fontSize:'15px',fontWeight:600,fontFamily:'inherit',cursor:cargando?'wait':'pointer',opacity:cargando?0.7:1,backdropFilter:'blur(10px)',transition:'opacity 0.2s' }} onMouseEnter={e=>{if(!cargando)e.currentTarget.style.opacity='0.75'}} onMouseLeave={e=>{if(!cargando)e.currentTarget.style.opacity='1'}}>{cargando ? 'Verificando…' : 'Entrar'}</button>
+          <button type="submit" disabled={cargando} style={{ marginTop:'6px',padding:'13px',background:t.btnBg,border:`1px solid ${t.btnBorder}`,borderRadius:'11px',color:t.text1,fontSize:'15px',fontWeight:600,fontFamily:'inherit',cursor:cargando?'wait':'pointer',opacity:cargando?0.7:1,transition:'opacity 0.2s' }} onMouseEnter={e=>{if(!cargando)e.currentTarget.style.opacity='0.75'}} onMouseLeave={e=>{if(!cargando)e.currentTarget.style.opacity='1'}}>{cargando ? 'Verificando…' : 'Entrar'}</button>
         </form>
         <div style={{ display:'flex',justifyContent:'center',alignItems:'center',gap:'8px',marginTop:'1.25rem',fontSize:'13px' }}>
           <a href="#" style={{ color:t.text3 }}>¿Olvidaste tu contraseña?</a>

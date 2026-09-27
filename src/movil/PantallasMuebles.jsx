@@ -3,7 +3,7 @@ import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
-import { Cargando, Vacio, Confirmar } from './comunes'
+import { Cargando, Vacio, Confirmar, useProgresivo } from './comunes'
 import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien, resumenInventario, TIPOS } from './datos'
 import {
   abrirReconteo, reconteoAbierto, reconteo, listaReconteos, marcar, desmarcar,
@@ -776,6 +776,7 @@ export function ListaReconteo({ idarea, usuario }) {
       .filter(e => (pestana === 'todos' ? true : pestana === 'ok' ? e.verificado : !e.verificado))
       .filter(e => !q || e.clave.includes(q) || (e.nombre || '').toUpperCase().includes(q))
   }, [rc, pestana, texto])
+  const { visibles, fin } = useProgresivo(lista, { reinicio: [idarea, pestana, texto] })
 
   // Los reconteos anteriores del área salen de la base, no del teléfono: así se
   // ven los que levantó otra persona y desaparecen los que se borraron desde la
@@ -920,7 +921,7 @@ export function ListaReconteo({ idarea, usuario }) {
               texto={pestana === 'faltan' ? 'No falta ninguno por verificar' : 'Sin resultados'} />
           : (
             <div className="tarjeta plana">
-              {lista.map(e => (
+              {visibles.map(e => (
                 <div key={e.clave} className="fila">
                   <button style={{ padding: 0 }}
                     onClick={() => alternarMarca(e)}
@@ -942,6 +943,7 @@ export function ListaReconteo({ idarea, usuario }) {
               ))}
             </div>
           )}
+        {fin}
       </div>
 
       {confirma === 'terminar' && (
@@ -1135,6 +1137,7 @@ export function DetalleReconteo({ idreconteo }) {
       .filter(b => !q || (b.clave || '').includes(q) || (b.nombre || '').toUpperCase().includes(q) ||
         (b.resguardante || '').toUpperCase().includes(q) || (b.observacion || '').toUpperCase().includes(q))
   }, [bienes, pestana, texto])
+  const { visibles, fin } = useProgresivo(lista, { reinicio: [idreconteo, pestana, texto] })
 
   if (!cab) return (
     <>
@@ -1198,7 +1201,7 @@ export function DetalleReconteo({ idreconteo }) {
                   texto={pestana === 'faltan' ? 'Aparecieron todos los bienes del área' : 'Sin resultados'} />
               : (
                 <div className="tarjeta plana">
-                  {lista.map(b => (
+                  {visibles.map(b => (
                     <button key={b.idbien} className="fila" onClick={() => irA('b', b.clave)}>
                       <span className={`marca ${b.encontrado ? 'ok' : 'falta'}`}>
                         <i className={`ti ti-${b.encontrado ? 'check' : 'question-mark'}`} />
@@ -1215,6 +1218,7 @@ export function DetalleReconteo({ idreconteo }) {
                   ))}
                 </div>
               )}
+            {fin}
 
             {ajenos.length > 0 && (
               <div className="tarjeta" style={{ borderColor: 'var(--alerta)' }}>

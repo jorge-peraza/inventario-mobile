@@ -138,7 +138,6 @@ export default function Dashboard({
 
   const card = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
-    backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur,
     borderRadius: '14px', padding: '1.25rem',
   }
 
@@ -160,7 +159,7 @@ export default function Dashboard({
 
   // Fecha del día y cambio de tema: van juntos, arriba
   const chipFecha = (
-    <span style={{ fontSize: '13px', color: t.text3, background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '9px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '7px', backdropFilter: 'blur(10px)' }}>
+    <span style={{ fontSize: '13px', color: t.text3, background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '9px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '7px' }}>
       <i className="ti ti-calendar" style={{ fontSize: '16px' }} />{fecha}
     </span>
   )
@@ -318,7 +317,7 @@ export default function Dashboard({
         </div>
 
       </main>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+      
     </div>
   )
 }

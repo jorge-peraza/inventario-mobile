@@ -144,8 +144,9 @@
   border: 1px solid var(--borde);
   border-radius: 14px;
   padding: 14px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* Sin backdrop-filter: sobre el fondo liso no se veía, y en el teléfono se
+     recalculaba en cada cuadro de scroll —hay tarjetas con cientos de
+     renglones—. Era lo que más frenaba el desplazamiento. */
 }
 .movil .tarjeta.plana { padding: 0; overflow: hidden; }
 
@@ -157,6 +158,7 @@
   border-bottom: 1px solid var(--borde);
 }
 .movil .fila:last-child { border-bottom: none; }
+.movil .fila { transition: background 0.12s ease-out; }
 .movil .fila:active { background: var(--barra); }
 .movil .fila .crece { flex: 1; min-width: 0; }
 .movil .clave { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--texto-3); }
@@ -235,7 +237,12 @@
 .movil .chip.falta { background: var(--falta-suave); color: var(--falta); }
 
 /* ── Hoja deslizable (el botón "Más") ────────────────────────────────────── */
-.movil-telon { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(3px); }
+.movil-telon {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(0, 0, 0, 0.45);
+  animation: telon-movil 0.2s ease-out both;
+}
+@keyframes telon-movil { from { opacity: 0; } to { opacity: 1; } }
 .movil-hoja {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
   background: var(--barra);
@@ -307,8 +314,7 @@
   padding: 12px 18px;
   border-radius: 14px;
   font-size: 15px; font-weight: 600; color: #fff;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.78);
   max-width: 92%;
 }
 .movil-escaner .aviso.ok     { background: rgba(21, 128, 61, 0.92); }
@@ -387,4 +393,31 @@
   .movil { max-width: 460px; margin: 0 auto; box-shadow: var(--sombra); }
   .movil-barra { max-width: 460px; margin: 0 auto; }
   .movil-hoja  { max-width: 460px; margin: 0 auto; }
+}
+
+/* ── Fluidez ─────────────────────────────────────────────────────────────────
+   Todo lo que se mueve aquí anima transform y opacity, que el teléfono resuelve
+   en la tarjeta de video sin volver a acomodar la página. */
+
+/* Cada pantalla entra con un fundido corto: al navegar ya no "salta" */
+.movil .contenido { animation: pantalla-movil 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes pantalla-movil { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Los botones responden al dedo: se hunden un poco mientras se tocan */
+.movil .boton, .movil .icono-btn, .movil .chip-filtro, .movil-barra button {
+  transition: transform 0.12s ease-out, opacity 0.12s ease-out, background 0.15s;
+}
+.movil .boton:active, .movil .icono-btn:active, .movil .chip-filtro:active { transform: scale(0.97); }
+.movil-barra button:active { transform: scale(0.92); }
+
+/* Sin el recuadro gris que Android pinta encima de lo que se toca: ya hay
+   respuesta propia y el recuadro se veía encima de ella */
+.movil, .movil * { -webkit-tap-highlight-color: transparent; }
+
+/* Deslizar hacia abajo en la parte de arriba recargaba toda la página (el
+   "tirar para actualizar" del navegador) a media captura. */
+html.app-movil, html.app-movil body { overscroll-behavior-y: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .movil *, .movil-hoja, .movil-telon { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }

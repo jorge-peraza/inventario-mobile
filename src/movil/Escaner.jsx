@@ -60,7 +60,7 @@ export function Escaner({ idarea }) {
   // de la cámara prendida al regresar a la lista.
   useEffect(() => {
     if (!hayCamara()) {
-      setError('Este navegador no da acceso a la cámara. Se puede capturar la clave a mano.')
+      setError('Este navegador no da acceso a la cámara. Se puede capturar la clave manualmente.')
       return
     }
     let stream = null
@@ -175,7 +175,7 @@ export function CapturarClave({ idarea }) {
 
   return (
     <>
-      <Cabecera titulo="Capturar a mano" sub={rc?.nombrearea} atras />
+      <Cabecera titulo="Capturar manualmente" sub={rc?.nombrearea} atras />
       <div className="contenido">
         <form onSubmit={buscar} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>

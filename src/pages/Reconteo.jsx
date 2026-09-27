@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../supabase'
-import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion, exportarExcelMuebles, exportarPDFMuebles } from './BienesMuebles'
+import { btnBarra, sStyle, iStyle, searchBoxStyle, thBase, tdBase, btnAccion } from './ui'
+import { exportarExcelMuebles, exportarPDFMuebles } from './BienesMuebles'
 import { bienesDeArea } from '../movil/datos'
 import { reabrirRemoto } from '../movil/sincronizar'
 
@@ -93,7 +94,7 @@ function filasParaReporte(bienes) {
     ...b,
     no: i + 1,
     estadoreconteo: b.encontrado ? 'VERIFICADO' : 'NO ENCONTRADO',
-    metodotexto: !b.encontrado ? '' : b.metodo === 'qr' ? 'ETIQUETA' : b.metodo === 'manual' ? 'A MANO' : '',
+    metodotexto: !b.encontrado ? '' : b.metodo === 'qr' ? 'ETIQUETA' : b.metodo === 'manual' ? 'MANUALMENTE' : '',
     fechaverif: b.fecha ? fmtFechaHora(b.fecha) : '',
   }))
 }
@@ -150,7 +151,7 @@ function ModalReporteReconteo({ reconteo, onClose, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:300, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', overflow:'hidden' }}>
 
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -228,7 +229,7 @@ function ModalReporteReconteo({ reconteo, onClose, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </>,
     document.body
   )
@@ -448,7 +449,7 @@ function Detalle({ reconteo, onVolver, onCambio, dark, t, card }) {
                           <td style={tdBase()}>
                             <span style={{ color: t.text3 }}>
                               {b.metodo === 'qr' ? <><i className="ti ti-qrcode" style={{ marginRight: '4px' }} />Etiqueta</>
-                                : b.metodo === 'manual' ? <><i className="ti ti-hand-click" style={{ marginRight: '4px' }} />A mano</>
+                                : b.metodo === 'manual' ? <><i className="ti ti-hand-click" style={{ marginRight: '4px' }} />Manualmente</>
                                 : '—'}
                             </span>
                           </td>
@@ -535,7 +536,7 @@ function ModalBorrar({ reconteo, onClose, onBorrado, dark, t }) {
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
       <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '460px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.5rem' }}>
           <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111', marginBottom: '8px' }}>¿Borrar este reconteo del historial?</p>
@@ -555,7 +556,7 @@ function ModalBorrar({ reconteo, onClose, onBorrado, dark, t }) {
           </button>
         </div>
       </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-48%) scale(0.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}`}</style>
+      
     </>,
     document.body
   )
@@ -621,7 +622,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
   const totalEsperados   = filtrados.reduce((s, r) => s + (r.esperados || 0), 0)
 
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
@@ -643,7 +644,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
                 </p>
               </div>
               <button onClick={cargar}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-refresh" style={{ fontSize: '17px' }} />Actualizar
               </button>
             </div>
@@ -795,7 +796,7 @@ export default function Reconteo({ user, onNavigate, areaIds = null, soloLectura
 
       {reporte && <ModalReporteReconteo reconteo={reporte} dark={dark} t={t} onClose={() => setReporte(null)} />}
 
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}} @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+      
     </div>
   )
 }

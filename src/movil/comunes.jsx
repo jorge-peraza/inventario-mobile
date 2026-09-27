@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useBloquearScroll } from './useBloquearScroll'
 
 // ── Piezas que usan varias pantallas del celular ─────────────────────────────
@@ -32,4 +33,39 @@ export function Confirmar({ titulo, detalle, textoOk, peligro, onOk, onCerrar })
       </div>
     </>
   )
+}
+
+// ── Listas largas, por tramos ────────────────────────────────────────────────
+// Una categoría como Equipamientos trae 910 inmuebles; pintarlos todos de golpe
+// dejaba la pantalla congelada un momento y el scroll a tirones. Así se pintan
+// los primeros y el resto va entrando conforme uno baja, antes de llegar al
+// final: no se nota el corte.
+//
+// `reinicio` dice cuándo volver a empezar desde arriba —al cambiar de pestaña,
+// de filtro o de búsqueda—. No se reinicia cuando solo cambia el contenido,
+// como al marcar un bien: si no, la lista se recortaba bajo el dedo.
+export function useProgresivo(lista, { paso = 60, reinicio = [] } = {}) {
+  const [cuantos, setCuantos] = useState(paso)
+  const refFin = useRef(null)
+  const clave = JSON.stringify(reinicio)
+
+  useEffect(() => { setCuantos(paso) }, [clave, paso])
+
+  const total = lista.length
+  useEffect(() => {
+    const el = refFin.current
+    if (!el || cuantos >= total) return
+    const vigia = new IntersectionObserver(
+      entradas => { if (entradas[0].isIntersecting) setCuantos(n => n + paso) },
+      { rootMargin: '800px 0px' })   // se adelanta: carga antes de que se vea el final
+    vigia.observe(el)
+    return () => vigia.disconnect()
+  }, [cuantos, total, paso])
+
+  return {
+    visibles: cuantos >= total ? lista : lista.slice(0, cuantos),
+    // Se pone al final de la lista; mientras queden renglones por pintar, es
+    // lo que avisa que ya se está llegando abajo
+    fin: cuantos < total ? <div ref={refFin} aria-hidden style={{ height: 1 }} /> : null,
+  }
 }

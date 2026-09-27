@@ -12,7 +12,6 @@ export default function ThemeToggle() {
         padding: '7px', borderRadius: '9px',
         background: t.cardBg,
         border: `1px solid ${t.cardBorder}`,
-        backdropFilter: 'blur(10px)',
         color: t.text3,
         transition: 'all 0.2s',
         cursor: 'pointer',

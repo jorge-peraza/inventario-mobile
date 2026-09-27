@@ -1,8 +1,5 @@
-import ExcelJS from 'exceljs'
-import { saveAs } from 'file-saver'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 
+import { cargarExcel, cargarPdf } from './exportadores'
 const GRIS = 'BFBFBF', NEGRO = '000000'
 
 // Carga imagen (logos) a dataURL + dimensiones
@@ -77,6 +74,7 @@ export async function anexarEvidenciasPDF(doc, items, titulo = '') {
 }
 
 export async function exportarEvidenciasPDF(items, titulo = '') {
+  const { jsPDF } = await cargarPdf()
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   await dibujarEvidenciasPDF(doc, items, titulo)
   doc.save(nombreArchivo('pdf'))
@@ -84,6 +82,7 @@ export async function exportarEvidenciasPDF(items, titulo = '') {
 
 // Dibuja la sección de evidencias en la página actual del documento
 async function dibujarEvidenciasPDF(doc, items, titulo = '') {
+  const { autoTable } = await cargarPdf()
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 24
   let startY = await dibujarLogosPDF(doc, pageW, margin)
@@ -137,6 +136,7 @@ export async function anexarEvidenciasExcel(wb, items, titulo = '') {
 }
 
 export async function exportarEvidenciasExcel(items, titulo = '') {
+  const { ExcelJS, saveAs } = await cargarExcel()
   const wb = new ExcelJS.Workbook()
   await llenarHojaEvidencias(wb, items, titulo)
   const buf = await wb.xlsx.writeBuffer()

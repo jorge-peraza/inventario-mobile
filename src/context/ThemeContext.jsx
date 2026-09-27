@@ -43,7 +43,7 @@ export function tokens(dark) {
       bg:           'linear-gradient(145deg, #111113 0%, #1c1c1e 50%, #222224 100%)',
       cardBg:       'rgba(255,255,255,0.07)',
       cardBorder:   'rgba(255,255,255,0.12)',
-      cardBlur:     'blur(16px)',
+      cardBlur:     'none',   // sin desenfoque: sobre el fondo liso no se veía y frenaba el scroll
       sidebarBg:    'rgba(255,255,255,0.06)',
       sidebarBorder:'rgba(255,255,255,0.1)',
       navActive:    'rgba(255,255,255,0.14)',
@@ -82,7 +82,7 @@ export function tokens(dark) {
     bg:           'linear-gradient(145deg, #e8e8ea 0%, #efefef 50%, #e4e4e6 100%)',
     cardBg:       'rgba(255,255,255,0.72)',
     cardBorder:   'rgba(0,0,0,0.1)',
-    cardBlur:     'blur(20px)',
+    cardBlur:     'none',
     sidebarBg:    'rgba(255,255,255,0.65)',
     sidebarBorder:'rgba(0,0,0,0.1)',
     navActive:    'rgba(0,0,0,0.08)',
