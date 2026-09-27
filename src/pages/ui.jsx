@@ -47,7 +47,8 @@ export function btnBarra(dark, t, activo = true) {
     display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px',
     fontSize: '14px', fontWeight: 500, fontFamily: 'inherit',
     cursor: activo ? 'pointer' : 'not-allowed', opacity: activo ? 1 : 0.45,
-    background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, transition: 'opacity 0.15s',
+    background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1,
+    backdropFilter: 'blur(10px)', transition: 'opacity 0.15s',
     // El reparto del renglón en ventana chica lo hace .barra-fit (index.css)
     whiteSpace: 'nowrap', flexShrink: 0,
   }
@@ -57,10 +58,9 @@ export function barraSticky(dark, t) {
   return {
     display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap',
     position: 'sticky', top: '-1rem', zIndex: 90, padding: '0.7rem 1rem', borderRadius: '14px',
-    // Opaca y sin desenfoque: la tabla pasa por debajo al hacer scroll, y
-    // desenfocarla en cada cuadro era lo que más frenaba el desplazamiento.
-    background: dark ? '#2a2a2c' : '#f7f7f8',
+    background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.45)',
     border: `1px solid ${t.cardBorder}`,
+    backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
     boxShadow: dark ? '0 6px 20px rgba(0,0,0,0.28)' : '0 6px 20px rgba(0,0,0,0.07)',
   }
 }

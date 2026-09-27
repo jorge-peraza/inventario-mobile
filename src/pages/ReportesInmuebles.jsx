@@ -239,8 +239,8 @@ export default function ReportesInmuebles({ user, onNavigate }) {
   const [porPagina, setPorPagina] = useState(20)
   const OPCIONES = [10, 15, 20]
 
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px', padding: '1.25rem' }
-  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
+  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
   const bordeIzq = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)'
 
@@ -450,7 +450,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
             <div className="barra-fit" style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
                 style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-                  background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, userSelect:'none' }}>
+                  background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
                 <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0,
                   background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent',
                   border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)',
@@ -479,7 +479,7 @@ export default function ReportesInmuebles({ user, onNavigate }) {
               <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
                 <button onClick={() => setModalReporte(true)}
                   style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-                    background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, whiteSpace:'nowrap', flexShrink:0 }}>
+                    background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
                   <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
                 </button>
               </div>

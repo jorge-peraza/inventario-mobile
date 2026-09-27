@@ -316,7 +316,7 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, tituloInici
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
               <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
                 style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
                 <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{totalSel} seleccionado{totalSel !== 1 ? 's' : ''}
@@ -771,8 +771,8 @@ export default function Reportes({ user, onNavigate }) {
     await borrarReporteRemoto(id).catch(console.error)
   }
 
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px', padding: '1.25rem' }
-  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px', padding: '1.25rem' }
+  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
 
   const esConfirmadas = vista === 'confirmadas'
@@ -1023,7 +1023,7 @@ export default function Reportes({ user, onNavigate }) {
             {/* Barra pegajosa: las acciones siguen visibles al bajar en la tabla */}
             <div className="barra-fit" style={barraSticky(dark, t)}>
               <div onClick={toggleModoSeleccion}
-                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, userSelect: 'none', whiteSpace: 'nowrap' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)', userSelect: 'none', whiteSpace: 'nowrap' }}>
                 <div style={{ width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {modoSeleccion && <i className="ti ti-check" style={{ fontSize: '11px', color: dark ? '#1c1c1e' : '#fff' }} />}
                 </div>
@@ -1041,7 +1041,7 @@ export default function Reportes({ user, onNavigate }) {
                 </button>
               )}
               <button onClick={() => setModalReporte(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1 }}>
+                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
                 <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Generar Reporte
               </button>
             </div>

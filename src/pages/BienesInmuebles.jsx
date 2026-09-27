@@ -1217,7 +1217,7 @@ export function ModalReporte({ onClose, dark, t, categorias, seleccionados, filt
             {/* Alcance */}
             <div>
               <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-              <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+              <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
                 <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
                   style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s',
                     background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent',
@@ -2087,7 +2087,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
   }
 
   const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
-  const card = { background:t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'14px' }
+  const card = { background:t.cardBg, border:`1px solid ${t.cardBorder}`, backdropFilter:t.cardBlur, WebkitBackdropFilter:t.cardBlur, borderRadius:'14px' }
 
   const cols = [
     { key:'claveinmueble',      label:'CLAVE' },
@@ -2163,7 +2163,7 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
         <div className="barra-fit" style={barraSticky(dark, t)}>
           <div onClick={toggleModoSeleccion}
             style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-              background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, userSelect:'none' }}>
+              background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none' }}>
             <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0,
               background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent',
               border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)',
@@ -2197,12 +2197,12 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             </button>
             <button onClick={() => setModalNuevo(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, whiteSpace:'nowrap', flexShrink:0 }}>
+                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
               <i className="ti ti-building-plus" style={{ fontSize:'17px' }} />Nuevo inmueble
             </button>
             <button onClick={() => setModalReporte(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
-                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, whiteSpace:'nowrap', flexShrink:0 }}>
+                background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
               <i className="ti ti-file-export" style={{ fontSize:'17px' }} />Generar Reporte
             </button>
           </div>

@@ -52,7 +52,7 @@ export default function Sidebar({ user, active = 'inicio', onNavigate }) {
   const navItems = menuDelRol.filter(i => permitidas.includes(i.page))
 
   return (
-    <aside style={{ width: w, height:'100vh', flexShrink:0, display:'flex', flexDirection:'column', position:'fixed', top:0, left:0, zIndex:100, overflow:'hidden', background:t.sidebarBg, borderRight:`1px solid ${t.sidebarBorder}`, WebkitBackdropFilter:'blur(20px)', transition:'width 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
+    <aside style={{ width: w, height:'100vh', flexShrink:0, display:'flex', flexDirection:'column', position:'fixed', top:0, left:0, zIndex:100, overflow:'hidden', background:t.sidebarBg, borderRight:`1px solid ${t.sidebarBorder}`, backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)', transition:'width 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
 
       {/* Header */}
       <div style={{ padding:'1.25rem 1rem', borderBottom:`1px solid ${t.divider}`, display:'flex', alignItems:'center', justifyContent: sidebarOpen ? 'space-between' : 'center', gap:'10px', flexShrink:0, height:'68px' }}>

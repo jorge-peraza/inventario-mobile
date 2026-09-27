@@ -33,25 +33,15 @@
 @keyframes pulse    { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
 
 @keyframes telonEntra  { from { opacity: 0 } to { opacity: 1 } }
-@keyframes paginaEntra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
 
-/* ── Telón de los modales ─────────────────────────────────────────────────────
-   Antes difuminaba toda la pantalla (backdrop-filter: blur). Con una tabla
-   detrás, el navegador tenía que desenfocar cientos de celdas en cada cuadro
-   de la animación, y abrir un modal se trababa. Oscurecer con un fundido se
-   ve igual de limpio y cuesta casi nada. */
+/* ── Telón de los modales: el desenfoque de siempre, ahora con fundido ─────── */
 .telon {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.42);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   animation: telonEntra 0.22s ease-out both;
-}
-
-/* ── Cada pantalla entra con un fundido corto ──────────────────────────────── */
-main {
-  animation: paginaEntra 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
-  /* El scroll de la pantalla no arrastra la página de atrás */
-  overscroll-behavior: contain;
 }
 
 /* ── Sin movimiento para quien lo pidió en su sistema ─────────────────────── */

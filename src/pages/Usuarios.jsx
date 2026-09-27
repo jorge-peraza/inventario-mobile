@@ -329,7 +329,7 @@ export default function Usuarios({ user, onNavigate }) {
   }, [usuarios, busqueda, depFiltro])
 
   const bg = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
@@ -343,7 +343,7 @@ export default function Usuarios({ user, onNavigate }) {
             <p style={{ fontSize: '14px', color: t.text3 }}>Accesos de consulta por dependencia</p>
           </div>
           <button onClick={() => setModalUsuario('nuevo')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
             <i className="ti ti-user-plus" style={{ fontSize: '18px' }} />Nuevo Usuario
           </button>
         </div>

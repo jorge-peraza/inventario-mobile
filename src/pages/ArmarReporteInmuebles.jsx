@@ -131,7 +131,7 @@ export default function ArmarReporteInmuebles({ dark, t, categorias }) {
 
   function toggle(b) { setSeleccionados(prev => { const n = new Map(prev); n.has(b.idinmueble) ? n.delete(b.idinmueble) : n.set(b.idinmueble, b); return n }) }
   const totalPag = Math.max(1, Math.ceil(total / porPagina))
-  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
+  const cardTabla = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
   const bordeIzq = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)'
 
   return (
@@ -147,7 +147,7 @@ export default function ArmarReporteInmuebles({ dark, t, categorias }) {
           <button onClick={() => setSeleccionados(new Map())} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', fontSize: '13px', fontFamily: 'inherit', cursor: 'pointer', background: 'transparent', border: `1px solid ${t.cardBorder}`, color: t.text3 }}><i className="ti ti-x" style={{ fontSize: '14px' }} />Limpiar</button>
         )}
         <button onClick={() => setModal(true)} disabled={seleccionados.size === 0}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1 }}>
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 500, fontFamily: 'inherit', cursor: seleccionados.size === 0 ? 'not-allowed' : 'pointer', opacity: seleccionados.size === 0 ? 0.5 : 1, background: t.cardBg, border: `1px solid ${t.cardBorder}`, color: t.text1, backdropFilter: 'blur(10px)' }}>
           <i className="ti ti-file-export" style={{ fontSize: '17px' }} />Armar reporte
         </button>
       </div>

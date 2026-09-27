@@ -3483,7 +3483,7 @@ function ModalReporteMuebles({ onClose, dark, t, modo, seleccionados, filtros, t
           {/* Registros */}
           <div>
             <p style={{ fontSize:'10px', fontWeight:700, color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'8px' }}>Registros a incluir</p>
-            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px' }}>
+            <div style={{ display:'flex', gap:'5px', background: t.cardBg, border:`1px solid ${t.cardBorder}`, borderRadius:'12px', padding:'5px', backdropFilter:'blur(10px)' }}>
               <button onClick={() => haySel && setAlcance('seleccion')} disabled={!haySel}
                 style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', padding:'8px 12px', borderRadius:'9px', fontSize:'13px', fontWeight:500, fontFamily:'inherit', cursor: haySel ? 'pointer' : 'not-allowed', opacity: haySel ? 1 : 0.4, transition:'all 0.15s', background: alcance === 'seleccion' ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)') : 'transparent', border: alcance === 'seleccion' ? `1px solid ${t.cardBorder}` : '1px solid transparent', color: alcance === 'seleccion' ? t.text1 : t.text3 }}>
                 <i className="ti ti-square-check" style={{ fontSize:'16px' }} />{seleccionados.length} seleccionado{seleccionados.length !== 1 ? 's' : ''}
@@ -4756,7 +4756,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
   function solicitarBajaUno(b)  { setModalSolicitar([b]) }
 
   const bg   = dark ? 'linear-gradient(145deg,#111113 0%,#1c1c1e 50%,#222224 100%)' : 'linear-gradient(145deg,#e0e0e2 0%,#ebebed 50%,#e4e4e6 100%)'
-  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: '14px' }
+  const card = { background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur, borderRadius: '14px' }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: bg }}>
@@ -4777,10 +4777,10 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {/* Actúa sobre un área completa, por eso va aquí y no en la barra
                   de acciones, que trabaja sobre los registros seleccionados. */}
-              <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-users-group" style={{ fontSize: '18px' }} />Titular del área
               </button>
-              <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
               </button>
             </div>
@@ -4835,7 +4835,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
         {!papelera && (
         <div className="barra-fit" style={barraSticky(dark, t)} data-barra="acciones">
           <div onClick={toggleModoSeleccion}
-            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, userSelect:'none', whiteSpace:'nowrap' }}>
+            style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer', background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', userSelect:'none', whiteSpace:'nowrap' }}>
             <div style={{ width:'17px', height:'17px', borderRadius:'5px', flexShrink:0, background: modoSeleccion ? (dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.78)') : 'transparent', border: dark ? '1.5px solid rgba(255,255,255,0.4)' : '1.5px solid rgba(0,0,0,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               {modoSeleccion && <i className="ti ti-check" style={{ fontSize:'11px', color: dark ? '#1c1c1e' : '#fff' }} />}
             </div>

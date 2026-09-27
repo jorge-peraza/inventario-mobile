@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, startTransition } from 'react'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import Login from './pages/Login'
 import { supabase } from './supabase'
@@ -100,7 +100,7 @@ function App() {
       return
     }
     if (!permitidas.includes(destino)) { reemplazarRuta(paginaInicio(user.rol)); return }
-    if (destino !== page) setPage(destino)
+    if (destino !== page) startTransition(() => setPage(destino))
   }, [ruta.pagina, ruta.params[0], user, esMovil])
 
   function navigate(to, state = {}) {
@@ -108,11 +108,16 @@ function App() {
     // Cada usuario solo puede entrar a las páginas permitidas por su rol
     const permitidas = PAGINAS_POR_ROL[user?.rol] || []
     if (!permitidas.includes(to)) return
-    setNavState(state)
-    setPage(to)
-    // Volver a la misma página desde el menú debe reiniciarla (p. ej. salir de
-    // "En proceso de desincorporación" y regresar al inicio de Reportes).
-    if (to === page) setRecarga(r => r + 1)
+    // En transición: si la pantalla nueva todavía se está descargando, la actual
+    // se queda a la vista (con su menú lateral) hasta que la otra está lista, en
+    // vez de dejar la ventana en blanco un instante.
+    startTransition(() => {
+      setNavState(state)
+      setPage(to)
+      // Volver a la misma página desde el menú debe reiniciarla (p. ej. salir de
+      // "En proceso de desincorporación" y regresar al inicio de Reportes).
+      if (to === page) setRecarga(r => r + 1)
+    })
     irA(to)
   }
 

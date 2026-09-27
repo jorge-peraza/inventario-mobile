@@ -178,6 +178,7 @@ export default function Dependencias({ user, onNavigate }) {
     : 'linear-gradient(145deg, #e0e0e2 0%, #ebebed 50%, #e4e4e6 100%)'
   const cardTabla = {
     background: t.cardBg, border: `1px solid ${t.cardBorder}`,
+    backdropFilter: t.cardBlur, WebkitBackdropFilter: t.cardBlur,
     borderRadius: '14px', overflow: 'hidden',
   }
 
