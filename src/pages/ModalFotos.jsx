@@ -62,6 +62,9 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
   }
 
   const foto = fotos && fotos[sel]
+  // Con una sola foto, o ninguna, la grande ocupa todo el ancho: la columna de
+  // miniaturas solo aparece cuando hay entre cuáles escoger
+  const conMiniaturas = !!fotos && fotos.length > 1
   const sep = dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)'
   const lienzo = { background: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', border: `1px solid ${t.cardBorder}`, borderRadius: '12px' }
   const btnCerrar = { flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }
@@ -97,7 +100,7 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
 
             {/* ── 1. Galería ── */}
             <div style={{ width: '50%', display: 'flex', flexDirection: 'column' }} aria-hidden={paso !== 'galeria'}>
-              <div style={{ padding: '1.25rem 1.5rem', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 92px', gap: '12px', height: '420px' }}>
+              <div style={{ padding: '1.25rem 1.5rem', display: 'grid', gridTemplateColumns: conMiniaturas ? 'minmax(0,1fr) 92px' : '1fr', gap: '12px', height: '420px' }}>
                 <div style={{ ...lienzo, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', minHeight: 0 }}>
                   {fotos === null ? (
                     <i className="ti ti-loader-2" style={{ fontSize: '24px', color: t.text4, animation: 'spin 1s linear infinite' }} />
@@ -115,6 +118,7 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
                   )}
                 </div>
                 {/* Las miniaturas, en una sola columna junto a la foto grande */}
+                {conMiniaturas && (
                 <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 0, paddingRight: '2px' }}>
                   {(fotos || []).map((f, i) => (
                     <button key={f.id} onClick={() => setSel(i)} title={`Foto ${i + 1}`}
@@ -124,6 +128,7 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
                     </button>
                   ))}
                 </div>
+                )}
               </div>
               <div style={pie}>
                 <button onClick={onClose} style={btnCerrar}>Cerrar</button>
