@@ -1030,6 +1030,23 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
   saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(extra.archivo || titulo, 'inventario-inmuebles', 'xlsx'))
 }
 
+// Sin acentos y en minúsculas, para comparar lo escrito con los nombres
+const sinAcentos = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+function categoriasQueEmpiezan(categorias, texto) {
+  const q = sinAcentos(texto).trim()
+  if (!q) return []
+  return (categorias || []).filter(c => sinAcentos(c.nombrecategoria).startsWith(q)).map(c => c.idcategoria)
+}
+
+// Si todavía no llegan las categorías (se buscó recién abierta la pantalla),
+// se piden aquí: si no, la primera búsqueda salía sin la categoría.
+async function categoriasParaBuscar(categorias) {
+  if (categorias && categorias.length) return categorias
+  const { data } = await supabase.from('categoriasinmuebles').select('idcategoria, nombrecategoria')
+  return data || []
+}
+
 // Al buscar, lo que coincide por nombre va primero. Antes todo salía por
 // consecutivo, y al escribir "equipamiento" la categoría completa se
 // adelantaba a los inmuebles que se llaman así. El orden es:
@@ -1038,11 +1055,11 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
 //   4 lo demás (categoría, superficie, valor o fecha)
 // Dentro de cada grupo se respeta el consecutivo.
 function relevanciaInmueble(r, texto) {
-  const q = texto.toLowerCase()
-  const nombre = String(r.nombreinmueble || '').toLowerCase()
+  const q = sinAcentos(texto).trim()
+  const nombre = sinAcentos(r.nombreinmueble)
   if (nombre.startsWith(q)) return 0
   if (nombre.includes(q)) return 1
-  const tiene = campos => campos.some(v => String(v ?? '').toLowerCase().includes(q))
+  const tiene = campos => campos.some(v => sinAcentos(v).includes(q))
   if (tiene([r.claveinmueble, r.clavecatastral])) return 2
   if (tiene([r.ubicacion, r.documentopropiedad, r.expediente, r.adquisicion])) return 3
   return 4
@@ -1059,6 +1076,7 @@ function ordenarPorRelevancia(filas, busqueda) {
 
 // Trae todos los registros que cumplen los filtros actuales (paginado)
 async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categorias }) {
+  if (String(busqueda || '').trim()) categorias = await categoriasParaBuscar(categorias)
   const BATCH = 1000
   let todos = [], desde = 0
   while (true) {
@@ -1328,10 +1346,10 @@ function aplicarBusquedaInmuebles(query, busqueda, categorias) {
     `adquisicion.ilike.${val}`,
   ]
 
-  // Categoría: se resuelven los ids cuyo nombre coincide (p. ej. "espacios deportivos")
-  const ids = (categorias || [])
-    .filter(c => (c.nombrecategoria || '').toLowerCase().includes(txt.toLowerCase()))
-    .map(c => c.idcategoria)
+  // Categoría: entra completa la categoría cuyo nombre empieza con lo escrito
+  // ("equipamiento" → EQUIPAMIENTOS, AREAS VERDES…). El orden de la lista
+  // pone primero los que además lo tienen en el nombre (relevanciaInmueble).
+  const ids = categoriasQueEmpiezan(categorias, txt)
   if (ids.length) cond.push(`idcategoria.in.(${ids.join(',')})`)
 
   // Número: se busca por aproximación, no exacto. Al teclear "2000" también
