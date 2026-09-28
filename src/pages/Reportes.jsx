@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import Sidebar from '../components/Sidebar'
 import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
-import { barraSticky, sStyle, Deslizable, useTituloAuto } from './ui'
+import { barraSticky, sStyle, Deslizable, useTituloAuto, btnAccion } from './ui'
 import { supabase } from '../supabase'
 import { textoPeriodo } from '../exportadores'
-import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, exportarExcelMuebles, exportarPDFMuebles, fechasDeBaja, setFechaBaja, subirFechasBajasPendientes, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
+import { fetchBienesPorEstado, actualizarEstadoBienes, PanelConsulta, ModalBaja, ModalEditar, exportarExcelMuebles, exportarPDFMuebles, fechasDeBaja, setFechaBaja, subirFechasBajasPendientes, hoyISO, GroupedAreaSelector, fetchAreas, areasConConteo, colsReporte, COLS_BIENES, COLS_ALTAS, fetchPorFechaFactura, contarPorFechaFactura, fetchTodosMuebles, fetchBienesConAlta, valorMueble, ModalAdquisicionesMuebles } from './BienesMuebles'
 import { sesionActual } from '../auth'
 import { listarReportes, guardarReporteRemoto, borrarReporteRemoto, getLocales } from '../reportesPersonalizados'
 
@@ -369,6 +369,89 @@ function ModalReporteBajas({ onClose, dark, t, datos, seleccionados, esConfirmad
   )
 }
 
+// Confirmación para regresar un bien desde las listas de bajas. Solo cambia su
+// estado: la clave de inventario se queda como está.
+function ModalRegresoBien({ bien, destino, onClose, onConfirm, dark, t }) {
+  const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState(null)
+  const aInventario = destino === 'ACTIVO'
+  async function confirmar() {
+    setGuardando(true); setErr(null)
+    try { await onConfirm(); onClose() }
+    catch (e) { setErr(e.message); setGuardando(false) }
+  }
+  const sep = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+  const dato = (etq, val) => (
+    <div style={{ padding: '10px 1.5rem', borderBottom: sep }}>
+      <p style={{ fontSize: '10px', color: dark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '3px' }}>{etq}</p>
+      <p style={{ fontSize: '13px', color: dark ? '#f0f0f0' : '#111', lineHeight: 1.35 }}>{val || '—'}</p>
+    </div>
+  )
+  return createPortal(
+    <>
+      <div onClick={guardando ? undefined : onClose} className="telon" style={{ zIndex: 300 }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '480px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className={`ti ${aInventario ? 'ti-arrow-back-up' : 'ti-circle-minus'}`} style={{ fontSize: '18px', color: t.text1 }} />
+          </div>
+          <div>
+            <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{aInventario ? 'Regresar al inventario' : 'Regresar a Solicitud de baja'}</p>
+            <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Conserva su clave {bien.claveinventario || ''}</p>
+          </div>
+        </div>
+        {dato('Clave de inventario', bien.claveinventario)}
+        {dato('Nombre del bien', bien.nombrebien)}
+        {dato('Área de adscripción', bien.area)}
+        <div style={{ padding: '1rem 1.5rem' }}>
+          <p style={{ fontSize: '12.5px', color: t.text3, lineHeight: 1.55 }}>
+            {aInventario
+              ? 'El bien vuelve al inventario como activo, con la misma clave que tiene.'
+              : 'El bien vuelve a Solicitud de baja, con la misma clave que tiene.'}
+          </p>
+          {err && <p style={{ fontSize: '12.5px', color: dark ? '#f8a8a8' : '#b91c1c', marginTop: '8px' }}><i className="ti ti-alert-circle" style={{ marginRight: '5px' }} />{err}</p>}
+        </div>
+        <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
+          <button onClick={onClose} disabled={guardando}
+            style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={confirmar} disabled={guardando}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
+            {guardando ? 'Guardando…' : (aInventario ? 'Regresar al inventario' : 'Regresar a Solicitud')}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
+// Confirmación antes de eliminar un reporte personalizado
+function ModalBorrarReporte({ reporte, onClose, onConfirm, dark, t }) {
+  const [borrando, setBorrando] = useState(false)
+  return createPortal(
+    <>
+      <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 301, width: '440px', maxWidth: '94vw', background: dark ? '#1e1e20' : '#fff', borderRadius: '16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow: 'hidden' }}>
+        <div style={{ padding: '1.25rem 1.5rem' }}>
+          <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111', marginBottom: '8px' }}>¿Eliminar este reporte personalizado?</p>
+          <p style={{ fontSize: '13px', color: t.text3, lineHeight: 1.55 }}>
+            Se elimina la configuración de "{reporte.titulo}". No se borra ningún bien.
+          </p>
+        </div>
+        <div style={{ padding: '1rem 1.5rem', borderTop: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: '8px' }}>
+          <button onClick={onClose} disabled={borrando}
+            style={{ flex: 1, padding: '10px', background: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', border: dark ? '1px solid rgba(255,255,255,0.13)' : '1px solid rgba(0,0,0,0.09)', borderRadius: '9px', fontSize: '14px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={async () => { setBorrando(true); await onConfirm(); onClose() }} disabled={borrando}
+            style={{ flex: 1, padding: '10px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: dark ? 'rgba(244,161,161,0.18)' : 'rgba(192,57,43,0.08)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.35)', color: dark ? '#f4a1a1' : '#c0392b' }}>
+            {borrando ? 'Eliminando…' : 'Sí, eliminar'}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
 function rangoPeriodo(tipo) {
   const hasta = new Date()
   const desde = new Date()
@@ -709,6 +792,9 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
   const [loading, setLoading] = useState(false)
   const [panelBien, setPanelBien] = useState(null)
   const [modalConfirmar, setModalConfirmar] = useState(null)
+  const [modalEditar, setModalEditar]   = useState(null)
+  const [regreso, setRegreso] = useState(null)       // { bien, destino: 'SOLICITUD BAJA' | 'ACTIVO' }
+  const [borrarRep, setBorrarRep] = useState(null)   // reporte personalizado por eliminar
   const [procId, setProcId] = useState(null)
   const [busqueda, setBusqueda]   = useState('')
   const [filtroBien, setFiltroBien] = useState('')
@@ -833,7 +919,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
   }
 
   const cards = esMovimientos ? [
-    { id: 'traspasos',   icon: 'ti-arrows-exchange', label: 'Traspasos',          value: conteos.traspaso,  hint: 'Bienes traspasados',          color: t.text1 },
+    { id: 'traspasos',   icon: 'ti-arrows-exchange', label: 'Traspasos',          value: conteos.traspaso,  hint: 'Bienes traspasados',          color: dark ? '#ffd580' : '#b7790a' },
     { id: 'solicitudes', icon: 'ti-circle-minus',    label: 'Solicitud de bajas', value: conteos.solicitud, hint: 'Bienes propuestos para baja', color: t.colorYellow },
     { id: 'confirmadas', icon: 'ti-circle-minus',    label: 'Bajas confirmadas',  value: conteos.baja,      hint: 'Bienes dados de baja',        color: t.colorRed },
   ] : []
@@ -912,7 +998,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
         </div>
 
         {vista === 'inicio' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px' }}>
             {cards.map(c => (
               <button key={c.id} onClick={() => { if (c.id === 'traspasos') { onNavigate('traspasos') } else { setVista(c.id); setBusqueda(''); setFiltroBien(''); setAreasSelec([]); setModoSeleccion(false); setSeleccionados(new Set()) } }}
                 style={{ ...card, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', transition: 'opacity 0.15s' }}
@@ -926,7 +1012,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
                   <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{c.label}</p>
                 </div>
                 {<p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.value == null ? '…' : c.value.toLocaleString()}</p>}
-                <p style={{ fontSize: '12px', color: t.text4 }}>{c.hint}</p>
+                <p title={c.hint} style={{ fontSize: '12px', color: t.text4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.hint}</p>
               </button>
             ))}
 
@@ -934,7 +1020,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
             {/* Reportes por periodo (por fecha de factura). Sin etiqueta: el
                 encabezado ya dice que es la generación de reportes */}
             <div style={{ gridColumn: '1 / -1' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px' }}>
                 {[
                   { id: 'mensual',    icon: 'ti-file-text',    label: 'Reporte Mensual',       hint: 'Facturas del último mes',      value: conteoPeriodo.mensual,    color: t.text2 },
                   { id: 'trimestral', icon: 'ti-file-text',    label: 'Reporte Trimestral',    hint: 'Facturas de 3 meses',          value: conteoPeriodo.trimestral, color: t.text2 },
@@ -963,7 +1049,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
                     <p style={{ fontSize: '30px', fontWeight: 600, lineHeight: 1, marginBottom: '6px', color: p.value !== null ? t.text1 : 'transparent' }}>
                       {p.value !== null ? (p.value == null ? '…' : p.value.toLocaleString()) : ' '}
                     </p>
-                    <p style={{ fontSize: '12px', color: t.text4 }}>{p.hint}</p>
+                    <p title={p.hint} style={{ fontSize: '12px', color: t.text4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.hint}</p>
                   </button>
                 ))}
               </div>
@@ -972,14 +1058,14 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
             {/* Reportes personalizados (configuraciones guardadas) */}
             <div style={{ gridColumn: '1 / -1', marginTop: '0.75rem' }}>
               <p style={{ fontSize: '11px', fontWeight: 600, color: t.text4, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: '10px' }}>Reportes personalizados</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px' }}>
                 {reportes.map(r => (
                   <div key={r.id} onClick={() => setModalPreview(r)}
                     style={{ ...card, minWidth: 0, cursor: 'pointer', position: 'relative', transition: 'opacity 0.15s' }}
                     onMouseEnter={e => e.currentTarget.style.opacity = '0.8'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                     <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '4px' }}>
                       <button onClick={e => { e.stopPropagation(); setModalConfig(r) }} title="Editar" style={{ width: '26px', height: '26px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-pencil" style={{ fontSize: '13px' }} /></button>
-                      <button onClick={e => { e.stopPropagation(); borrarReporte(r.id) }} title="Eliminar" style={{ width: '26px', height: '26px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-trash" style={{ fontSize: '13px' }} /></button>
+                      <button onClick={e => { e.stopPropagation(); setBorrarRep(r) }} title="Eliminar" style={{ width: '26px', height: '26px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}><i className="ti ti-trash" style={{ fontSize: '13px' }} /></button>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem', paddingRight: '60px' }}>
                       <div style={{ width: '42px', height: '42px', borderRadius: '11px', flexShrink: 0, background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1130,8 +1216,27 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
                                       <i className="ti ti-circle-minus" style={{ fontSize: '14px' }} />
                                     </button>
                                   )}
+                                  <button onClick={(e) => { e.stopPropagation(); setModalEditar(b) }} title="Editar" style={btnAccion(dark, 'editar')}
+                                    onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                    <i className="ti ti-pencil" style={{ fontSize: '14px' }} />
+                                  </button>
+                                  {/* Desde Bajas confirmadas el bien puede volver a la solicitud,
+                                      por si se confirmó por error. Conserva su clave. */}
+                                  {esConfirmadas && (
+                                    <button onClick={(e) => { e.stopPropagation(); setRegreso({ bien: b, destino: 'SOLICITUD BAJA' }) }} title="Regresar a Solicitud de baja" style={btnAccion(dark, 'traspaso')}
+                                      onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                      <i className="ti ti-circle-minus" style={{ fontSize: '14px' }} />
+                                    </button>
+                                  )}
+                                  {esConfirmadas && (
+                                    <button onClick={(e) => { e.stopPropagation(); setRegreso({ bien: b, destino: 'ACTIVO' }) }} title="Regresar al inventario"
+                                      style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.text3 }}
+                                      onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                      <i className="ti ti-x" style={{ fontSize: '14px' }} />
+                                    </button>
+                                  )}
                                   {!esConfirmadas && (
-                                    <button onClick={(e) => { e.stopPropagation(); cancelarSolicitud(b) }} disabled={procId === b.idbien} title="Cancelar solicitud de baja"
+                                    <button onClick={(e) => { e.stopPropagation(); cancelarSolicitud(b) }} disabled={procId === b.idbien} title="Regresar al inventario"
                                       style={{ width: '30px', height: '30px', borderRadius: '7px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: procId === b.idbien ? 'wait' : 'pointer', color: t.text3 }}
                                       onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                                       <i className="ti ti-x" style={{ fontSize: '14px' }} />
@@ -1186,7 +1291,7 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
         )}
       </main>
 
-      {panelBien && <PanelConsulta bien={panelBien} onClose={() => setPanelBien(null)} t={t} dark={dark} sinEtiqueta />}
+      {panelBien && <PanelConsulta bien={panelBien} onClose={() => setPanelBien(null)} t={t} dark={dark} />}
       {modalConfirmar && (
         <ModalBaja bien={modalConfirmar} onClose={() => setModalConfirmar(null)} dark={dark} t={t} titulo="Confirmar Baja"
           onConfirm={async () => {
@@ -1196,6 +1301,23 @@ export default function Reportes({ user, onNavigate, seccion = 'reportes' }) {
             cargarConteos()
           }} />
       )}
+      {modalEditar && (
+        <ModalEditar bien={modalEditar} onClose={() => setModalEditar(null)} dark={dark} t={t}
+          onSaved={() => cargar(estadoActual)} />
+      )}
+      {regreso && (
+        <ModalRegresoBien bien={regreso.bien} destino={regreso.destino} dark={dark} t={t}
+          onClose={() => setRegreso(null)}
+          onConfirm={async () => {
+            // Solo cambia el estado: la clave del bien se queda igual
+            await actualizarEstadoBienes([regreso.bien.idbien], regreso.destino)
+            // Ya no está confirmada: su fecha de baja se vacía
+            await setFechaBaja([regreso.bien.idbien], 'confirmacion', null)
+            await cargar(estadoActual)
+            cargarConteos()
+          }} />
+      )}
+      {borrarRep && <ModalBorrarReporte reporte={borrarRep} dark={dark} t={t} onClose={() => setBorrarRep(null)} onConfirm={() => borrarReporte(borrarRep.id)} />}
       {modalAdquisiciones && <ModalAdquisicionesMuebles onClose={() => setModalAdquisiciones(false)} dark={dark} t={t} filtros={{ filtroAreaIds: [] }} />}
       {modalAltas && <ModalReporteAltas allAreas={allAreas} onClose={() => setModalAltas(false)} dark={dark} t={t} />}
       {modalPeriodo && <ModalReportePeriodo tipo={modalPeriodo} allAreas={allAreas} onClose={() => setModalPeriodo(null)} dark={dark} t={t} />}

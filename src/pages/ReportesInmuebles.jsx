@@ -5,7 +5,7 @@ import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
 import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
 import { barraSticky, btnBarra, sStyle, MenuFila, Deslizable, useTituloAuto } from './ui'
-import { textoPeriodo, fechaEnPalabras } from '../exportadores'
+import { textoPeriodo, fechaCorta } from '../exportadores'
 import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { siguienteClaveInmueble } from './BienesInmuebles'
 import { ID_PROCESO, ID_DESINC, fetchInmueblesPorCategoria, contarCategoria, cambiarCategoria, tramiteDe, setDesinc, quitarDesinc, subirTramitesPendientes, hoyISO } from '../desincorporaciones'
@@ -379,7 +379,7 @@ export default function ReportesInmuebles({ user, onNavigate, seccion = 'reporte
     { id: 'proceso',        icon: 'ti-progress',     label: 'En Proceso de Desincorporación', value: conteos.proceso, hint: 'Inmuebles en trámite', color: t.colorYellow },
     { id: 'desincorporado', icon: 'ti-circle-minus',  label: 'Desincorporado',                 value: conteos.desinc,  hint: 'Inmuebles desincorporados', color: t.colorRed },
   ] : [
-    { id: 'enajenaciones',  icon: 'ti-transfer',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
+    { id: 'enajenaciones',  icon: 'ti-home-move',     label: 'Reporte de Enajenaciones',       value: null, accion: true, hint: 'Desincorporaciones e incorporaciones por periodo', color: t.text2 },
     { id: 'tesoreria',      icon: 'ti-building-bank', label: 'Reporte de Tesorería',          value: null, accion: true, hint: 'Enajenaciones del periodo', color: t.text2 },
   ]
 
@@ -406,7 +406,7 @@ export default function ReportesInmuebles({ user, onNavigate, seccion = 'reporte
         </div>
 
         {vista === 'inicio' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px' }}>
             {cards.map(c => (
               <button key={c.id} onClick={() => {
                 if (c.id === 'enajenaciones') setModalEnaj(true)
@@ -421,8 +421,10 @@ export default function ReportesInmuebles({ user, onNavigate, seccion = 'reporte
                   </div>
                   <p style={{ fontSize: '15px', fontWeight: 600, color: t.text1 }}>{c.label}</p>
                 </div>
-                {!c.accion && <p style={{ fontSize: '30px', fontWeight: 600, color: t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.value == null ? '…' : c.value.toLocaleString()}</p>}
-                <p style={{ fontSize: '12px', color: t.text4 }}>{c.hint}</p>
+                {/* Las tarjetas sin conteo reservan el mismo alto: así miden lo
+                    mismo que las de Movimientos */}
+                <p style={{ fontSize: '30px', fontWeight: 600, color: c.accion ? 'transparent' : t.text1, lineHeight: 1, marginBottom: '6px' }}>{c.accion ? ' ' : (c.value == null ? '…' : c.value.toLocaleString())}</p>
+                <p title={c.hint} style={{ fontSize: '12px', color: t.text4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.hint}</p>
               </button>
             ))}
           </div>
@@ -785,7 +787,7 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
         // El título del formato es siempre el mismo; el archivo se nombra por
         // el periodo para que no se encimen los de distintas fechas
         archivo: alcance === 'hasta'
-          ? `REPORTE DE TESORERÍA INMUEBLES HASTA EL ${fechaEnPalabras(corte)}`
+          ? `REPORTE DE TESORERÍA INMUEBLES HASTA EL ${fechaCorta(corte)}`
           : `REPORTE DE TESORERÍA INMUEBLES ${subtitulo}`,
         dependencia: TES_DEPENDENCIA,
         monto: { etiqueta: TES_MONTO, valor: sumaTexto },
@@ -958,8 +960,8 @@ function ModalEnajenaciones({ onClose, dark, t }) {
       {/* Header */}
       <div style={{ padding: '1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: dark ? 'rgba(168,230,207,0.15)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.3)' : '1px solid rgba(30,126,74,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <i className="ti ti-transfer" style={{ fontSize: '18px', color: dark ? '#a8e6cf' : '#1e7e4a' }} />
+          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: t.iconBox, border: `1px solid ${t.iconBoxBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="ti ti-home-move" style={{ fontSize: '18px', color: t.text1 }} />
           </div>
           <div>
             <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>Reporte de Enajenaciones</p>

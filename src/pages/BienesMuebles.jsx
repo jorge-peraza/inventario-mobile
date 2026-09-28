@@ -8,6 +8,7 @@ import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabase } from "../supabase";
 import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria, ESTADO_PAPELERA } from '../claves'
 import PapeleraReconteos from './PapeleraReconteos'
+import ModalFotos from './ModalFotos'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 export function estadoInfo(obs, dark) {
@@ -735,10 +736,17 @@ function ModalResguardo({ bien, onClose, dark, t }) {
 }
 
 // ── PanelConsulta ─────────────────────────────────────────────────────────────
-export function PanelConsulta({ bien, onClose, t, dark, sinEtiqueta = false }) {
+// Las etiquetas ya no se reimprimen aquí (se imprimen todas en otro lugar); en
+// su lugar se consultan las fotos del bien.
+export function PanelConsulta({ bien, onClose, t, dark }) {
+  const [verFotos, setVerFotos] = useState(false)
   if (!bien) return null
   const { close, anim } = useClosing(onClose)
   const esVehiculo = ['VEHICULAR','VEHICULAR-MAQUINARIA','VEHICULAR-REMOLQUES-CARROCERIAS'].includes(bien.categoriainventario)
+
+  // Las fotos toman el lugar de la consulta: mientras se ven, el panel se
+  // cierra, y al cerrar las fotos el panel vuelve a abrirse.
+  if (verFotos) return <ModalFotos bien={bien} onClose={() => setVerFotos(false)} dark={dark} t={t} />
 
   const campos = esVehiculo
     ? [
@@ -805,15 +813,12 @@ export function PanelConsulta({ bien, onClose, t, dark, sinEtiqueta = false }) {
           <button onClick={close} style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', fontSize: '13px', fontWeight: 500, color: dark ? '#ccc' : '#444', fontFamily: 'inherit', cursor: 'pointer' }}>
             Cerrar
           </button>
-          {!sinEtiqueta && (
-            <button style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.2)', fontSize: '14px', fontWeight: 600, color: dark ? '#a8c5f8' : '#2563eb', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-              <i className="ti ti-printer" style={{ fontSize: '15px' }} />
-              Reimprimir Etiqueta
-            </button>
-          )}
+          <button onClick={() => setVerFotos(true)} style={{ flex: 1, padding: '10px', borderRadius: '9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.2)', fontSize: '14px', fontWeight: 600, color: dark ? '#a8c5f8' : '#2563eb', fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+            <i className="ti ti-photo" style={{ fontSize: '15px' }} />
+            Consultar Fotos
+          </button>
         </div>
       </div>
-      
     </>
   )
 }
@@ -3370,8 +3375,8 @@ export function ModalAdquisicionesMuebles({ onClose, dark, t, filtros }) {
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: dark ? 'rgba(168,200,255,0.15)' : 'rgba(30,80,200,0.08)', border: dark ? '1px solid rgba(168,200,255,0.3)' : '1px solid rgba(30,80,200,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <i className="ti ti-file-invoice" style={{ fontSize:'18px', color: dark ? '#a8c8ff' : '#1e4dcc' }} />
+            <div style={{ width:'34px', height:'34px', borderRadius:'9px', background: t.iconBox, border:`1px solid ${t.iconBoxBorder}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <i className="ti ti-file-invoice" style={{ fontSize:'18px', color: t.text1 }} />
             </div>
             <div>
               <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Reporte de Conciliación</p>

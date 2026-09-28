@@ -248,6 +248,28 @@
 .movil .chip.ok    { background: var(--ok-suave);    color: var(--ok); }
 .movil .chip.falta { background: var(--falta-suave); color: var(--falta); }
 
+/* ── Fotos del bien al escanear ─────────────────────────────────────────── */
+.movil .carrusel {
+  display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+  border-radius: 14px; border: 1px solid var(--borde); background: var(--tarjeta);
+  scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.movil .carrusel::-webkit-scrollbar { display: none; }
+.movil .carrusel img {
+  flex: 0 0 100%; width: 100%; aspect-ratio: 4 / 3; object-fit: contain;
+  scroll-snap-align: center; scroll-snap-stop: always;
+}
+.movil .carrusel-vacio {
+  aspect-ratio: 4 / 3; border-radius: 14px; border: 1px solid var(--borde); background: var(--tarjeta);
+  display: flex; align-items: center; justify-content: center; color: var(--texto-4); font-size: 22px;
+}
+.movil .puntos { display: flex; justify-content: center; gap: 5px; margin-top: 8px; }
+.movil .puntos span {
+  width: 6px; height: 6px; border-radius: 3px; background: var(--borde-fuerte);
+  transition: width 0.2s ease-out, background 0.2s;
+}
+.movil .puntos span.activo { width: 16px; background: var(--texto-2); }
+
 /* ── Hoja deslizable (el botón "Más") ────────────────────────────────────── */
 .movil-telon {
   position: fixed; inset: 0; z-index: 40;

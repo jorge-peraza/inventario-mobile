@@ -76,7 +76,7 @@ export default function PapeleraReconteos({ dark, t, card, onConteo }) {
   useEffect(() => { cargar() }, [cargar])
 
   const borde = dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)'
-  const COLS = ['FECHA', 'ÁREA', 'DEPENDENCIA', 'LEVANTÓ', 'BIENES', 'VERIFICADOS', 'EN LA PAPELERA DESDE', 'ACCIONES']
+  const COLS = ['FECHA', 'ÁREA', 'DEPENDENCIA', 'INICIÓ', 'BIENES', 'VERIFICADOS', 'EN LA PAPELERA DESDE', 'ACCIONES']
 
   return (
     <>

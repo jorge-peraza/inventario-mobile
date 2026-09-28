@@ -39,16 +39,17 @@ export function nombreArchivo(titulo, respaldo, ext) {
   return `${base}.${ext}`
 }
 
-// ── Periodo en palabras ─────────────────────────────────────────────────────
-// "DEL 1 DE AGOSTO DE 2026 AL 31 DE AGOSTO DE 2026". Con una sola fecha dice
-// "DESDE EL…" o "HASTA EL…"; sin fechas, nada.
-const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
-export function fechaEnPalabras(iso) {
+// ── Periodo ─────────────────────────────────────────────────────────────────
+// En número, que ocupa poco en el título y en el nombre del archivo:
+// "DEL 01-08-26 AL 31-08-26". Con una sola fecha dice "DESDE EL…" o
+// "HASTA EL…"; sin fechas, nada. Va con guiones y no con diagonales porque
+// Windows no acepta la diagonal en el nombre de un archivo.
+export function fechaCorta(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
-  return m ? `${Number(m[3])} DE ${MESES[Number(m[2]) - 1] || ''} DE ${m[1]}` : ''
+  return m ? `${m[3]}-${m[2]}-${m[1].slice(2)}` : ''
 }
 export function textoPeriodo(desde, hasta) {
-  const a = fechaEnPalabras(desde), b = fechaEnPalabras(hasta)
+  const a = fechaCorta(desde), b = fechaCorta(hasta)
   if (a && b) return `DEL ${a} AL ${b}`
   if (a) return `DESDE EL ${a}`
   if (b) return `HASTA EL ${b}`

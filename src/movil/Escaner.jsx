@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { reemplazarRuta } from '../rutas'
 import { Cabecera } from './AppMovil'
-import { Cargando, Vacio } from './comunes'
+import { Cargando, Vacio, CarruselFotos } from './comunes'
 import { hayCamara, abrirCamara, cerrarCamara, leerContinuo, avisar } from './camara'
 import {
   reconteoAbierto, reconteo, revisar, marcar, marcarSubida, resumen,
@@ -309,6 +309,8 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
 
         {bien ? (
           <>
+            {/* Para confirmar con la vista que es el bien que se tiene enfrente */}
+            <CarruselFotos idbien={bien.idbien} />
             <div className="tarjeta">
               <p style={{ fontSize: '17px', fontWeight: 600, lineHeight: 1.3 }}>{bien.nombre}</p>
               {bien.area && <p className="detalle">{bien.area}</p>}

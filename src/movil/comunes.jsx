@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBloquearScroll } from './useBloquearScroll'
+import { listarFotos, hayServidorFotos } from '../fotos'
 
 // ── Piezas que usan varias pantallas del celular ─────────────────────────────
 // Viven aquí y no dentro de una pantalla para que el escáner, el historial y las
@@ -71,6 +72,38 @@ export function ConfirmarConContrasena({ titulo, detalle, textoOk, onOk, onCerra
         </div>
       </form>
     </>
+  )
+}
+
+// ── Fotos del bien, deslizando ───────────────────────────────────────────────
+// Al escanear un QR se enseñan las fotos que tiene el bien en el servidor de
+// imágenes, para confirmar a simple vista que es el mismo. Una por pantalla, se
+// pasan con el dedo; los puntos de abajo dicen en cuál va. Sin servidor o sin
+// fotos no se enseña nada.
+export function CarruselFotos({ idbien }) {
+  const [fotos, setFotos] = useState(() => (hayServidorFotos() ? null : []))
+  const [actual, setActual] = useState(0)
+  useEffect(() => {
+    if (!hayServidorFotos() || idbien == null) return
+    let vivo = true
+    listarFotos(idbien).then(l => { if (vivo) setFotos(l) }).catch(() => { if (vivo) setFotos([]) })
+    return () => { vivo = false }
+  }, [idbien])
+
+  if (fotos === null) return <div className="carrusel-vacio"><i className="ti ti-loader-2 gira" /></div>
+  if (!fotos.length) return null
+  return (
+    <div>
+      <div className="carrusel" onScroll={e => {
+        const el = e.currentTarget
+        setActual(Math.round(el.scrollLeft / el.clientWidth))
+      }}>
+        {fotos.map((f, i) => <img key={f.id} src={f.url} alt={`Foto ${i + 1}`} loading={i ? 'lazy' : 'eager'} />)}
+      </div>
+      {fotos.length > 1 && (
+        <div className="puntos">{fotos.map((f, i) => <span key={f.id} className={i === actual ? 'activo' : ''} />)}</div>
+      )}
+    </div>
   )
 }
 
