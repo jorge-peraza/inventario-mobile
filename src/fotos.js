@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-// ── Fotos de los bienes muebles ──────────────────────────────────────────────
+// ── Fotos de los bienes muebles y de los inmuebles ───────────────────────────
 // Las fotos vivirán en un servidor aparte, no en Supabase. Mientras ese
 // servidor no exista, SERVIDOR_FOTOS queda vacío: la consulta responde "sin
 // fotos" y la subida avisa que todavía no hay dónde guardarlas.
@@ -11,12 +11,13 @@ import { supabase } from './supabase'
 //
 //   VITE_SERVIDOR_FOTOS=https://fotos.ejemplo.gob.mx/api
 //
-// Rutas que la app espera del servidor:
+// Rutas que la app espera del servidor. {tipo} es "bienes" (muebles, por
+// idbien) o "inmuebles" (por idinmueble):
 //
-//   GET  {SERVIDOR}/bienes/{idbien}/fotos
+//   GET  {SERVIDOR}/{tipo}/{id}/fotos
 //        → 200 [{ id, url, miniatura? }, …]   (o una lista de URLs)
 //
-//   POST {SERVIDOR}/bienes/{idbien}/fotos      multipart/form-data
+//   POST {SERVIDOR}/{tipo}/{id}/fotos          multipart/form-data
 //        campo "fotos" (uno por imagen) y "clave" (clave de inventario)
 //        → 200 [{ id, url, miniatura? }, …]   las fotos que quedaron guardadas
 //
@@ -50,10 +51,17 @@ function normalizar(lista) {
     .filter(f => f.url)
 }
 
-// Fotos de un bien. Sin servidor, o si el servidor no responde, lista vacía.
-export async function listarFotos(idbien) {
-  if (!SERVIDOR_FOTOS || idbien == null) return []
-  const r = await fetch(`${SERVIDOR_FOTOS}/bienes/${encodeURIComponent(idbien)}/fotos`, { headers: await cabeceras() })
+const TIPOS = ['bienes', 'inmuebles']
+function ruta(tipo, id) {
+  if (!TIPOS.includes(tipo)) throw new Error(`Tipo de fotos desconocido: ${tipo}`)
+  return `${SERVIDOR_FOTOS}/${tipo}/${encodeURIComponent(id)}/fotos`
+}
+
+// Fotos de un bien mueble (tipo 'bienes') o de un inmueble (tipo
+// 'inmuebles'). Sin servidor, lista vacía.
+export async function listarFotos(id, tipo = 'bienes') {
+  if (!SERVIDOR_FOTOS || id == null) return []
+  const r = await fetch(ruta(tipo, id), { headers: await cabeceras() })
   if (!r.ok) throw new Error('No se pudieron cargar las fotos')
   return normalizar(await r.json())
 }
@@ -70,12 +78,12 @@ export function revisarArchivos(archivos) {
   return { buenos, malos }
 }
 
-export async function subirFotos(idbien, clave, archivos) {
+export async function subirFotos(id, clave, archivos, tipo = 'bienes') {
   if (!SERVIDOR_FOTOS) throw new Error('Todavía no está conectado el servidor de fotos: las imágenes no se guardaron.')
   const datos = new FormData()
   for (const f of archivos) datos.append('fotos', f, f.name)
   if (clave) datos.append('clave', clave)
-  const r = await fetch(`${SERVIDOR_FOTOS}/bienes/${encodeURIComponent(idbien)}/fotos`, {
+  const r = await fetch(ruta(tipo, id), {
     method: 'POST', headers: await cabeceras(), body: datos,
   })
   if (!r.ok) throw new Error('No se pudieron subir las fotos')

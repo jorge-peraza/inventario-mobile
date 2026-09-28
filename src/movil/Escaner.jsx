@@ -310,7 +310,7 @@ export function LecturaBien({ idarea, clave, metodo = 'qr' }) {
         {bien ? (
           <>
             {/* Para confirmar con la vista que es el bien que se tiene enfrente */}
-            <CarruselFotos idbien={bien.idbien} />
+            <CarruselFotos id={bien.idbien} />
             <div className="tarjeta">
               <p style={{ fontSize: '17px', fontWeight: 600, lineHeight: 1.3 }}>{bien.nombre}</p>
               {bien.area && <p className="detalle">{bien.area}</p>}

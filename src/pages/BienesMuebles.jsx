@@ -746,7 +746,7 @@ export function PanelConsulta({ bien, onClose, t, dark }) {
 
   // Las fotos toman el lugar de la consulta: mientras se ven, el panel se
   // cierra, y al cerrar las fotos el panel vuelve a abrirse.
-  if (verFotos) return <ModalFotos bien={bien} onClose={() => setVerFotos(false)} dark={dark} t={t} />
+  if (verFotos) return <ModalFotos id={bien.idbien} clave={bien.claveinventario} nombre={bien.nombrebien} onClose={() => setVerFotos(false)} dark={dark} t={t} />
 
   const campos = esVehiculo
     ? [

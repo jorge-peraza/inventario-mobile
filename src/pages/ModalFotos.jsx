@@ -2,15 +2,16 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { listarFotos, subirFotos, revisarArchivos, hayServidorFotos, MAX_MB_FOTO } from '../fotos'
 
-// ── Fotos de un bien mueble ──────────────────────────────────────────────────
+// ── Fotos de un bien mueble o de un inmueble ─────────────────────────────────
 // Dos pasos en el mismo modal, uno al lado del otro:
 //   1. Galería: la foto grande a la izquierda y las demás en miniatura a la
 //      derecha; al tocar una miniatura pasa a la grande.
 //   2. Agregar imágenes: el modal se desliza a la izquierda y aparece la zona
 //      para arrastrar o elegir fotos.
-// Las fotos viven en un servidor aparte (src/fotos.js).
+// Las fotos viven en un servidor aparte (src/fotos.js). `tipo` dice de qué son:
+// 'bienes' (muebles) o 'inmuebles'.
 
-export default function ModalFotos({ bien, onClose, dark, t }) {
+export default function ModalFotos({ id, clave, nombre, tipo = 'bienes', onClose, dark, t }) {
   const [fotos, setFotos]       = useState(null)      // null = cargando
   const [sel, setSel]           = useState(0)
   const [paso, setPaso]         = useState('galeria') // 'galeria' | 'subir'
@@ -24,12 +25,12 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
   async function cargar(irA = 0) {
     setFotos(null); setErrCarga(null)
     try {
-      const lista = await listarFotos(bien.idbien)
+      const lista = await listarFotos(id, tipo)
       setFotos(lista)
       setSel(Math.max(0, Math.min(irA, lista.length - 1)))
     } catch (e) { setErrCarga(e.message); setFotos([]) }
   }
-  useEffect(() => { cargar() }, [bien.idbien])
+  useEffect(() => { cargar() }, [id, tipo])
 
   // Las vistas previas ocupan memoria: se sueltan al quitarlas, al subirlas y
   // al cerrar el modal
@@ -51,7 +52,7 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
     if (!nuevas.length) return
     setSubiendo(true); setErr(null)
     try {
-      await subirFotos(bien.idbien, bien.claveinventario, nuevas.map(n => n.archivo))
+      await subirFotos(id, clave, nuevas.map(n => n.archivo), tipo)
       const antes = fotos?.length || 0
       nuevas.forEach(n => URL.revokeObjectURL(n.url))
       setNuevas([])
@@ -83,9 +84,9 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
               <i className={`ti ${paso === 'subir' ? 'ti-photo-plus' : 'ti-photo'}`} style={{ fontSize: '18px', color: t.text1 }} />
             </div>
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{paso === 'subir' ? 'Agregar imágenes' : 'Fotos del bien'}</p>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: dark ? '#fff' : '#111' }}>{paso === 'subir' ? 'Agregar imágenes' : (tipo === 'inmuebles' ? 'Fotos del inmueble' : 'Fotos del bien')}</p>
               <p style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {bien.claveinventario} · {bien.nombrebien}
+                {clave} · {nombre}
               </p>
             </div>
           </div>
@@ -105,12 +106,12 @@ export default function ModalFotos({ bien, onClose, dark, t }) {
                   {fotos === null ? (
                     <i className="ti ti-loader-2" style={{ fontSize: '24px', color: t.text4, animation: 'spin 1s linear infinite' }} />
                   ) : foto ? (
-                    <img key={foto.id} src={foto.url} alt={`Foto ${sel + 1} de ${bien.claveinventario}`}
+                    <img key={foto.id} src={foto.url} alt={`Foto ${sel + 1} de ${clave}`}
                       style={{ width: '100%', height: '100%', objectFit: 'contain', animation: 'telonEntra 0.25s ease-out' }} />
                   ) : (
                     <div style={{ textAlign: 'center', color: t.text4, padding: '1rem' }}>
                       <i className="ti ti-photo-off" style={{ fontSize: '34px', display: 'block', marginBottom: '8px' }} />
-                      <p style={{ fontSize: '13.5px', color: t.text3 }}>{errCarga || 'Este bien todavía no tiene fotos'}</p>
+                      <p style={{ fontSize: '13.5px', color: t.text3 }}>{errCarga || (tipo === 'inmuebles' ? 'Este inmueble todavía no tiene fotos' : 'Este bien todavía no tiene fotos')}</p>
                       {!hayServidorFotos() && (
                         <p style={{ fontSize: '12px', color: t.text4, marginTop: '4px' }}>Se verán aquí cuando se conecte el servidor de imágenes.</p>
                       )}

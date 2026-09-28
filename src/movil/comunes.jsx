@@ -75,20 +75,21 @@ export function ConfirmarConContrasena({ titulo, detalle, textoOk, onOk, onCerra
   )
 }
 
-// ── Fotos del bien, deslizando ───────────────────────────────────────────────
-// Al escanear un QR se enseñan las fotos que tiene el bien en el servidor de
-// imágenes, para confirmar a simple vista que es el mismo. Una por pantalla, se
-// pasan con el dedo; los puntos de abajo dicen en cuál va. Sin servidor o sin
-// fotos no se enseña nada.
-export function CarruselFotos({ idbien }) {
+// ── Fotos, deslizando ────────────────────────────────────────────────────────
+// Las fotos que tiene un bien mueble (tipo 'bienes') o un inmueble (tipo
+// 'inmuebles') en el servidor de imágenes. Al escanear un QR sirven para
+// confirmar a simple vista que es el mismo bien. Una por pantalla, se pasan
+// con el dedo; los puntos de abajo dicen en cuál va. Sin servidor o sin fotos
+// no se enseña nada.
+export function CarruselFotos({ id, tipo = 'bienes' }) {
   const [fotos, setFotos] = useState(() => (hayServidorFotos() ? null : []))
   const [actual, setActual] = useState(0)
   useEffect(() => {
-    if (!hayServidorFotos() || idbien == null) return
+    if (!hayServidorFotos() || id == null) return
     let vivo = true
-    listarFotos(idbien).then(l => { if (vivo) setFotos(l) }).catch(() => { if (vivo) setFotos([]) })
+    listarFotos(id, tipo).then(l => { if (vivo) setFotos(l) }).catch(() => { if (vivo) setFotos([]) })
     return () => { vivo = false }
-  }, [idbien])
+  }, [id, tipo])
 
   if (fotos === null) return <div className="carrusel-vacio"><i className="ti ti-loader-2 gira" /></div>
   if (!fotos.length) return null

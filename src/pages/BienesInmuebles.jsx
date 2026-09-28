@@ -6,6 +6,7 @@ import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
  import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { barraSticky, btnBarra, MenuFila, Deslizable } from './ui'
+import ModalFotos from './ModalFotos'
 import { PaginaEvidencias } from './ArmarReporteInmuebles'
 import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, subirTramitesPendientes, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
@@ -61,7 +62,11 @@ function tdBase() { return { padding:'10px 10px', verticalAlign:'top' } }
 // ── Panel de consulta ─────────────────────────────────────────────────────────
 export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], extra = [] }) {
   const { close, anim } = useClosing(onClose)
+  const [verFotos, setVerFotos] = useState(false)
   if (!inmueble) return null
+  // Igual que en muebles: las fotos toman el lugar de la consulta y, al
+  // cerrarlas, la consulta vuelve a abrirse
+  if (verFotos) return <ModalFotos tipo="inmuebles" id={inmueble.idinmueble} clave={inmueble.claveinmueble} nombre={inmueble.nombreinmueble} onClose={() => setVerFotos(false)} dark={dark} t={t} />
 
   // Aquí se muestra todo, incluidas las columnas que la tabla oculta
   // (categoría, valor catastral, adquisición) y el comentario interno.
@@ -110,9 +115,13 @@ export function PanelConsulta({ inmueble, onClose, t, dark, categorias = [], ext
             </div>
           ))}
         </div>
-        <div style={{ padding:'1rem 1.5rem', borderTop:`1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
-          <button onClick={close} style={{ width:'100%', padding:'10px', borderRadius:'9px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', fontSize:'13px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>
+        <div style={{ padding:'1rem 1.5rem', borderTop:`1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, display:'flex', gap:'8px' }}>
+          <button onClick={close} style={{ flex:1, padding:'10px', borderRadius:'9px', background: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', fontSize:'13px', fontWeight:500, color: dark ? '#ccc' : '#444', fontFamily:'inherit', cursor:'pointer' }}>
             Cerrar
+          </button>
+          <button onClick={() => setVerFotos(true)} style={{ flex:1, padding:'10px', borderRadius:'9px', background: dark ? 'rgba(168,197,248,0.15)' : 'rgba(37,99,235,0.08)', border: dark ? '1px solid rgba(168,197,248,0.3)' : '1px solid rgba(37,99,235,0.2)', fontSize:'14px', fontWeight:600, color: dark ? '#a8c5f8' : '#2563eb', fontFamily:'inherit', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px', whiteSpace:'nowrap' }}>
+            <i className="ti ti-photo" style={{ fontSize:'15px' }} />
+            Consultar Fotos
           </button>
         </div>
       </div>
@@ -1021,12 +1030,39 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
   saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombreArchivo(extra.archivo || titulo, 'inventario-inmuebles', 'xlsx'))
 }
 
+// Al buscar, lo que coincide por nombre va primero. Antes todo salía por
+// consecutivo, y al escribir "equipamiento" la categoría completa se
+// adelantaba a los inmuebles que se llaman así. El orden es:
+//   0 el nombre empieza con el texto      1 el nombre lo contiene
+//   2 alguna de las claves                3 ubicación, escritura, expediente…
+//   4 lo demás (categoría, superficie, valor o fecha)
+// Dentro de cada grupo se respeta el consecutivo.
+function relevanciaInmueble(r, texto) {
+  const q = texto.toLowerCase()
+  const nombre = String(r.nombreinmueble || '').toLowerCase()
+  if (nombre.startsWith(q)) return 0
+  if (nombre.includes(q)) return 1
+  const tiene = campos => campos.some(v => String(v ?? '').toLowerCase().includes(q))
+  if (tiene([r.claveinmueble, r.clavecatastral])) return 2
+  if (tiene([r.ubicacion, r.documentopropiedad, r.expediente, r.adquisicion])) return 3
+  return 4
+}
+function ordenarPorRelevancia(filas, busqueda) {
+  const texto = String(busqueda || '').trim()
+  if (!texto) return filas
+  // sort es estable: dentro de un mismo grupo queda el orden por consecutivo
+  return filas
+    .map(r => ({ r, n: relevanciaInmueble(r, texto) }))
+    .sort((a, b) => a.n - b.n)
+    .map(x => x.r)
+}
+
 // Trae todos los registros que cumplen los filtros actuales (paginado)
 async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categorias }) {
   const BATCH = 1000
   let todos = [], desde = 0
   while (true) {
-    let q = supabase.from('bienesinmuebles').select('*').order('consecutivo', { ascending: true }).range(desde, desde + BATCH - 1)
+    let q = supabase.from('bienesinmuebles').select('*').order('consecutivo', { ascending: true }).order('idinmueble', { ascending: true }).range(desde, desde + BATCH - 1)
     q = aplicarBusquedaInmuebles(q, busqueda, categorias)
     if (m2Min !== '' && m2Min != null) q = q.gte('superficiem2', Number(m2Min))
     if (m2Max !== '' && m2Max != null) q = q.lte('superficiem2', Number(m2Max))
@@ -1041,7 +1077,8 @@ async function fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categ
     if (data.length < BATCH) break
     desde += BATCH
   }
-  return todos
+  // El reporte de lo filtrado sale en el mismo orden que la tabla
+  return ordenarPorRelevancia(todos, busqueda)
 }
 
 // Trae registros por lista de ids (en lotes)
@@ -1359,6 +1396,14 @@ async function paginaDeInmueble(inm, filtros) {
 async function fetchInmuebles({ pagina, busqueda, porPagina, m2Min, m2Max, categoriaIds, categorias }) {
   const desde = pagina * porPagina
   const hasta  = desde + porPagina - 1
+
+  // Con texto buscado se traen todas las coincidencias (son pocas: el
+  // inventario completo ronda los 1,400) para acomodarlas por relevancia y
+  // luego se pagina aquí. Sin texto, la base pagina como siempre.
+  if (String(busqueda || '').trim()) {
+    const todas = await fetchTodosFiltrados({ busqueda, m2Min, m2Max, categoriaIds, categorias })
+    return { data: todas.slice(desde, hasta + 1), count: todas.length }
+  }
 
   let query = supabase
     .from('bienesinmuebles')

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Cabecera } from './AppMovil'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
-import { useProgresivo } from './comunes'
+import { useProgresivo, CarruselFotos } from './comunes'
 import {
   categoriasInmuebles, conteoPorCategoria, inmueblesDeCategoria, estadisticasInmuebles,
   buscarInmuebles, conteosDesincorporacion, inmueblePorClave, inmueblePorId, actualizarInmueble,
@@ -358,6 +358,7 @@ export function FichaInmueble({ clave = '', idinmueble = '', soloLectura = false
         {!cargando && !inm && <Vacio icono="ti-qrcode-off" texto={`No hay ningún inmueble con la clave ${clave}`} />}
         {inm && (
           <>
+            <CarruselFotos tipo="inmuebles" id={inm.idinmueble} />
             <div className="tarjeta">
               <p className="clave">{inm.clave}</p>
               <p style={{ fontSize: '17px', fontWeight: 600, lineHeight: 1.3, marginTop: '3px' }}>{inm.nombre}</p>
