@@ -5,6 +5,7 @@ import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles } from '../supabaseInmuebles'
 import { PanelConsulta, ModalEditar, ModalDesincorporacion, ModalReporte, exportarPDF, exportarExcel, REPORT_COLS, exportarEnajenacionesPDF, exportarEnajenacionesExcel } from './BienesInmuebles'
 import { barraSticky, btnBarra, sStyle, MenuFila, Deslizable, useTituloAuto } from './ui'
+import { firma } from '../personalizacion'
 import { textoPeriodo, fechaCorta } from '../exportadores'
 import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
 import { siguienteClaveInmueble } from './BienesInmuebles'
@@ -672,7 +673,7 @@ export default function ReportesInmuebles({ user, onNavigate, seccion = 'reporte
 //
 // El inventario completo al cierre de un periodo, en el formato que entrega
 // Sindicatura: título, periodo, dependencia, la tabla agrupada por categoría, el
-// renglón del monto y las firmas.
+// renglón del monto —con el recuadro vacío, para anotarlo a mano— y las firmas.
 //
 // El periodo es un CORTE, no una ventana: entra todo lo que ya era patrimonio
 // al terminar el periodo, sin importar de qué año sea su escritura. Por eso el
@@ -684,16 +685,22 @@ export default function ReportesInmuebles({ user, onNavigate, seccion = 'reporte
 const MESES_TES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 const CATS_NO_PATRIMONIO = [11, 13]
 
-// Lo fijo del formato. No se pregunta en el modal: siempre sale así. Si algún
-// día cambia el síndico o quien elabora, se cambia aquí.
+// Lo fijo del formato. No se pregunta en el modal: siempre sale así.
 const TES_TITULO      = 'INVENTARIO DE BIENES INMUEBLES MUNICIPIO DE NOGALES SONORA'
 const TES_DEPENDENCIA = 'DEPENDENCIA O ENTIDAD: SINDICATURA MUNICIPAL'
+// El renglón del monto va con su recuadro vacío: la cifra se anota a mano. El
+// programa la calculaba sumando los valores catastrales, pero muchos inmuebles
+// están en cero porque no se han avaluado, así que la suma salía corta y no
+// coincidía con la del ejemplar impreso.
 const TES_MONTO       = 'MONTO EN TERRENOS URBANOS'
 // Quien elabora va sin raya y sin área: solo el título y el nombre.
 // Quien firma sí lleva raya, que para eso es.
-const TES_FIRMAS = [
-  { titulo: 'ELABORADO POR:', nombre: 'ING. ELISEO ESCOBEDO', sinLinea: true },
-  { titulo: 'FIRMA',          nombre: 'MTRA. EDNA ELINORA SOTO GRACIA', puesto: 'SINDICO MUNICIPAL' },
+// Los nombres salen de Personalización: cuando cambia el síndico o quien
+// elabora se cambia ahí, sin tocar el programa.
+const tesFirmas = () => [
+  { titulo: 'ELABORADO POR:', nombre: firma('inmuebles', 'elaboro').nombre, sinLinea: true },
+  { titulo: 'FIRMA',          nombre: firma('inmuebles', 'firma').nombre,
+    puesto: firma('inmuebles', 'firma').puesto },
 ]
 
 function ModalReporteTesoreria({ onClose, dark, t }) {
@@ -766,12 +773,6 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
     const f = String(i.fecha_enajenacion).slice(0, 10)
     return alcance === 'hasta' ? f <= corte : (!!inicio && f >= inicio && f <= corte)
   })
-  // El monto sale calculado. Muchos inmuebles traen el valor catastral en cero
-  // —no se han avaluado—, así que la suma se queda corta; aun así va, y el
-  // renglón siempre aparece.
-  const suma = filas.reduce((s, i) => s + (Number(i.valorcatastral) || 0), 0)
-  const sumaTexto = '$' + suma.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
   // Las columnas del formato impreso; 'categoria' solo dispara el agrupado
   const COLS_TES = REPORT_COLS.filter(c =>
     ['claveinmueble','nombreinmueble','clavecatastral','superficiem2','ubicacion','adquisicion','valorcatastral','documentopropiedad','categoria'].includes(c.key))
@@ -790,8 +791,8 @@ function ModalReporteTesoreria({ onClose, dark, t }) {
           ? `REPORTE DE TESORERÍA INMUEBLES HASTA EL ${fechaCorta(corte)}`
           : `REPORTE DE TESORERÍA INMUEBLES ${subtitulo}`,
         dependencia: TES_DEPENDENCIA,
-        monto: { etiqueta: TES_MONTO, valor: sumaTexto },
-        firmas: TES_FIRMAS,
+        monto: { etiqueta: TES_MONTO, valor: '' },
+        firmas: tesFirmas(),
       }
       if (formato === 'excel') await exportarExcel(filas, COLS_TES, cats, TES_TITULO, [], extra)
       else                     await exportarPDF(filas, COLS_TES, cats, TES_TITULO, [], extra)

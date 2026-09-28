@@ -77,27 +77,29 @@ export function ConfirmarConContrasena({ titulo, detalle, textoOk, onOk, onCerra
 
 // ── Fotos, deslizando ────────────────────────────────────────────────────────
 // Las fotos que tiene un bien mueble (tipo 'bienes') o un inmueble (tipo
-// 'inmuebles') en el servidor de imágenes. Al escanear un QR sirven para
-// confirmar a simple vista que es el mismo bien. Una por pantalla, se pasan
-// con el dedo; los puntos de abajo dicen en cuál va. Sin servidor o sin fotos
-// no se enseña nada.
-export function CarruselFotos({ id, tipo = 'bienes' }) {
+// 'inmuebles') en el servidor de imágenes. Una por pantalla, se pasan con el
+// dedo; los puntos de abajo dicen en cuál va.
+
+// Pide las fotos al servidor. null mientras llegan; sin servidor, lista vacía.
+function useFotos(id, tipo) {
   const [fotos, setFotos] = useState(() => (hayServidorFotos() ? null : []))
-  const [actual, setActual] = useState(0)
   useEffect(() => {
     if (!hayServidorFotos() || id == null) return
     let vivo = true
     listarFotos(id, tipo).then(l => { if (vivo) setFotos(l) }).catch(() => { if (vivo) setFotos([]) })
     return () => { vivo = false }
   }, [id, tipo])
+  return fotos
+}
 
-  if (fotos === null) return <div className="carrusel-vacio"><i className="ti ti-loader-2 gira" /></div>
-  if (!fotos.length) return null
+function Carrusel({ fotos, onCambio }) {
+  const [actual, setActual] = useState(0)
   return (
     <div>
       <div className="carrusel" onScroll={e => {
         const el = e.currentTarget
-        setActual(Math.round(el.scrollLeft / el.clientWidth))
+        const i = Math.round(el.scrollLeft / el.clientWidth)
+        if (i !== actual) { setActual(i); onCambio?.(i) }
       }}>
         {fotos.map((f, i) => <img key={f.id} src={f.url} alt={`Foto ${i + 1}`} loading={i ? 'lazy' : 'eager'} />)}
       </div>
@@ -105,6 +107,68 @@ export function CarruselFotos({ id, tipo = 'bienes' }) {
         <div className="puntos">{fotos.map((f, i) => <span key={f.id} className={i === actual ? 'activo' : ''} />)}</div>
       )}
     </div>
+  )
+}
+
+// En la lectura del QR: las fotos van directo en la pantalla, para confirmar a
+// simple vista que es el mismo bien. Sin servidor o sin fotos no se enseña nada.
+export function CarruselFotos({ id, tipo = 'bienes' }) {
+  const fotos = useFotos(id, tipo)
+  if (fotos === null) return <div className="carrusel-vacio"><i className="ti ti-loader-2 gira" /></div>
+  if (!fotos.length) return null
+  return <Carrusel fotos={fotos} />
+}
+
+// En la ficha de un bien o de un inmueble: una fila "Ver fotos" y, al tocarla,
+// sube una hoja con las fotos para pasarlas con el dedo.
+export function FilaFotos({ id, tipo = 'bienes' }) {
+  const [abierta, setAbierta] = useState(false)
+  return (
+    <>
+      <div className="tarjeta plana">
+        <button className="fila" onClick={() => setAbierta(true)}>
+          <i className="ti ti-photo" style={{ fontSize: '22px', color: 'var(--texto-2)' }} />
+          <div className="crece">
+            <p className="nombre">Ver fotos</p>
+            <p className="detalle">{tipo === 'inmuebles' ? 'Imágenes del inmueble' : 'Imágenes del bien'}</p>
+          </div>
+          <i className="ti ti-chevron-right flecha" />
+        </button>
+      </div>
+      {abierta && <HojaFotos id={id} tipo={tipo} onCerrar={() => setAbierta(false)} />}
+    </>
+  )
+}
+
+function HojaFotos({ id, tipo, onCerrar }) {
+  useBloquearScroll()
+  const fotos = useFotos(id, tipo)
+  const [actual, setActual] = useState(0)
+  const deQue = tipo === 'inmuebles' ? 'Este inmueble' : 'Este bien'
+  return (
+    <>
+      <div className="movil-telon" onClick={onCerrar} />
+      <div className="movil-hoja">
+        <div className="asa" />
+        <div style={{ padding: '0 16px 12px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <p style={{ fontSize: '16px', fontWeight: 600 }}>Fotos</p>
+          {fotos && fotos.length > 1 && <p className="detalle">{actual + 1} de {fotos.length}</p>}
+        </div>
+        <div style={{ padding: '0 16px 14px' }}>
+          {fotos === null
+            ? <div className="carrusel-vacio"><i className="ti ti-loader-2 gira" /></div>
+            : fotos.length
+              ? <Carrusel fotos={fotos} onCambio={setActual} />
+              : <div className="carrusel-vacio" style={{ flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--texto-3)', textAlign: 'center', padding: '16px' }}>
+                  <i className="ti ti-photo-off" style={{ fontSize: '28px', color: 'var(--texto-4)' }} />
+                  {deQue} todavía no tiene fotos
+                </div>}
+        </div>
+        <div style={{ padding: '0 16px' }}>
+          <button className="boton suave" onClick={onCerrar}>Cerrar</button>
+        </div>
+      </div>
+    </>
   )
 }
 

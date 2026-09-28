@@ -61,6 +61,12 @@
   scrollbar-color: rgba(128, 128, 128, 0.45) transparent;
 }
 
+/* ── Opciones del deslizable ──────────────────────────────────────────────
+   Al hacer clic el navegador les ponía un aro negro grueso encima del fondo
+   que se desliza. Con teclado sigue viéndose, pero discreto. */
+.opcion-deslizable:focus { outline: none; }
+.opcion-deslizable:focus-visible { outline: 2px solid rgba(128, 128, 128, 0.55); outline-offset: -2px; }
+
 /* ── Formularios en dos columnas (una sola en ventana angosta) ────────────── */
 .dos-columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem 1rem; }
 @media (max-width: 620px) { .dos-columnas { grid-template-columns: 1fr; } }

@@ -17,8 +17,8 @@ export const DEPENDENCIA_VE_MOVIMIENTOS = false
 
 // Páginas permitidas por rol — todo lo demás queda bloqueado
 export const PAGINAS_POR_ROL = {
-  admin:           ['dashboard', 'bienes', 'movimientos', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios'],
-  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'movimientos', 'reportes', 'usuarios'],
+  admin:           ['dashboard', 'bienes', 'movimientos', 'traspasos', 'reportes', 'dependencias', 'papelera', 'reconteo', 'usuarios', 'configuracion'],
+  admin_inmuebles: ['dashboard-inmuebles', 'inmuebles', 'movimientos', 'reportes', 'usuarios', 'configuracion'],
   // Una dependencia consulta lo suyo: su inicio y el inventario vigente, de
   // donde además saca sus reportes. No entra a papelera, reconteo ni usuarios.
   dependencia:     ['index-dep', 'bienes', ...(DEPENDENCIA_VE_MOVIMIENTOS ? ['traspasos', 'bajas'] : [])],
@@ -29,7 +29,10 @@ export const PAGINAS_POR_ROL = {
 // mismo—, pero nunca la pantalla de Usuarios: no pueden crear otras cuentas.
 export function paginasPermitidas(user) {
   const base = PAGINAS_POR_ROL[user?.rol] || []
-  return user?.subusuario ? base.filter(p => p !== 'usuarios') : base
+  // Configuración cambia los logos de TODOS los reportes, y guardarlos requiere
+  // una sesión de Supabase Auth, que los subusuarios no tienen: se les esconde
+  // en vez de dejarles una pantalla que les va a decir que no.
+  return user?.subusuario ? base.filter(p => p !== 'usuarios' && p !== 'configuracion') : base
 }
 
 // Solo consulta: no da de alta, no modifica ni desincorpora

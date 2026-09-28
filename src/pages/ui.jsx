@@ -187,12 +187,14 @@ export function Deslizable({ opciones, valor, onCambio, dark, t, style }) {
         borderRadius: '9px', background: dark ? 'rgba(255,255,255,0.12)' : '#fff',
         border: `1px solid ${dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.08)'}`,
         boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
-        transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)', willChange: 'transform',
+        // Misma duración y curva que el deslizamiento de Agregar imágenes: cuando el
+        // deslizable cambia de página un modal, los dos se mueven juntos
+        transition: 'transform 0.35s cubic-bezier(0.4,0,0.2,1)', willChange: 'transform',
       }} />
       {opciones.map(o => {
         const activo = o.id === valor
         return (
-          <button key={o.id} type="button" onClick={() => !o.disabled && onCambio(o.id)} disabled={o.disabled}
+          <button key={o.id} type="button" className="opcion-deslizable" onClick={() => !o.disabled && onCambio(o.id)} disabled={o.disabled}
             style={{ position: 'relative', zIndex: 1, padding: conTotal ? '7px 6px' : '8px 10px', borderRadius: '9px', background: 'none', border: 'none',
               cursor: o.disabled ? 'not-allowed' : 'pointer', opacity: o.disabled ? 0.4 : 1, fontFamily: 'inherit',
               display: 'flex', flexDirection: conTotal ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', gap: conTotal ? '1px' : '7px',

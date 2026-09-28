@@ -3,7 +3,7 @@ import { Cabecera } from './AppMovil'
 import { useTheme } from '../context/ThemeContext'
 import { irA, volver } from '../rutas'
 import { useBloquearScroll } from './useBloquearScroll'
-import { Cargando, Vacio, Confirmar, ConfirmarConContrasena, useProgresivo, CarruselFotos } from './comunes'
+import { Cargando, Vacio, Confirmar, ConfirmarConContrasena, useProgresivo, FilaFotos } from './comunes'
 import { verificarContrasena } from '../auth'
 import { areasConDependencia, bienesDeArea, bienPorClave, buscarBienes, actualizarBien, anotarObservacionEnBien, resumenInventario, TIPOS } from './datos'
 import {
@@ -429,12 +429,12 @@ export function FichaBien({ clave }) {
         )}
         {bien && (
           <>
-            <CarruselFotos id={bien.idbien} />
             <div className="tarjeta">
               <p className="clave">{bien.clave}</p>
               <p style={{ fontSize: '17px', fontWeight: 600, lineHeight: 1.3, marginTop: '3px' }}>{bien.nombre}</p>
               <p style={{ fontSize: '13px', color: 'var(--texto-3)', marginTop: '4px' }}>{bien.area}</p>
             </div>
+            <FilaFotos id={bien.idbien} />
             <div className="tarjeta plana">
               {dato('Marca', bien.marca)}
               {dato('Tipo / Modelo', bien.modelo)}

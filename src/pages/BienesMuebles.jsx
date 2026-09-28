@@ -9,6 +9,8 @@ import { supabase } from "../supabase";
 import { siguienteClave, siguienteClaveLote, tipoDeModo, tipoDeCategoria, ESTADO_PAPELERA } from '../claves'
 import PapeleraReconteos from './PapeleraReconteos'
 import ModalFotos from './ModalFotos'
+import { rutaLogo, srcLogo, firma } from '../personalizacion'
+import ModalImportar from './ModalImportar'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 export function estadoInfo(obs, dark) {
@@ -703,8 +705,8 @@ function ModalResguardo({ bien, onClose, dark, t }) {
             fontSize: '11px', color: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
             <p style={{ fontWeight: 600, marginBottom: '4px' }}>Firmas:</p>
             <p>· C. {(bien.resguardatario || '—').toUpperCase()} — Titular del Resguardo</p>
-            <p>· MTRA. EDNA ELINORA SOTO GRACIA — Síndico Municipal</p>
-            <p style={{ marginTop: '6px' }}>Elaboró: C. ELSA MÓNICA LÓPEZ LEYVA — Asistente Administrativo</p>
+            <p>· {firma('muebles', 'firma').nombre} — {firma('muebles', 'firma').puesto}</p>
+            <p style={{ marginTop: '6px' }}>Elaboró: {firma('muebles', 'elaboro').nombre} — {firma('muebles', 'elaboro').puesto}</p>
           </div>
         </div>
 
@@ -1685,7 +1687,6 @@ function cuerpoResguardoVehiculo(bien) {
   const clave  = (bien.claveinventario || '')
   const anio   = (bien.anio            || '')
   const obs    = (bien.observaciones   || '')
-  const base   = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '')
 
   const accesorios = ACCESORIOS_VEHICULO
     .map(a => `${a}&nbsp;(&nbsp;&nbsp;&nbsp;)`).join('&nbsp;&nbsp; ')
@@ -1693,9 +1694,9 @@ function cuerpoResguardoVehiculo(bien) {
   return `<div class="hoja veh">
 
 <div class="veh-logos">
-  <div class="vl"><img src="${base}/escudo-mexico.png" alt="" /></div>
-  <div class="vl"><img src="${base}/escudo-nogales.png" alt="" /></div>
-  <div class="vl"><img class="ancho" src="${base}/logo-ayuntamiento.png" alt="" /></div>
+  <div class="vl"><img src="${srcLogo('muebles', 'mexico')}" alt="" /></div>
+  <div class="vl"><img src="${srcLogo('muebles', 'nogales')}" alt="" /></div>
+  <div class="vl"><img class="ancho" src="${srcLogo('muebles', 'ayuntamiento')}" alt="" /></div>
 </div>
 
 <div class="veh-enc">
@@ -1756,13 +1757,13 @@ function cuerpoResguardoVehiculo(bien) {
 <div class="veh-firmas veh-firmas2">
   <div class="fb">
     <div class="fl"></div>
-    <div class="fn">MTRA. EDNA ELINORA SOTO GRACIA</div>
-    <div class="fr">SINDICO MUNICIPAL</div>
+    <div class="fn">${firma('muebles', 'firma').nombre}</div>
+    <div class="fr">${firma('muebles', 'firma').puesto}</div>
   </div>
   <div class="fb">
     <div class="fl"></div>
-    <div class="fn">C. ELSA MONICA LOPEZ LEYVA</div>
-    <div class="fr">ASISTENTE ADMINISTRATIVO</div>
+    <div class="fn">${firma('muebles', 'elaboro').nombre}</div>
+    <div class="fr">${firma('muebles', 'elaboro').puesto}</div>
   </div>
 </div>
 
@@ -1792,10 +1793,9 @@ function cuerpoResguardo(bien) {
   const costo     = bien.costoinicial ? '$ ' + Number(bien.costoinicial).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '—'
   const fechaFac  = (bien.fechafactura   || '—')
 
-  // El resguardo se abre en una ventana nueva, así que las imágenes necesitan URL
-  // absoluta. Hay que incluir BASE_URL porque la app vive en un subdirectorio
-  // (/inventario-nogales/); sin eso las rutas dan 404 y los logos salen rotos.
-  const base = window.location.origin + import.meta.env.BASE_URL.replace(/\/$/, '')
+  // El resguardo se abre en una ventana nueva y muchas veces se guarda como
+  // archivo, así que los logos necesitan dirección absoluta: de eso se encarga
+  // srcLogo(), que además devuelve el logo cambiado si hay uno.
 
   return `<div class="hoja">
 
@@ -1809,13 +1809,13 @@ function cuerpoResguardo(bien) {
     </div>
   </div>
   <div class="center-col">
-    <img src="${base}/escudo-mexico.png" alt="Escudo México" />
+    <img src="${srcLogo('muebles', 'mexico')}" alt="Escudo México" />
     <div class="ch-inst">H. AYUNTAMIENTO CONSTITUCIONAL<br>NOGALES, SONORA</div>
     <div class="ch-dep">SINDICATURA MUNICIPAL</div>
   </div>
   <div class="right-col">
-    <img class="escudo" src="${base}/escudo-nogales.png" alt="H. Nogales Sonora" />
-    <img class="logo-ay" src="${base}/logo-ayuntamiento.png" alt="H. Ayuntamiento de Nogales" />
+    <img class="escudo" src="${srcLogo('muebles', 'nogales')}" alt="H. Nogales Sonora" />
+    <img class="logo-ay" src="${srcLogo('muebles', 'ayuntamiento')}" alt="H. Ayuntamiento de Nogales" />
   </div>
 </div>
 
@@ -1864,16 +1864,16 @@ function cuerpoResguardo(bien) {
   </div>
   <div class="sb">
     <div class="sl"></div>
-    <div class="sn">MTRA. EDNA ELINORA SOTO GRACIA</div>
-    <div class="sr">SINDICO MUNICIPAL</div>
+    <div class="sn">${firma('muebles', 'firma').nombre}</div>
+    <div class="sr">${firma('muebles', 'firma').puesto}</div>
   </div>
 </div>
 
 <div class="elab">
   <div class="sr" style="margin-bottom:50px">ELABOR&Oacute;</div>
   <div class="el"></div>
-  <div class="sn">C. ELSA M&Oacute;NICA L&Oacute;PEZ LEYVA</div>
-  <div class="sr">ASISTENTE ADMINISTRATIVO</div>
+  <div class="sn">${firma('muebles', 'elaboro').nombre}</div>
+  <div class="sr">${firma('muebles', 'elaboro').puesto}</div>
 </div>
 
 </div>`
@@ -2679,9 +2679,9 @@ function cargarImagen(src) {
 async function dibujarLogosPDF(doc, pageW, margin) {
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'),
-      cargarImagen('/escudo-nogales.png'),
-      cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('muebles', 'ayuntamiento')),
+      cargarImagen(rutaLogo('muebles', 'nogales')),
+      cargarImagen(rutaLogo('muebles', 'mexico')),
     ])
     const H = 46
     const Hmex = 66   // escudo de México más grande
@@ -2795,9 +2795,9 @@ export async function exportarExcelMuebles(rows, cols, titulo = '') {
   let logos = null
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'),
-      cargarImagen('/escudo-nogales.png'),
-      cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('muebles', 'ayuntamiento')),
+      cargarImagen(rutaLogo('muebles', 'nogales')),
+      cargarImagen(rutaLogo('muebles', 'mexico')),
     ])
     logos = { ay, nog, mex }
   } catch { logos = null }
@@ -3114,9 +3114,9 @@ async function exportarAdquisicionesExcel(grupos, titulo, anio) {
   let logos = null
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'),
-      cargarImagen('/escudo-nogales.png'),
-      cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('muebles', 'ayuntamiento')),
+      cargarImagen(rutaLogo('muebles', 'nogales')),
+      cargarImagen(rutaLogo('muebles', 'mexico')),
     ])
     logos = { ay, nog, mex }
   } catch { logos = null }
@@ -4092,7 +4092,9 @@ function ModalTitularArea({ allAreas, onClose, onHecho, dark, t }) {
   )
 }
 
-function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
+// importar: { areas, onImportado } para la segunda forma de alta, desde un Excel
+function ModalNuevoBien({ onClose, onCreated, importar, dark, t, modo, allAreas }) {
+  const [forma, setForma] = useState('manual')   // 'manual' | 'excel'
   const [clave, setClave]     = useState('')
   const [nombre, setNombre]   = useState('')
   const [tipo, setTipo]       = useState('')
@@ -4321,15 +4323,30 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
               <i className="ti ti-circle-plus" style={{ fontSize:'18px', color: t.text2 }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{n === 1 ? 'Nuevo bien' : `${n} bienes nuevos`}</p>
-              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{n === 1 ? 'Registrar un bien mueble en el inventario' : 'Registrar varios bienes de una misma compra'}</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{forma === 'excel' ? 'Importar bienes muebles' : (n === 1 ? 'Nuevo bien' : `${n} bienes nuevos`)}</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{forma === 'excel' ? 'Elige el archivo y revisa antes de guardar' : (n === 1 ? 'Registrar un bien mueble en el inventario' : 'Registrar varios bienes de una misma compra')}</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
-            <i className="ti ti-x" style={{ fontSize:'15px' }} />
-          </button>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            {/* Dar de alta a mano y traer de un Excel son la misma tarea, así que
+                se eligen aquí en vez de tener un botón suelto en la barra */}
+            {importar && (
+              <Deslizable dark={dark} t={t} valor={forma} onCambio={setForma} style={{ width: '330px' }} opciones={[
+                { id: 'manual', icon: 'ti-pencil',            label: 'Manualmente' },
+                { id: 'excel',  icon: 'ti-file-spreadsheet', label: 'Importar de Excel' },
+              ]} />
+            )}
+            <button onClick={onClose} style={{ width:'30px', height:'30px', flexShrink:0, borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+              <i className="ti ti-x" style={{ fontSize:'15px' }} />
+            </button>
+          </div>
         </div>
 
+        {/* Manualmente e Importar de Excel van lado a lado: al cambiar, el
+            contenido se desliza, igual que Agregar imágenes en las fotos */}
+        <div style={{ overflow:'hidden', minHeight:0, display:'flex', flexDirection:'column' }}>
+          <div style={{ display:'flex', width:'200%', minHeight:0, transform: forma === 'excel' ? 'translateX(-50%)' : 'translateX(0)', transition:'transform 0.35s cubic-bezier(0.4,0,0.2,1)', willChange:'transform' }}>
+            <div style={{ width:'50%', display:'flex', flexDirection:'column', minHeight:0 }} aria-hidden={forma !== 'manual'}>
         {/* Cuerpo: dos columnas equilibradas, dimensionadas para caber sin scroll */}
         <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'0.8rem 1.1rem', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.85rem', alignItems:'start' }}>
 
@@ -4461,6 +4478,12 @@ function ModalNuevoBien({ onClose, onCreated, dark, t, modo, allAreas }) {
               style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
               {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</> : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />{n === 1 ? 'Registrar' : `Registrar ${n}`}</>}
             </button>
+          </div>
+        </div>
+            </div>
+            <div style={{ width:'50%', display:'flex', flexDirection:'column', minHeight:0, maxHeight:'calc(92vh - 82px)' }} aria-hidden={forma !== 'excel'}>
+              {importar && <ModalImportar embebido tipo="muebles" {...importar} onClose={onClose} dark={dark} t={t} />}
+            </div>
           </div>
         </div>
         </div>
@@ -4805,6 +4828,8 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
               <button onClick={() => setModalTitularArea(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-users-group" style={{ fontSize: '18px' }} />Titular del área
               </button>
+              {/* Importar desde Excel vive dentro de "Nuevo bien": es otra forma
+                  de lo mismo, dar de alta, y así no se busca en dos lugares. */}
               <button onClick={() => setModalNuevo(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '10px', background: t.cardBg, border: `1px solid ${t.cardBorder}`, backdropFilter: 'blur(10px)', fontSize: '14px', fontWeight: 500, color: t.text1, fontFamily: 'inherit', cursor: 'pointer' }}>
                 <i className="ti ti-circle-plus" style={{ fontSize: '18px' }} />Nuevo bien
               </button>
@@ -5182,6 +5207,7 @@ export default function BienesMuebles({ user, onNavigate, initialModo = 'mobilia
       {modalNuevo && <ModalNuevoBien
         modo={modo} allAreas={allAreas} dark={dark} t={t}
         onCreated={(modoNuevo) => { if (modoNuevo !== modo) setModo(modoNuevo); else cargar(0) }}
+        importar={{ areas: allAreas, onImportado: () => cargar(0) }}
         onClose={() => setModalNuevo(false)}
       />}
     </div>

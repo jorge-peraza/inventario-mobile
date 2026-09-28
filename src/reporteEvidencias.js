@@ -1,4 +1,5 @@
 
+import { rutaLogo } from './personalizacion'
 import { cargarExcel, cargarPdf, nombreArchivo } from './exportadores'
 const GRIS = 'BFBFBF', NEGRO = '000000'
 
@@ -51,7 +52,7 @@ const RGB_GRIS = [191, 191, 191]
 async function dibujarLogosPDF(doc, pageW, margin) {
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'), cargarImagen('/escudo-nogales.png'), cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('inmuebles', 'ayuntamiento')), cargarImagen(rutaLogo('inmuebles', 'nogales')), cargarImagen(rutaLogo('inmuebles', 'mexico')),
     ])
     const H = 46, Hmex = 66
     const wAy = H * ay.w / ay.h, wNog = H * nog.w / nog.h, wMex = Hmex * mex.w / mex.h
@@ -177,7 +178,7 @@ async function llenarHojaEvidencias(wb, items, titulo = '') {
   // Banda de logos
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'), cargarImagen('/escudo-nogales.png'), cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('inmuebles', 'ayuntamiento')), cargarImagen(rutaLogo('inmuebles', 'nogales')), cargarImagen(rutaLogo('inmuebles', 'mexico')),
     ])
     const H = 80, Hmex = 112
     const ROW_H = 62                            // pt por fila

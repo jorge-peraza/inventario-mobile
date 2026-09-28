@@ -5,10 +5,12 @@ import Sidebar from '../components/Sidebar'
 import { useTheme, FONDO_OSCURO } from '../context/ThemeContext'
 import { supabaseInmuebles as supabase } from '../supabaseInmuebles'
  import { comentarioDe, setComentario, subirComentariosPendientes } from '../comentarios'
-import { barraSticky, btnBarra, MenuFila, Deslizable } from './ui'
+import { barraSticky, btnBarra, MenuFila, Deslizable, panelStyle, tituloSec } from './ui'
 import ModalFotos from './ModalFotos'
+import { rutaLogo } from '../personalizacion'
+import ModalImportar from './ModalImportar'
 import { PaginaEvidencias } from './ArmarReporteInmuebles'
-import { ID_PROCESO, ID_DESINC, CATS_FUERA, cambiarCategoria, setDesinc, subirTramitesPendientes, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
+import { ID_PROCESO, ID_DESINC, CATS_FUERA, CATS_SALIDA, cambiarCategoria, setDesinc, subirTramitesPendientes, hoyISO, fetchInmueblesPorIds } from '../desincorporaciones'
 
 const POR_PAGINA_OPTS = [10, 15, 20]
 
@@ -567,9 +569,9 @@ function cargarImagenDe(src) {
 async function dibujarLogosPDF(doc, pageW, margin) {
   try {
     const [ay, nog, mex] = await Promise.all([
-      cargarImagen('/logo-ayuntamiento.png'),
-      cargarImagen('/escudo-nogales.png'),
-      cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('inmuebles', 'ayuntamiento')),
+      cargarImagen(rutaLogo('inmuebles', 'nogales')),
+      cargarImagen(rutaLogo('inmuebles', 'mexico')),
     ])
     const H = 46
     const Hmex = 66   // escudo de México más grande
@@ -840,9 +842,9 @@ export async function exportarExcel(rows, cols, cats, titulo = '', evidencias = 
   // Se cargan por separado: si uno falla, los demás igual se dibujan
   {
     const r = await Promise.allSettled([
-      cargarImagen('/logo-ayuntamiento.png'),
-      cargarImagen('/escudo-nogales.png'),
-      cargarImagen('/escudo-mexico.png'),
+      cargarImagen(rutaLogo('inmuebles', 'ayuntamiento')),
+      cargarImagen(rutaLogo('inmuebles', 'nogales')),
+      cargarImagen(rutaLogo('inmuebles', 'mexico')),
     ])
     const [ay, nog, mex] = r.map(x => x.status === 'fulfilled' ? x.value : null)
     r.filter(x => x.status === 'rejected').forEach(() => console.warn('No se pudo cargar un logo del reporte'))
@@ -1482,7 +1484,7 @@ export async function exportarEnajenacionesPDF(desinc, incorp, titulo = '') {
   // Logos
   let startY = margin + 8
   try {
-    const [ay, nog, mex] = await Promise.all([cargarImagenEnaj('/logo-ayuntamiento.png'), cargarImagenEnaj('/escudo-nogales.png'), cargarImagenEnaj('/escudo-mexico.png')])
+    const [ay, nog, mex] = await Promise.all([cargarImagenEnaj(rutaLogo('inmuebles', 'ayuntamiento')), cargarImagenEnaj(rutaLogo('inmuebles', 'nogales')), cargarImagenEnaj(rutaLogo('inmuebles', 'mexico'))])
     const H = 46, Hmex = 66
     const wAy = H * ay.w / ay.h, wNog = H * nog.w / nog.h, wMex = Hmex * mex.w / mex.h
     doc.addImage(ay.dataURL,  'PNG', margin, startY, wAy, H, undefined, 'FAST')
@@ -1575,7 +1577,7 @@ export async function exportarEnajenacionesExcel(desinc, incorp, titulo = '') {
 
   // Logos — mismos tamaños y posiciones que el PDF (H=46, Hmex=66, márgenes laterales)
   try {
-    const [ay, nog, mex] = await Promise.all([cargarImagenEnaj('/logo-ayuntamiento.png'), cargarImagenEnaj('/escudo-nogales.png'), cargarImagenEnaj('/escudo-mexico.png')])
+    const [ay, nog, mex] = await Promise.all([cargarImagenEnaj(rutaLogo('inmuebles', 'ayuntamiento')), cargarImagenEnaj(rutaLogo('inmuebles', 'nogales')), cargarImagenEnaj(rutaLogo('inmuebles', 'mexico'))])
     const H = 46, Hmex = 66, ROW_H = 34, EMU_PX = 9525
     ws.getRow(1).height = ROW_H; ws.getRow(2).height = ROW_H
     const rowPx = ROW_H * 96 / 72, bandPx = rowPx * 2
@@ -1791,7 +1793,9 @@ async function siguienteConsecutivoInmueble() {
 }
 
 // ── Modal Nuevo Inmueble ──────────────────────────────────────────────────────
-export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) {
+// importar: { categorias, onImportado } para la segunda forma de alta, desde un Excel
+export function ModalNuevoInmueble({ onClose, onCreated, importar, dark, t, categorias }) {
+  const [forma, setForma] = useState('manual')   // 'manual' | 'excel'
   const [clave, setClave]         = useState('')
   const [nombre, setNombre]       = useState('')
   const [idcategoria, setIdcat]   = useState('')
@@ -1890,7 +1894,7 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
   return createPortal(
     <>
       <div onClick={onClose} className="telon" style={{ zIndex: 300 }} />
-      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'560px', maxWidth:'94vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
+      <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:301, width:'900px', maxWidth:'96vw', maxHeight:'92vh', display:'flex', flexDirection:'column', background: dark ? '#1e1e20' : '#fff', borderRadius:'16px', border: dark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.1)', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', animation:'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)', overflow:'hidden' }}>
 
         {/* Header */}
         <div style={{ padding:'1.25rem 1.5rem', borderBottom: dark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -1899,48 +1903,85 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
               <i className="ti ti-building-plus" style={{ fontSize:'18px', color: t.text2 }} />
             </div>
             <div>
-              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>Nuevo inmueble</p>
-              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>Registrar un bien inmueble en el inventario</p>
+              <p style={{ fontSize:'15px', fontWeight:600, color: dark ? '#fff' : '#111' }}>{forma === 'excel' ? 'Importar inmuebles' : 'Nuevo inmueble'}</p>
+              <p style={{ fontSize:'12px', color: dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>{forma === 'excel' ? 'Elige el archivo y revisa antes de guardar' : 'Registrar un bien inmueble en el inventario'}</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          {/* Dar de alta a mano y traer de un Excel son la misma tarea, así que
+              se eligen aquí en vez de tener un botón suelto en la barra */}
+          {importar && (
+            <Deslizable dark={dark} t={t} valor={forma} onCambio={setForma} style={{ width: '330px' }} opciones={[
+              { id: 'manual', icon: 'ti-pencil',            label: 'Manualmente' },
+              { id: 'excel',  icon: 'ti-file-spreadsheet', label: 'Importar de Excel' },
+            ]} />
+          )}
+          <button onClick={onClose} style={{ width:'30px', height:'30px', flexShrink:0, borderRadius:'7px', background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', border: dark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ccc' : '#555' }}>
             <i className="ti ti-x" style={{ fontSize:'15px' }} />
           </button>
+          </div>
         </div>
 
-        {/* Cuerpo */}
-        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
-          {/* La categoría va primero: de ella sale el consecutivo de la clave */}
-          <div>{lbl('Categoría *')}
-            <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={sStyle(dark)}>
-              <option value="">Selecciona una categoría…</option>
-              {categorias.map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
-            </select>
-          </div>
-          <div>{lbl('Clave')}
-            <input value={clave} onChange={e => { setClave(e.target.value); setClaveAuto(false) }}
-              placeholder={idcategoria ? '' : 'Se genera al elegir la categoría'}
-              style={iStyle(dark)} />
-          </div>
-          <div>{lbl('Nombre del inmueble *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
-          <div>{lbl('Ubicación')}<input value={ubicacion} onChange={e => setUbicacion(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px', flexWrap:'wrap' }}>
-            <div>{lbl('Clave catastral')}<input value={catastral} onChange={e => setCatastral(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Superficie (m²)')}<input type="number" value={superficie} onChange={e => setSuperficie(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Valor catastral ($)')}<input type="number" value={valor} onChange={e => setValor(e.target.value)} style={iStyle(dark)} /></div>
-          </div>
-          <div>{lbl('Documento de propiedad')}<input value={documento} onChange={e => setDocumento(e.target.value)} style={iStyle(dark)} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', flexWrap:'wrap' }}>
-            <div>{lbl('Expediente')}<input value={expediente} onChange={e => setExpediente(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Adquisición')}<input value={adquisicion} onChange={e => setAdquisicion(e.target.value)} style={iStyle(dark)} /></div>
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'10px', flexWrap:'wrap' }}>
-            <div>{lbl('A favor de')}<input value={afavorde} onChange={e => setAfavorde(e.target.value)} style={iStyle(dark)} /></div>
-            <div>{lbl('Fecha enajenación')}<input type="date" value={fechaEnaj} onChange={e => setFechaEnaj(e.target.value)} style={iStyle(dark)} /></div>
-          </div>
-          <div>{lbl('Comentarios')}
-            <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2} placeholder="Agregar Comentarios."
-              style={{ ...iStyle(dark), resize: 'vertical', fontFamily: 'inherit' }} />
+        {/* Manualmente e Importar de Excel van lado a lado: al cambiar, el
+            contenido se desliza, igual que Agregar imágenes en las fotos */}
+        <div style={{ overflow:'hidden', minHeight:0, display:'flex', flexDirection:'column' }}>
+          <div style={{ display:'flex', width:'200%', minHeight:0, transform: forma === 'excel' ? 'translateX(-50%)' : 'translateX(0)', transition:'transform 0.35s cubic-bezier(0.4,0,0.2,1)', willChange:'transform' }}>
+            <div style={{ width:'50%', display:'flex', flexDirection:'column', minHeight:0 }} aria-hidden={forma !== 'manual'}>
+        {/* Cuerpo: dos columnas, igual que Nuevo bien */}
+        <div style={{ minHeight:0, maxHeight:'62vh', overflowY:'auto', padding:'0.8rem 1.1rem', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.85rem', alignItems:'start' }}>
+
+          {/* ── Columna 1: el inmueble ── */}
+          <section style={panelStyle(dark)}>
+            <p style={tituloSec(t)}><i className="ti ti-building" style={{ marginRight:'7px' }} />Datos del inmueble</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+              {/* La categoría va primero: de ella sale el consecutivo de la clave */}
+              <div>{lbl('Categoría *')}
+                <select value={idcategoria} onChange={e => setIdcat(e.target.value)} style={sStyle(dark)}>
+                  <option value="">Selecciona una categoría…</option>
+                  {categorias.map(c => <option key={c.idcategoria} value={c.idcategoria}>{c.nombrecategoria}</option>)}
+                </select>
+              </div>
+              <div>{lbl('Clave')}
+                <input value={clave} onChange={e => { setClave(e.target.value); setClaveAuto(false) }}
+                  placeholder={idcategoria ? '' : 'Se genera al elegir la categoría'}
+                  style={iStyle(dark)} />
+              </div>
+              <div>{lbl('Nombre del inmueble *')}<input value={nombre} onChange={e => setNombre(e.target.value)} style={iStyle(dark)} /></div>
+              <div>{lbl('Ubicación')}<input value={ubicacion} onChange={e => setUbicacion(e.target.value)} style={iStyle(dark)} /></div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px' }}>
+                <div>{lbl('Clave catastral')}<input value={catastral} onChange={e => setCatastral(e.target.value)} style={iStyle(dark)} /></div>
+                <div>{lbl('Superficie (m²)')}<input type="number" value={superficie} onChange={e => setSuperficie(e.target.value)} style={iStyle(dark)} /></div>
+                <div>{lbl('Valor catastral ($)')}<input type="number" value={valor} onChange={e => setValor(e.target.value)} style={iStyle(dark)} /></div>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Columna 2: documentos, enajenación y comentarios ── */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.9rem' }}>
+            <section style={panelStyle(dark)}>
+              <p style={tituloSec(t)}><i className="ti ti-file-certificate" style={{ marginRight:'7px' }} />Documentación<span style={{ fontWeight:400, color:t.text4 }}> — opcional</span></p>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+                <div>{lbl('Documento de propiedad')}<input value={documento} onChange={e => setDocumento(e.target.value)} style={iStyle(dark)} /></div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                  <div>{lbl('Expediente')}<input value={expediente} onChange={e => setExpediente(e.target.value)} style={iStyle(dark)} /></div>
+                  <div>{lbl('Adquisición')}<input value={adquisicion} onChange={e => setAdquisicion(e.target.value)} style={iStyle(dark)} /></div>
+                </div>
+              </div>
+            </section>
+
+            <section style={panelStyle(dark)}>
+              <p style={tituloSec(t)}><i className="ti ti-home-move" style={{ marginRight:'7px' }} />Enajenación<span style={{ fontWeight:400, color:t.text4 }}> — opcional</span></p>
+              <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'8px' }}>
+                <div>{lbl('A favor de')}<input value={afavorde} onChange={e => setAfavorde(e.target.value)} style={iStyle(dark)} /></div>
+                <div>{lbl('Fecha enajenación')}<input type="date" value={fechaEnaj} onChange={e => setFechaEnaj(e.target.value)} style={iStyle(dark)} /></div>
+              </div>
+            </section>
+
+            <section style={panelStyle(dark)}>
+              <p style={tituloSec(t)}><i className="ti ti-message" style={{ marginRight:'7px' }} />Comentarios<span style={{ fontWeight:400, color:t.text4 }}> — opcional</span></p>
+              <textarea value={comentario} onChange={e => setComentarioTxt(e.target.value)} rows={2} placeholder="Agregar Comentarios."
+                style={{ ...iStyle(dark), resize: 'vertical', fontFamily: 'inherit' }} />
+            </section>
           </div>
         </div>
 
@@ -1953,6 +1994,12 @@ export function ModalNuevoInmueble({ onClose, onCreated, dark, t, categorias }) 
               style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'7px', padding:'11px', borderRadius:'9px', fontSize:'14px', fontWeight:600, fontFamily:'inherit', cursor: guardando ? 'wait' : 'pointer', background: dark ? 'rgba(168,230,207,0.18)' : 'rgba(30,126,74,0.08)', border: dark ? '1px solid rgba(168,230,207,0.35)' : '1px solid rgba(30,126,74,0.35)', color: dark ? '#a8e6cf' : '#15803d' }}>
               {guardando ? <><i className="ti ti-loader-2" style={{ fontSize:'15px', animation:'spin 1s linear infinite' }} />Guardando…</> : <><i className="ti ti-device-floppy" style={{ fontSize:'16px' }} />Registrar</>}
             </button>
+          </div>
+        </div>
+            </div>
+            <div style={{ width:'50%', display:'flex', flexDirection:'column', minHeight:0, maxHeight:'calc(92vh - 82px)' }} aria-hidden={forma !== 'excel'}>
+              {importar && <ModalImportar embebido tipo="inmuebles" {...importar} onClose={onClose} dark={dark} t={t} />}
+            </div>
           </div>
         </div>
       </div>
@@ -1986,6 +2033,9 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
   const [paginaTexto, setPaginaTexto]       = useState('1')
   const [panelInmueble, setPanelInmueble]   = useState(null)
   const [modalEditar, setModalEditar]       = useState(null)
+  // Desincorporar de una vez, para los que ya vienen en trámite. Es la acción
+  // que se buscaba aquí y solo existía en Reportes.
+  const [modalDesincorporar, setModalDesincorporar] = useState(null)   // bien | null
   const [m2Min, setM2Min]                   = useState('')
   const [m2Max, setM2Max]                   = useState('')
   const [categorias, setCategorias]         = useState([])
@@ -2109,14 +2159,31 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
     // Guarda la categoría original (para poder cancelar) + fecha/observaciones.
     // La fecha es la misma para el lote; la observación puede ir por inmueble.
     const rows = await fetchInmueblesPorIds(ids)
-    const catMap = {}
-    rows.forEach(r => { catMap[r.idinmueble] = r.idcategoria })
-    for (const id of ids)
-      await setDesinc([id], { catOriginal: catMap[id], fechaProceso: fecha, obsProceso: (obsPorId?.[id] ?? obs) || '' })
+    const catMap = {}, origenPrevio = {}
+    rows.forEach(r => { catMap[r.idinmueble] = r.idcategoria; origenPrevio[r.idinmueble] = r.categoria_original })
+    for (const id of ids) {
+      // La categoría original es de dónde salió el inmueble, así que nunca puede
+      // ser una de trámite. Si ya venía en proceso se deja la que tenía: grabarle
+      // el 12 encima borraba la real y lo dejaba sin manera de regresar a su lugar.
+      const actual = catMap[id]
+      const origen = CATS_SALIDA.includes(actual) ? origenPrevio[id] : actual
+      const parche = { fechaProceso: fecha, obsProceso: (obsPorId?.[id] ?? obs) || '' }
+      if (origen != null) parche.catOriginal = origen
+      await setDesinc([id], parche)
+    }
     await cambiarCategoria(ids, ID_PROCESO)   // pasa a "EN PROCESO DE DESINCORPORACION"
     setSeleccionados(new Set())
     setModoSeleccion(false)
     setModalDesinc(null)
+    cargar(pagina)
+  }
+
+  // Sacarlo del inventario. Antes solo se podía desde Reportes, y quien llegaba
+  // aquí desde el Dashboard no encontraba con qué hacerlo.
+  async function desincorporarUno(bien, { obs, fecha }) {
+    await setDesinc([bien.idinmueble], { fechaDesinc: fecha, obsDesinc: obs })
+    await cambiarCategoria([bien.idinmueble], ID_DESINC)   // pasa a "DESINCORPORADO DEL HAN"
+    setModalDesincorporar(null)
     cargar(pagina)
   }
 
@@ -2243,6 +2310,8 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
               style={btnBarra(dark, t, seleccionados.size > 0)}>
               <i className="ti ti-progress" style={{ fontSize:'17px', color: dark ? '#ffd580' : '#b7790a' }} />Solicitar Desincorporación
             </button>
+            {/* Importar desde Excel vive dentro de "Nuevo inmueble": es otra forma
+                de lo mismo, dar de alta, y así no se busca en dos lugares. */}
             <button onClick={() => setModalNuevo(true)}
               style={{ display:'flex', alignItems:'center', gap:'9px', padding:'9px 16px', borderRadius:'9px', fontSize:'14px', fontWeight:500, fontFamily:'inherit', cursor:'pointer',
                 background: t.cardBg, border:`1px solid ${t.cardBorder}`, color:t.text1, backdropFilter:'blur(10px)', whiteSpace:'nowrap', flexShrink:0 }}>
@@ -2361,15 +2430,31 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
                               >
                                 <i className="ti ti-pencil" style={{ fontSize:'14px' }} />
                               </button>
-                              {/* Es una solicitud, no la desincorporación en sí:
-                                  lleva el icono y el ámbar de "En proceso" */}
-                              <button onClick={(e) => { e.stopPropagation(); setModalDesinc([b.idinmueble]) }} title="Solicitar desincorporación"
-                                style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,213,128,0.14)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.25)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ffd580' : '#b7790a' }}
-                                onMouseEnter={e => e.currentTarget.style.opacity='0.7'}
-                                onMouseLeave={e => e.currentTarget.style.opacity='1'}
-                              >
-                                <i className="ti ti-progress" style={{ fontSize:'14px' }} />
-                              </button>
+                              {/* El paso que le toca a ESE inmueble, no siempre el
+                                  mismo: el que está en el inventario se manda a
+                                  trámite (ámbar, "En proceso") y el que ya está en
+                                  trámite se desincorpora (rojo). Antes salía
+                                  siempre el ámbar, así que desde la lista de "En
+                                  proceso" solo se podía volver a pedir el trámite
+                                  que ya tenía y el inmueble no avanzaba nunca. */}
+                              {!CATS_SALIDA.includes(b.idcategoria) && (
+                                <button onClick={(e) => { e.stopPropagation(); setModalDesinc([b.idinmueble]) }} title="Solicitar desincorporación"
+                                  style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(255,213,128,0.14)' : 'rgba(183,121,10,0.08)', border: dark ? '1px solid rgba(255,213,128,0.3)' : '1px solid rgba(183,121,10,0.25)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#ffd580' : '#b7790a' }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity='0.7'}
+                                  onMouseLeave={e => e.currentTarget.style.opacity='1'}
+                                >
+                                  <i className="ti ti-progress" style={{ fontSize:'14px' }} />
+                                </button>
+                              )}
+                              {b.idcategoria === ID_PROCESO && (
+                                <button onClick={(e) => { e.stopPropagation(); setModalDesincorporar(b) }} title="Desincorporar"
+                                  style={{ width:'30px', height:'30px', borderRadius:'7px', background: dark ? 'rgba(244,161,161,0.15)' : 'rgba(192,57,43,0.07)', border: dark ? '1px solid rgba(244,161,161,0.35)' : '1px solid rgba(192,57,43,0.3)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color: dark ? '#f4a1a1' : '#c0392b' }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity='0.7'}
+                                  onMouseLeave={e => e.currentTarget.style.opacity='1'}
+                                >
+                                  <i className="ti ti-circle-minus" style={{ fontSize:'14px' }} />
+                                </button>
+                              )}
                               </>}
                             </div>
                           </td>
@@ -2427,7 +2512,17 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
             { icon: 'ti-map-pin', label: 'Ir a página', accion: () => irAlInmueble(menuFila.bien) },
             { icon: 'ti-eye',     label: 'Consultar',   accion: () => setPanelInmueble(menuFila.bien) },
             { icon: 'ti-pencil',  label: 'Modificar',   accion: () => setModalEditar(menuFila.bien), visible: !soloLectura },
-            { icon: 'ti-progress', label: 'Solicitar desincorporación', accion: () => setModalDesinc([menuFila.bien.idinmueble]), separador: true, visible: !soloLectura },
+            // Cada inmueble tiene un solo paso siguiente, según dónde esté: el que
+            // está en el inventario se manda a trámite, el que ya está en trámite
+            // se desincorpora, y al ya desincorporado no se le ofrece ninguna de
+            // las dos. Antes salía siempre "Solicitar", que sobre uno que ya
+            // estaba en trámite no hacía nada visible.
+            { icon: 'ti-progress', label: 'Solicitar desincorporación', separador: true,
+              accion: () => setModalDesinc([menuFila.bien.idinmueble]),
+              visible: !soloLectura && !CATS_SALIDA.includes(menuFila.bien.idcategoria) },
+            { icon: 'ti-circle-minus', label: 'Desincorporar', separador: true,
+              accion: () => setModalDesincorporar(menuFila.bien),
+              visible: !soloLectura && menuFila.bien.idcategoria === ID_PROCESO },
           ]} />
       )}
       {panelInmueble && (
@@ -2442,10 +2537,17 @@ export default function BienesInmuebles({ user, onNavigate, initialCatFilter = [
           tono="ambar" icono="ti-progress"
           onConfirm={({ obs, fecha, obsPorId }) => confirmarDesinc(modalDesinc, { obs, fecha, obsPorId })} />
       )}
+      {modalDesincorporar && (
+        <ModalDesincorporacion cantidad={1} ids={[modalDesincorporar.idinmueble]}
+          onClose={() => setModalDesincorporar(null)} dark={dark} t={t}
+          titulo="Desincorporar" textoBoton="Desincorporar"
+          onConfirm={({ obs, fecha }) => desincorporarUno(modalDesincorporar, { obs, fecha })} />
+      )}
       {modalNuevo && (
         <ModalNuevoInmueble dark={dark} t={t}
           categorias={categorias.filter(c => c.idcategoria !== ID_PROCESO && c.idcategoria !== ID_DESINC)}
-          onCreated={() => cargar(0)} onClose={() => setModalNuevo(false)} />
+          onCreated={() => cargar(0)} onClose={() => setModalNuevo(false)}
+          importar={{ categorias: categorias.filter(c => c.idcategoria !== ID_PROCESO && c.idcategoria !== ID_DESINC), onImportado: () => cargar(0) }} />
       )}
       {modalReporte && (
         <ModalReporte

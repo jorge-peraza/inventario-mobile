@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense, startTransition } from 'react'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import Login from './pages/Login'
 import { supabase } from './supabase'
+import { cargarPersonalizacion } from './personalizacion'
 
 // ── Pantallas bajo demanda ────────────────────────────────────────────────────
 // Cada pantalla se descarga cuando hace falta, no todas al abrir la app. El
@@ -19,6 +20,7 @@ const cargas = {
   Dependencias:       () => import('./pages/Dependencias'),
   Usuarios:           () => import('./pages/Usuarios'),
   Reconteo:           () => import('./pages/Reconteo'),
+  Configuracion:      () => import('./pages/Configuracion'),
   AppMovil:           () => import('./movil/AppMovil'),
 }
 const Dashboard          = lazy(cargas.Dashboard)
@@ -31,6 +33,7 @@ const ReportesInmuebles  = lazy(cargas.ReportesInmuebles)
 const Dependencias       = lazy(cargas.Dependencias)
 const Usuarios           = lazy(cargas.Usuarios)
 const Reconteo           = lazy(cargas.Reconteo)
+const Configuracion      = lazy(cargas.Configuracion)
 const AppMovil           = lazy(cargas.AppMovil)
 
 const PRECARGA_POR_ROL = {
@@ -84,6 +87,10 @@ function App() {
       .then(u => { if (u) { setUser(u); setPage(paginaInicio(u.rol)); precargar(u.rol, esMovil) } })
       .finally(() => setRestaurando(false))
   }, [])
+
+  // Los logos que se cambiaron desde Configuración, una sola vez por sesión: los
+  // reportes los piden de memoria. Si falla, se quedan los de fábrica.
+  useEffect(() => { if (user) cargarPersonalizacion() }, [user?.nombre, user?.rol])
 
   // La pantalla vive en la dirección (#/bienes, #/reportes). Antes vivía solo en
   // este estado: el botón Atrás del navegador salía del sistema en vez de
@@ -182,6 +189,7 @@ function App() {
     if (page === 'usuarios')            return <Usuarios key={recarga}           user={user} onNavigate={navigate} modulo={user.rol === 'admin_inmuebles' ? 'inmuebles' : 'muebles'} />
     // El reconteo se levanta desde el celular; aquí se consulta el historial
     if (page === 'reconteo')            return <Reconteo key={recarga}           user={user} onNavigate={navigate} />
+    if (page === 'configuracion')       return <Configuracion key={recarga}      user={user} onNavigate={navigate} />
 
     return <Login onLogin={handleLogin} />
   }

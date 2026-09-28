@@ -14,6 +14,7 @@ const NAV_MUEBLES = [
   { icon:'ti-trash',            label:'Papelera',       id:'papelera',  page:'papelera' },
   { icon:'ti-refresh',          label:'Reconteo',       id:'reconteo',  page:'reconteo' },
   { icon:'ti-users',            label:'Usuarios',       id:'usuarios',  page:'usuarios' },
+  { icon:'ti-settings',         label:'Configuración', id:'configuracion', page:'configuracion' },
 ]
 
 const NAV_INMUEBLES = [
@@ -23,6 +24,7 @@ const NAV_INMUEBLES = [
   { icon:'ti-arrows-exchange',  label:'Movimientos',      id:'movimientos', page:'movimientos' },
   { icon:'ti-chart-bar',        label:'Reportes',         id:'reportes',  page:'reportes' },
   { icon:'ti-users',            label:'Usuarios',         id:'usuarios',  page:'usuarios' },
+  { icon:'ti-settings',         label:'Configuración',   id:'configuracion', page:'configuracion' },
 ]
 
 // Una dependencia consulta lo suyo: su inicio y el inventario vigente de sus
