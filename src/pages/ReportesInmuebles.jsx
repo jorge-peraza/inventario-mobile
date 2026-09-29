@@ -220,10 +220,11 @@ function ModalConfirmaMovimiento({ inm, accion, onClose, onConfirm, dark, t, cat
 // tarjetas son En proceso de desincorporación y Desincorporado.
 // soloLectura: usuario de inmuebles con permiso de solo consulta; ve las listas
 // y saca reportes, sin mover inmuebles entre trámite, desincorporado e inventario.
-export default function ReportesInmuebles({ user, onNavigate, seccion = 'reportes', soloLectura = false }) {
+// vistaInicial: abrir de una vez 'proceso' o 'desincorporado' (desde el Dashboard)
+export default function ReportesInmuebles({ user, onNavigate, seccion = 'reportes', soloLectura = false, vistaInicial = null }) {
   const esMovimientos = seccion === 'movimientos'
   const { dark, t, sidebarOpen } = useTheme()
-  const [vista, setVista]   = useState('inicio')   // 'inicio' | 'proceso' | 'desincorporado'
+  const [vista, setVista]   = useState(vistaInicial || 'inicio')   // 'inicio' | 'proceso' | 'desincorporado'
   const [datos, setDatos]   = useState([])
   const [loading, setLoading] = useState(false)
   const [panel, setPanel]   = useState(null)
@@ -932,19 +933,31 @@ function ModalEnajenaciones({ onClose, dark, t }) {
     if (!d || !h) return
     setGen(formato)
     try {
-      let q = supabaseInmuebles.from('bienesinmuebles')
-        .select('idinmueble,idcategoria,nombreinmueble,clavecatastral,superficiem2,ubicacion,afavorde,valorcatastral,documentopropiedad,tipo_enajenacion,fecha_enajenacion')
-        .not('fecha_enajenacion', 'is', null)
-        .gte('fecha_enajenacion', d)
-        .lte('fecha_enajenacion', h)
-      const { data } = await q
-      const rows = data || []
-      // El movimiento se determina por la categoría del inmueble: si está en
-      // proceso o ya desincorporado salió del patrimonio; el resto son altas.
-      const esSalida = r => [ID_PROCESO, ID_DESINC].includes(r.idcategoria)
+      const CAMPOS = 'idinmueble,idcategoria,nombreinmueble,clavecatastral,superficiem2,ubicacion,afavorde,valorcatastral,documentopropiedad,tipo_enajenacion,fecha_enajenacion'
+      const SALIDAS = [ID_PROCESO, ID_DESINC]
       const marcar = (r, tipo) => ({ ...r, tipo_mov: tipo })
-      const desinc = rows.filter(esSalida).map(r => marcar(r, 'DESINCORPORACIÓN'))
-      const incorp = rows.filter(r => !esSalida(r)).map(r => marcar(r, 'INCORPORACIÓN'))
+
+      // Incorporaciones: por su fecha de enajenación, como siempre
+      const { data: altas, error: e1 } = await supabaseInmuebles.from('bienesinmuebles').select(CAMPOS)
+        .not('fecha_enajenacion', 'is', null).gte('fecha_enajenacion', d).lte('fecha_enajenacion', h)
+        .not('idcategoria', 'in', `(${SALIDAS.join(',')})`)
+      if (e1) throw e1
+
+      // Desincorporaciones: por la fecha en que se desincorporó el inmueble, no
+      // por la de enajenación. Antes solo se buscaba esa, así que no salían las
+      // desincorporaciones hechas en el periodo. Las que siguen en trámite van
+      // por la fecha en que se solicitaron; si un registro viejo no trae esas
+      // fechas, se usa la de enajenación.
+      const { data: salidas, error: e2 } = await supabaseInmuebles.from('bienesinmuebles')
+        .select(`${CAMPOS},fecha_proceso,fecha_desinc`).in('idcategoria', SALIDAS)
+      if (e2) throw e2
+      const fechaDeSalida = r => String((r.idcategoria === ID_DESINC
+        ? (r.fecha_desinc || r.fecha_proceso || r.fecha_enajenacion)
+        : (r.fecha_proceso || r.fecha_enajenacion)) || '').slice(0, 10)
+      const desinc = (salidas || [])
+        .filter(r => { const f = fechaDeSalida(r); return f && f >= d && f <= h })
+        .map(r => marcar(r, 'DESINCORPORACIÓN'))
+      const incorp = (altas || []).map(r => marcar(r, 'INCORPORACIÓN'))
       const tit = titulo.trim() || `ENAJENACIONES DEL H. AYUNTAMIENTO DE NOGALES ${lbl}`.trim()
       if (formato === 'pdf') await exportarEnajenacionesPDF(desinc, incorp, tit)
       else                   await exportarEnajenacionesExcel(desinc, incorp, tit)

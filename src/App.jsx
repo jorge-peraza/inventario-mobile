@@ -172,7 +172,7 @@ function App() {
     // Movimientos es la misma pantalla de Reportes con otras tarjetas: traspasos
     // y bajas en muebles; en proceso y desincorporado en inmuebles
     if (page === 'movimientos')         return user.rol === 'admin_inmuebles'
-      ? <ReportesInmuebles key={`mov-${recarga}`} user={user} onNavigate={navigate} seccion="movimientos" soloLectura={soloConsulta} />
+      ? <ReportesInmuebles key={`mov-${recarga}`} user={user} onNavigate={navigate} seccion="movimientos" soloLectura={soloConsulta} vistaInicial={navState.vista || null} />
       : <Reportes key={`mov-${recarga}`} user={user} onNavigate={navigate} seccion="movimientos" />
     // key propia: Papelera y Bienes Muebles son el mismo componente, y con la
     // misma key React reutilizaba la instancia y mostraba los datos del otro

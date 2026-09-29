@@ -207,7 +207,11 @@ export default function DashboardInmuebles({ user, onNavigate, soloLectura = fal
               {categorias.map(c => (
                 <button
                   key={c.idcategoria}
-                  onClick={() => onNavigate('inmuebles', { catIds: [c.idcategoria] })}
+                  // En proceso y Desincorporado no están en el inventario: viven en
+                  // Movimientos, así que abren directo su lista ahí
+                  onClick={() => c.idcategoria === ID_PROCESO ? onNavigate('movimientos', { vista: 'proceso' })
+                    : c.idcategoria === ID_DESINC ? onNavigate('movimientos', { vista: 'desincorporado' })
+                    : onNavigate('inmuebles', { catIds: [c.idcategoria] })}
                   style={{
                     ...card,
                     display:'flex', alignItems:'center', justifyContent:'space-between',
